@@ -6,6 +6,8 @@ browser (WebAssembly): the same editor, controls, document model and scene rende
 
 **Open it in the browser:** https://ferroui.github.io/FerroDesign/
 
+![FerroDesign editing the Orbit mobile banking document in the browser](docs/images/ferrodesign-editor.png)
+
 The editor has pages and layers, an infinite canvas, layout guides, editable vector networks, rich text
 with paragraph formatting, image cropping, effects and masks, continuous corners, variable-width
 strokes, auto-layout, components with variants, local variables, prototypes, comments, undo and redo,
