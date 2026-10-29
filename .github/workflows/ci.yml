@@ -1,0 +1,34 @@
+name: CI
+
+# Build, tests, the browser site and its GitHub Pages deployment, with the shared workflow of
+# FerroUI (FerroUI/docs/apps.md).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  app:
+    uses: wieslawsoltes/FerroUI/.github/workflows/app.yml@browser/external-workspace
+    with:
+      # The document engine; the native editor and the public renderer pixels on the headless
+      # platform (one thread: the editor tests share the platform of the process).
+      test: |
+        -p ferrodesign-core
+        -p ferrodesign-app --lib -- --test-threads=1
+      # The script tests of the host page and the browser test harness (no browser needed).
+      script: node --test tests/*.test.mjs
+      browser-package: ferrodesign-app
+      # The module is Vello-only: no Skia in the graph of the browser target.
+      browser-script: scripts/check-renderer.sh wasm32-unknown-emscripten
