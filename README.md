@@ -35,8 +35,7 @@ The repository follows the layout of FerroUI applications described in
 [FerroUI/docs/apps.md](https://github.com/wieslawsoltes/FerroUI/blob/main/docs/apps.md): the workspace
 dependencies and profiles of `Cargo.toml` are kept in step with the submodule by
 `FerroUI/scripts/apps/sync-workspace.py`, and the CI is FerroUI's shared application workflow. The
-submodule points at the FerroUI branch with the framework changes the editor needs (FerroUI pull
-request 358) until they are merged.
+framework changes the editor needed (FerroUI pull request 358) are part of FerroUI main.
 
 ## Native launcher
 
