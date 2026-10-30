@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   app:
-    uses: wieslawsoltes/FerroUI/.github/workflows/app.yml@apps/mobile-and-browser-tests
+    uses: wieslawsoltes/FerroUI/.github/workflows/app.yml@main
     with:
       # The document engine; the native editor and the public renderer pixels on the headless
       # platform (one thread: the editor tests share the platform of the process).
