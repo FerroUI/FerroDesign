@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The full WebGL2 scenarios every night as well (pull requests run the smoke set).
+  schedule:
+    - cron: '41 2 * * *'
   workflow_dispatch:
 
 permissions:
@@ -43,4 +46,13 @@ jobs:
         scripts/browser-group.sh layout-selection WebGL2
         scripts/browser-group.sh styles-prototype Software2D
         scripts/browser-group.sh styles-prototype WebGL2
+        node tests/document-store-browser.mjs
+      # WebGL2 renders through an emulated GPU (SwiftShader) on the runners, ten times slower than
+      # Software2D: pull requests run every group in Software2D and the smoke set in WebGL2.
+      browser-tests-pull-request: |
+        scripts/browser-group.sh geometry-paint Software2D
+        scripts/browser-group.sh text-effects Software2D
+        scripts/browser-group.sh layout-selection Software2D
+        scripts/browser-group.sh styles-prototype Software2D
+        scripts/browser-group.sh smoke WebGL2
         node tests/document-store-browser.mjs
