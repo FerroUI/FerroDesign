@@ -32,5 +32,12 @@
         "compact-autosave", "prototype-input", "prototype-motion", "bounded-history"
       ]
     }
-  ]
+  ],
+  "smoke": {
+    "name": "smoke",
+    "scenarios": [
+      "vector-network", "native-authoring", "corners", "compositing",
+      "svg-compositing", "floating-panels", "page-inspector", "matching"
+    ]
+  }
 }

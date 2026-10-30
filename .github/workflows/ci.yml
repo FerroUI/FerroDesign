@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The full WebGL2 scenarios every night as well (pull requests run the smoke set).
+  schedule:
+    - cron: '41 2 * * *'
   workflow_dispatch:
 
 permissions:
@@ -32,3 +35,24 @@ jobs:
       browser-package: ferrodesign-app
       # The module is Vello-only: no Skia in the graph of the browser target.
       browser-script: scripts/check-renderer.sh wasm32-unknown-emscripten
+      # The Playwright scenarios against the built site: each group of scripts/browser-ci-groups.json
+      # in both rendering modes, one job each, and the document store in a real browser.
+      browser-tests: |
+        scripts/browser-group.sh geometry-paint Software2D
+        scripts/browser-group.sh geometry-paint WebGL2
+        scripts/browser-group.sh text-effects Software2D
+        scripts/browser-group.sh text-effects WebGL2
+        scripts/browser-group.sh layout-selection Software2D
+        scripts/browser-group.sh layout-selection WebGL2
+        scripts/browser-group.sh styles-prototype Software2D
+        scripts/browser-group.sh styles-prototype WebGL2
+        node tests/document-store-browser.mjs
+      # WebGL2 renders through an emulated GPU (SwiftShader) on the runners, ten times slower than
+      # Software2D: pull requests run every group in Software2D and the smoke set in WebGL2.
+      browser-tests-pull-request: |
+        scripts/browser-group.sh geometry-paint Software2D
+        scripts/browser-group.sh text-effects Software2D
+        scripts/browser-group.sh layout-selection Software2D
+        scripts/browser-group.sh styles-prototype Software2D
+        scripts/browser-group.sh smoke WebGL2
+        node tests/document-store-browser.mjs
