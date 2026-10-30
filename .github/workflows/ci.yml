@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   app:
-    uses: wieslawsoltes/FerroUI/.github/workflows/app.yml@main
+    uses: wieslawsoltes/FerroUI/.github/workflows/app.yml@apps/mobile-and-browser-tests
     with:
       # The document engine; the native editor and the public renderer pixels on the headless
       # platform (one thread: the editor tests share the platform of the process).
@@ -32,3 +32,15 @@ jobs:
       browser-package: ferrodesign-app
       # The module is Vello-only: no Skia in the graph of the browser target.
       browser-script: scripts/check-renderer.sh wasm32-unknown-emscripten
+      # The Playwright scenarios against the built site: each group of scripts/browser-ci-groups.json
+      # in both rendering modes, one job each, and the document store in a real browser.
+      browser-tests: |
+        scripts/browser-group.sh geometry-paint Software2D
+        scripts/browser-group.sh geometry-paint WebGL2
+        scripts/browser-group.sh text-effects Software2D
+        scripts/browser-group.sh text-effects WebGL2
+        scripts/browser-group.sh layout-selection Software2D
+        scripts/browser-group.sh layout-selection WebGL2
+        scripts/browser-group.sh styles-prototype Software2D
+        scripts/browser-group.sh styles-prototype WebGL2
+        node tests/document-store-browser.mjs
