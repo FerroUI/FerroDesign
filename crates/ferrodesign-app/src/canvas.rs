@@ -313,6 +313,9 @@ impl DesignCanvas {
         self.cancel_layout_drag();
         self.finish_image_crop();
         self.finish_pen();
+        if self.tool.get() != tool && !matches!(*self.gesture.borrow(), Gesture::None) {
+            self.cancel_active_edit();
+        }
         if tool != Tool::Select {
             self.leave_vector_edit();
         }

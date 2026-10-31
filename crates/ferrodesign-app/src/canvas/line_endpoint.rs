@@ -50,7 +50,9 @@ impl EndpointDrag {
         if delta.distance(Point::default()) < 0.01 / canvas.viewport.get().zoom {
             // Preserve the source's exact reflection/affine decomposition when
             // clicking a handle or returning it to its original position.
-            let node = editor.document.nodes.get_mut(&self.source.id).unwrap();
+            let Some(node) = editor.document.nodes.get_mut(&self.source.id) else {
+                return;
+            };
             if *node == self.source {
                 return;
             }
@@ -85,7 +87,9 @@ impl EndpointDrag {
             };
             let start = self.inverse.apply(start);
             let vector = self.inverse.apply(end) - start;
-            let node = editor.document.nodes.get_mut(&self.source.id).unwrap();
+            let Some(node) = editor.document.nodes.get_mut(&self.source.id) else {
+                return;
+            };
             node.width = vector.x.abs();
             node.height = vector.y.abs();
             node.set_local_transform(
