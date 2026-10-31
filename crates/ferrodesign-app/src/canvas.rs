@@ -1,4 +1,5 @@
 //! Interactive retained-mode surface. Artwork uses only FerroUI's public DrawingContext API.
+mod drawing;
 mod network;
 mod network_bucket;
 mod grids;
@@ -48,6 +49,7 @@ pub enum Tool {
     Rectangle,
     Ellipse,
     Line,
+    Arrow,
     Polygon,
     Star,
     Pen,
@@ -65,6 +67,7 @@ impl Tool {
             Self::Rectangle => "Rectangle",
             Self::Ellipse => "Ellipse",
             Self::Line => "Line",
+            Self::Arrow => "Arrow",
             Self::Polygon => "Polygon",
             Self::Star => "Star",
             Self::Pen => "Pen",
@@ -79,7 +82,7 @@ impl Tool {
         match self {
             Self::Frame => NodeKind::Frame,
             Self::Ellipse => NodeKind::Ellipse,
-            Self::Line => NodeKind::Line,
+            Self::Line | Self::Arrow => NodeKind::Line,
             Self::Polygon => NodeKind::Polygon,
             Self::Star => NodeKind::Star,
             Self::Pen | Self::Pencil => NodeKind::Vector,
@@ -138,10 +141,7 @@ enum Gesture {
         current: Point,
         additive: bool,
     },
-    Draw {
-        start: Point,
-        id: NodeId,
-    },
+    Draw(drawing::ShapeDrag),
     Pencil {
         id: NodeId,
         origin: Point,
@@ -719,7 +719,7 @@ impl DesignCanvas {
         let mut editor = self.editor.borrow_mut();
         editor.begin_transaction(format!("Draw {}", tool.name()));
         let mut node = Node::new(tool.kind(), tool.name(), p.x, p.y, 1.0, 1.0)
-            .with_fill(Color::rgb(123, 97, 255));
+            .with_fill(Color::rgb(217, 217, 217));
         if tool == Tool::Frame {
             node = node.with_fill(Color::WHITE);
             node.clip_content = true;
@@ -734,9 +734,17 @@ impl DesignCanvas {
             node.width = 160.0;
             node.height = 36.0;
         }
-        if matches!(tool, Tool::Line | Tool::Pen | Tool::Pencil) {
+        if matches!(tool, Tool::Line | Tool::Arrow | Tool::Pen | Tool::Pencil) {
             node.fills.clear();
-            node.strokes = vec![core::Stroke::new(Color::rgb(30, 30, 30), 2.0)];
+            let mut stroke = if node.kind == NodeKind::Line {
+                core::Stroke::new(Color::BLACK, 1.0)
+            } else {
+                core::Stroke::new(Color::rgb(30, 30, 30), 2.0)
+            };
+            if tool == Tool::Arrow {
+                stroke.cap = core::StrokeCap::Arrow;
+            }
+            node.strokes = vec![stroke];
         }
         if tool == Tool::Star {
             node.polygon_sides = 5;
@@ -803,14 +811,15 @@ impl InputElementImpl for DesignCanvas {
                 let deep = e.key_modifiers().intersects(KeyModifiers::CONTROL | KeyModifiers::META);
                 if this.corner_radius_press(world, e.key_modifiers()) { return; }
                 this.clear_corner_radius_hover();
-                if e.key_modifiers().contains(KeyModifiers::ALT) && !deep && this.vector_node.get().is_none() {
+                let handle = if deep { None } else { this.handle_at(world) };
+                if handle.is_none() && e.key_modifiers().contains(KeyModifiers::ALT) && !deep && this.vector_node.get().is_none() {
                     this.cycle_selection_at(world, if additive { core::SelectionCycle::InFront } else { core::SelectionCycle::Behind });
                     return;
                 }
                 if this.vector_press(world, e.click_count(), additive) {
                     return;
                 }
-                if let Some(corner) = if deep { None } else { this.handle_at(world) } {
+                if let Some(corner) = handle {
                     let mut editor = this.editor.borrow_mut();
                     let id = editor.selection[0];
                     let node = editor.document.nodes[&id].clone();
@@ -975,12 +984,7 @@ impl InputElementImpl for DesignCanvas {
                         5.0 / this.viewport.get().zoom, &[], None) { start = start + snap.delta; }
                 }
                 let id = this.new_node(tool, start);
-                if tool == Tool::Text {
-                    this.editor.borrow_mut().commit_transaction();
-                    this.tool.set(Tool::Select);
-                    this.emit(CanvasEvent::Document);
-                    this.emit(CanvasEvent::EditText(id));
-                } else if tool == Tool::Pencil {
+                if tool == Tool::Pencil {
                     this.editor
                         .borrow_mut()
                         .document
@@ -994,7 +998,7 @@ impl InputElementImpl for DesignCanvas {
                         });
                     *this.gesture.borrow_mut() = Gesture::Pencil { id, origin: start };
                 } else {
-                    *this.gesture.borrow_mut() = Gesture::Draw { start, id };
+                    *this.gesture.borrow_mut() = Gesture::Draw(drawing::ShapeDrag::new(id, tool, world, start));
                 }
                 this.emit(CanvasEvent::Selection);
             }
@@ -1141,16 +1145,13 @@ impl InputElementImpl for DesignCanvas {
                     .inverse()
                     .unwrap_or(core::Transform::IDENTITY)
                     .apply(world);
-                let opposite = match *corner {
-                    0 => Point::new(node.width, node.height),
-                    1 => Point::new(0.0, node.height),
-                    2 => Point::new(0.0, 0.0),
-                    _ => Point::new(node.width, 0.0),
-                };
-                let mut width = (local.x - opposite.x).abs().max(1.0);
-                let mut height = (local.y - opposite.y).abs().max(1.0);
+                let centered = e.key_modifiers().contains(KeyModifiers::ALT);
+                let anchor = drawing::resize_anchor(*corner, node.width, node.height, centered);
+                let extent = if centered { 2.0 } else { 1.0 };
+                let mut width = ((local.x - anchor.x).abs() * extent).max(1.0);
+                let mut height = ((local.y - anchor.y).abs() * extent).max(1.0);
                 if shift {
-                    let ratio = node.width / node.height.max(0.001);
+                    let ratio = node.width.max(0.001) / node.height.max(0.001);
                     if width / height > ratio {
                         height = width / ratio
                     } else {
@@ -1160,38 +1161,34 @@ impl InputElementImpl for DesignCanvas {
                 if this.snap.get() {
                     width = width.round().max(1.0);
                     height = height.round().max(1.0);
-                    // Project the final handle after pixel/aspect calculations.
-                    // A later rounding pass must not undo the guide alignment.
+                    // Snap the moving corner. Center-based resizing doubles the
+                    // resulting distance because both opposing corners move.
                     let sign = match *corner {
                         0 => Point::new(-1.0, -1.0), 1 => Point::new(1.0, -1.0),
                         2 => Point::new(1.0, 1.0), _ => Point::new(-1.0, 1.0),
                     };
-                    let handle = transform.apply(opposite + Point::new(sign.x * width, sign.y * height));
-                    let direction = shift.then_some(transform.apply_vector(Point::new(sign.x * width, sign.y * height)));
+                    let offset = Point::new(sign.x * width / extent, sign.y * height / extent);
+                    let handle = transform.apply(anchor + offset);
+                    let direction = shift.then_some(transform.apply_vector(offset));
                     let guide = this.layout_grids.borrow_mut().snap(&editor, &[handle],
                         5.0 / this.viewport.get().zoom, &[node.id], direction);
                     if let (Some(guide), Some(inverse)) = (guide, transform.inverse()) {
                         let local = inverse.apply(handle + guide.delta);
-                        let adjusted_width = sign.x * (local.x - opposite.x);
-                        let adjusted_height = sign.y * (local.y - opposite.y);
+                        let adjusted_width = sign.x * (local.x - anchor.x) * extent;
+                        let adjusted_height = sign.y * (local.y - anchor.y) * extent;
                         if adjusted_width >= 1.0 && adjusted_height >= 1.0 {
                             width = adjusted_width; height = adjusted_height;
                         } else { this.layout_grids.borrow_mut().clear_snap(); }
                     }
                 }
-                let new_opposite = match *corner {
-                    0 => Point::new(width, height),
-                    1 => Point::new(0.0, height),
-                    2 => Point::new(0.0, 0.0),
-                    _ => Point::new(width, 0.0),
-                };
+                let new_anchor = drawing::resize_anchor(*corner, width, height, centered);
                 let mut updated = node.clone();
                 updated.x = 0.0;
                 updated.y = 0.0;
                 updated.width = width;
                 updated.height = height;
-                let anchor_in_parent = node.local_transform().apply(opposite);
-                let offset = updated.local_transform().apply(new_opposite);
+                let anchor_in_parent = node.local_transform().apply(anchor);
+                let offset = updated.local_transform().apply(new_anchor);
                 editor.resize_node_and_position(
                     node.id,
                     width,
@@ -1217,35 +1214,7 @@ impl InputElementImpl for DesignCanvas {
                 editor.refresh_preview_nodes(&[node.id]);
             }
             Gesture::Marquee { current, .. } => *current = world,
-            Gesture::Draw { start, id } => {
-                let mut end = this.snap_point(world);
-                if shift {
-                    let size = (end.x - start.x).abs().max((end.y - start.y).abs());
-                    end = Point::new(
-                        start.x + size * (end.x - start.x).signum(),
-                        start.y + size * (end.y - start.y).signum(),
-                    );
-                }
-                this.layout_grids.borrow_mut().clear_snap();
-                if this.snap.get() {
-                    let editor = this.editor.borrow();
-                    let direction = shift.then_some(end - *start);
-                    if let Some(snap) = this.layout_grids.borrow_mut().snap(&editor, &[end],
-                        5.0 / this.viewport.get().zoom, &[*id], direction) { end = end + snap.delta; }
-                }
-                let bounds = Rect::from_points(*start, end);
-                let mut editor = this.editor.borrow_mut();
-                if let Some(n) = editor.document.nodes.get_mut(id) {
-                    n.x = bounds.x;
-                    n.y = bounds.y;
-                    n.width = bounds.width.max(1.0);
-                    n.height = bounds.height.max(1.0);
-                    if n.kind == NodeKind::Line {
-                        n.flip_y = (end.x - start.x) * (end.y - start.y) < 0.0;
-                    }
-                }
-                editor.refresh();
-            }
+            Gesture::Draw(drag) => drag.update(this, world, e.key_modifiers(), false),
             Gesture::Pencil { id, origin } => {
                 let local = world - *origin;
                 let mut editor = this.editor.borrow_mut();
@@ -1261,9 +1230,9 @@ impl InputElementImpl for DesignCanvas {
                         n.path.segments.push(PathSegment::LineTo { point: local });
                         n.width = n.width.max(local.x);
                         n.height = n.height.max(local.y);
+                        editor.refresh_preview_nodes(&[*id]);
                     }
                 }
-                editor.refresh();
             }
             Gesture::PenHandle {
                 id,
@@ -1309,7 +1278,7 @@ impl InputElementImpl for DesignCanvas {
                     }
                     this.pen_tangent.set(Some(*anchor + delta));
                 }
-                editor.refresh();
+                editor.refresh_preview_nodes(&[*id]);
             }
             Gesture::NetworkPoint { node, point, start, original } => {
                 let mut delta = world - *start;
@@ -1414,9 +1383,13 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
+        let mut gesture = std::mem::replace(&mut *this.gesture.borrow_mut(), Gesture::None);
+        if let Gesture::Draw(drag) = &mut gesture {
+            // Hosts may coalesce the last move into the release event.
+            drag.update(this, this.world(release_screen), e.key_modifiers(), true);
+        }
         this.snap_guides.set((None, None));
         this.layout_grids.borrow_mut().clear_snap();
-        let gesture = std::mem::replace(&mut *this.gesture.borrow_mut(), Gesture::None);
         // Clear the gesture before releasing capture: capture-lost is synchronous.
         e.pointer().capture(None);
         match gesture {
@@ -1441,14 +1414,21 @@ impl InputElementImpl for DesignCanvas {
                 this.tool.set(Tool::Select);
                 this.emit(CanvasEvent::Document);
             }
+            Gesture::Draw(drag) => {
+                this.editor.borrow_mut().commit_transaction();
+                this.tool.set(Tool::Select);
+                this.emit(CanvasEvent::Document);
+                if drag.tool == Tool::Text {
+                    this.emit(CanvasEvent::EditText(drag.id));
+                }
+            }
             Gesture::Move { .. }
             | Gesture::Resize { .. }
             | Gesture::Rotate { .. }
             | Gesture::VectorPoint { .. }
             | Gesture::VectorBend { .. }
             | Gesture::NetworkPoint { .. }
-            | Gesture::NetworkBend { .. }
-            | Gesture::Draw { .. } => {
+            | Gesture::NetworkBend { .. } => {
                 this.editor.borrow_mut().commit_transaction();
                 this.tool.set(Tool::Select);
                 this.emit(CanvasEvent::Document);
@@ -1641,7 +1621,7 @@ impl InputElementImpl for DesignCanvas {
                 Key::F => Some(if shift { "section" } else { "frame" }),
                 Key::R => Some("rectangle"),
                 Key::O => Some("ellipse"),
-                Key::L => Some("line"),
+                Key::L => Some(if shift { "arrow" } else { "line" }),
                 Key::P => Some(if shift { "pencil" } else { "pen" }),
                 Key::B if shift && this.vector_node.get().is_some() => Some("network-bucket"),
                 Key::T => Some("text"),
