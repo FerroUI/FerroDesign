@@ -73,8 +73,9 @@ cargo test --locked -p ferrodesign-app --lib -- --test-threads=1
 node --test tests/*.test.mjs
 ```
 
-The browser validation scenarios drive the built site in Chromium with Playwright
-(`npm ci && node tests/browser.mjs`, see `scripts/browser_ci.py` for the groups); they are not part of CI.
+Run `npm ci && node tests/browser.mjs` to drive the built site in Chromium. Pull requests run all
+scenario groups in Software2D, the WebGL2 smoke group, and the browser storage checks. The full
+matrix also runs on the nightly schedule. See [the scenario groups](scripts/browser-ci-groups.json).
 
 ## License
 
