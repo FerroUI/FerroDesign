@@ -1246,6 +1246,13 @@ try {
                 return view.chrome.CompactLayers.visible && view.canvas.width === 390;
             });
             await clickNative(page, "CompactLayers");
+            // The exposed strip belongs to the drawer's dismissal surface. A tap here
+            // must never reach the drawing tool below it.
+            await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.Toolbar.visible === false);
+            await page.mouse.click(365, 170);
+            await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.Toolbar.visible === true);
+            assert.deepEqual(await documentState(page), svgDocument);
+            await clickNative(page, "CompactLayers");
             await clickNative(page, "CompactProperties");
             await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.ZoomValueButton.visible);
             await clickNative(page, "CompactProperties");

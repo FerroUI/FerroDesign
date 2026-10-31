@@ -340,6 +340,12 @@ fn native_compact_workspace_overlays_drawers_without_moving_the_artboard() {
     let compact = canvas.bounds();
     assert_eq!((compact.x, compact.width), (0.0, 390.0));
     let camera = shell.canvas.viewport.get();
+    assert_eq!(shell.control::<TextBlock>("CompactDocumentTitle").text().as_deref(), Some("Native inspector field regression"));
+    let page = shell.editor.borrow().document.pages[0].name.clone();
+    assert_eq!(shell.control::<TextBlock>("CompactPageTitle").text().as_deref(), Some(page.as_str()));
+    for button in ["CompactLayers", "CompactProperties"] {
+        assert!(shell.button(button).bounds().height >= 44.0);
+    }
 
     for (button, layers, properties) in [
         ("CompactLayers", true, false),
@@ -360,6 +366,34 @@ fn native_compact_workspace_overlays_drawers_without_moving_the_artboard() {
         assert_eq!(shell.editor.borrow().selection, selection);
         assert_eq!(shell.editor.borrow().history_len(), history);
     }
+    // Dismissing the drawer must not forward this tap into the armed drawing tool.
+    shell.command("rectangle");
+    fixture.click_button(&shell.button("CompactLayers"), RawInputModifiers::NONE);
+    render();
+    assert!(present("DrawerBackdrop"));
+    let outside = ferroui_base::Point::new(360.0, 210.0);
+    fixture.window.mouse_move(outside, RawInputModifiers::NONE);
+    fixture.window.mouse_down(outside, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.mouse_up(outside, MouseButton::Left, RawInputModifiers::NONE);
+    render();
+    assert!(!present("DrawerBackdrop"));
+    assert!(!present("LeftPanel") && present("Toolbar"));
+    assert_eq!(shell.editor.borrow().selection, selection);
+    assert_eq!(fixture.json(), before);
+    assert_eq!(shell.editor.borrow().history_len(), history);
+
+    fixture.click_button(&shell.button("CompactProperties"), RawInputModifiers::NONE);
+    render();
+    assert!(shell.canvas.focus());
+    let mut escape = KeyEventArgs::new();
+    escape.set_routed_event(Some(InputElement::key_down_event()));
+    escape.key = Key::Escape;
+    shell.canvas.raise_event(&escape);
+    render();
+    assert!(escape.handled() && !present("RightPanel"));
+    assert_eq!(shell.editor.borrow().selection, selection);
+    assert_eq!(shell.canvas.viewport.get(), camera);
+
     fixture.window.set_width(1500.0);
     fixture.window.set_height(960.0);
     render();
