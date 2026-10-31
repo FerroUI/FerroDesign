@@ -36,14 +36,19 @@ fn targets(editor: &Editor) -> Vec<ExportTarget> {
         used.insert("ferrodesign".to_owned());
         targets.push(ExportTarget { stem: "FerroDesign".into(), ids: artwork });
     }
+    let mut next_suffix = BTreeMap::new();
     for id in slices {
         let original = safe_filename(&editor.document.nodes[&id].name);
-        let mut stem = original.clone();
-        let mut suffix = 2;
-        while !used.insert(stem.to_lowercase()) {
-            stem = format!("{original}-{suffix}");
-            suffix += 1;
-        }
+        let stem = if used.insert(original.to_lowercase()) {
+            original
+        } else {
+            let suffix = next_suffix.entry(original.to_lowercase()).or_insert(2usize);
+            loop {
+                let candidate = format!("{original}-{suffix}");
+                *suffix += 1;
+                if used.insert(candidate.to_lowercase()) { break candidate; }
+            }
+        };
         targets.push(ExportTarget { stem, ids: vec![id] });
     }
     targets
@@ -119,6 +124,19 @@ impl EditorShell {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repeated_slice_names_skip_explicit_suffixes_in_selection_order() {
+        let mut doc = core::Document::new("Duplicate slice names");
+        let page = doc.pages[0].id;
+        let ids = ["Logo", "logo-2", "LOGO", "Logo", "logo-2"].into_iter().map(|name| {
+            doc.insert_node(page, Node::new(NodeKind::Slice, name, 0.0, 0.0, 10.0, 10.0)).unwrap()
+        }).collect();
+        let mut editor = Editor::new(doc);
+        editor.selection = ids;
+        let names: Vec<_> = targets(&editor).into_iter().map(|target| target.stem).collect();
+        assert_eq!(names, ["Logo", "logo-2", "LOGO-3", "Logo-4", "logo-2-2"]);
+    }
+
     #[test]
     fn mixed_selection_has_a_safe_distinct_filename_per_slice() {
         let mut doc = core::Document::new("Slice names");
