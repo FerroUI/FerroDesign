@@ -46,6 +46,14 @@
       <Setter Property="Height" Value="29"/>
       <Setter Property="CornerRadius" Value="4"/>
     </Style>
+    <Style Selector="Button.layer-action">
+      <Setter Property="Width" Value="20"/><Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="0"/><Setter Property="Height" Value="24"/>
+      <Setter Property="Padding" Value="3"/><Setter Property="Opacity" Value="0"/>
+    </Style>
+    <Style Selector="Grid.layer-row:pointerover Button.layer-action"><Setter Property="Opacity" Value="1"/></Style>
+    <Style Selector="Button.layer-action:focus-visible"><Setter Property="Opacity" Value="1"/></Style>
+    <Style Selector="Button.layer-action.persistent"><Setter Property="Opacity" Value="1"/></Style>
     <Style Selector="TextBox">
       <Setter Property="MinHeight" Value="28"/><Setter Property="FontSize" Value="11"/>
       <Setter Property="Padding" Value="8,4"/><Setter Property="CornerRadius" Value="5"/>

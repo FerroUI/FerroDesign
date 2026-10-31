@@ -1187,7 +1187,8 @@ impl EditorShell {
     fn layer_row(self: &Rc<Self>, row: &LayerRow) -> Ref<Grid> {
         let id = row.id;
         let grid = Grid::new();
-        grid.set_column_definitions(ColumnDefinitions::parse("20,*,24").unwrap());
+        grid.classes().add("layer-row");
+        grid.set_column_definitions(ColumnDefinitions::parse("20,*,20,20").unwrap());
         grid.set_height(30.0);
         grid.set_margin(Thickness::new(
             (row.depth.min(10) * 12) as f64,
@@ -1230,9 +1231,8 @@ impl EditorShell {
         if !row.visible {
             button.set_opacity(0.4);
         }
-        let content = StackPanel::new();
-        content.set_orientation(Orientation::Horizontal);
-        content.set_spacing(7.0);
+        let content = Grid::new();
+        content.set_column_definitions(ColumnDefinitions::parse("12,6,*").unwrap());
         let glyph = match row.kind {
             NodeKind::Frame => "frame",
             NodeKind::Group => "group",
@@ -1242,7 +1242,8 @@ impl EditorShell {
             NodeKind::Line => "line",
             NodeKind::Polygon => "polygon",
             NodeKind::Star => "star",
-            NodeKind::Component | NodeKind::Instance => "component",
+            NodeKind::Component => "component",
+            NodeKind::Instance => "instance",
             NodeKind::Section => "section",
             _ => "rect",
         };
@@ -1257,6 +1258,8 @@ impl EditorShell {
         ));
         let name = TextBlock::new();
         name.set_text(Some(&row.name));
+        name.set_text_trimming(<dyn ferroui_base::media::TextTrimming>::character_ellipsis());
+        Grid::set_column(&name, 2);
         name.set_vertical_alignment(VerticalAlignment::Center);
         name.set_font_size(11.0);
         content.children().add(name);
@@ -1287,22 +1290,34 @@ impl EditorShell {
             .borrow_mut()
             .insert(id, button.downgrade());
         grid.children().add(button);
-        let eye = Button::new();
-        eye.set_padding(Thickness::uniform(5.0));
-        eye.set_content(Some(Control::boxed(icons::icon(
-            if row.locked { "lock" } else { "eye" },
-            "#999999",
-            11.0,
-        ))));
-        Grid::set_column(&eye, 2);
-        let weak = Rc::downgrade(self);
-        eye.click(move |_, _| {
-            if let Some(s) = weak.upgrade() {
-                s.editor.borrow_mut().toggle_visibility(id);
-                s.changed();
-            }
-        });
-        grid.children().add(eye);
+        for (column, lock, glyph, tip, persistent) in [
+            (2, true, if row.locked { "lock" } else { "unlock" },
+                if row.locked { "Unlock layer" } else { "Lock layer" }, row.locked),
+            (3, false, if row.visible { "eye" } else { "eye-off" },
+                if row.visible { "Hide layer" } else { "Show layer" }, !row.visible),
+        ] {
+            let action = Button::new();
+            action.classes().add("layer-action");
+            action.classes().set("persistent", persistent);
+            action.set_content(Some(Control::boxed(icons::icon(glyph, "#686868", 12.0))));
+            ferroui_controls::ToolTip::set_tip(&action, Some(Rc::new(tip.to_string())));
+            ferroui_controls::automation::AutomationProperties::set_name(
+                &action, Some(&format!("{tip}: {}", row.name)),
+            );
+            Grid::set_column(&action, column);
+            let weak = Rc::downgrade(self);
+            action.click(move |_, _| {
+                if let Some(s) = weak.upgrade() {
+                    if lock {
+                        s.editor.borrow_mut().toggle_locked(id);
+                    } else {
+                        s.editor.borrow_mut().toggle_visibility(id);
+                    }
+                    s.changed();
+                }
+            });
+            grid.children().add(action);
+        }
         grid
     }
     fn refresh_inspector(&self) {
