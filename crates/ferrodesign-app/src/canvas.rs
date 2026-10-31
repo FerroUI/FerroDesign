@@ -182,6 +182,7 @@ pub struct DesignCanvas {
     pub snap: Cell<bool>,
     snap_guides: Cell<(Option<f64>, Option<f64>)>,
     pen_node: Cell<Option<NodeId>>,
+    creation_parent: Cell<Option<(NodeId, NodeId)>>,
     pen_tangent: Cell<Option<Point>>,
     pub vector_node: Cell<Option<NodeId>>,
     pub vector_point: Cell<Option<PathPointId>>,
@@ -230,6 +231,7 @@ impl DesignCanvas {
             snap: Cell::new(true),
             snap_guides: Cell::new((None, None)),
             pen_node: Cell::new(None),
+            creation_parent: Cell::new(None),
             pen_tangent: Cell::new(None),
             vector_node: Cell::new(None),
             vector_point: Cell::new(None),
@@ -447,7 +449,7 @@ impl DesignCanvas {
         if let Some(id) = self.pen_node.take() {
             let mut editor = self.editor.borrow_mut();
             normalize_drawn_vector(&mut editor, id);
-            editor.commit_transaction();
+            self.commit_created_layer(&mut editor, id);
             drop(editor);
             self.invalidate_visual();
             self.emit(CanvasEvent::Document);
@@ -482,6 +484,7 @@ impl DesignCanvas {
         if self.cancel_layout_drag() { return; }
         self.cancel_image_crop();
         self.editor.borrow_mut().cancel_transaction();
+        self.creation_parent.set(None);
         self.pen_node.set(None);
         self.pen_tangent.set(None);
         *self.gesture.borrow_mut() = Gesture::None;
@@ -731,7 +734,8 @@ impl DesignCanvas {
         }
         None
     }
-    fn new_node(&self, tool: Tool, p: Point) -> NodeId {
+    fn new_node(&self, tool: Tool, p: Point) -> Option<NodeId> {
+        let destination = self.drawing_parent_at(p, tool);
         let mut editor = self.editor.borrow_mut();
         editor.begin_transaction(format!("Draw {}", tool.name()));
         let mut node = Node::new(tool.kind(), tool.name(), p.x, p.y, 1.0, 1.0)
@@ -766,13 +770,19 @@ impl DesignCanvas {
             node.polygon_sides = 5;
         }
         let parent = editor.active_page;
-        let id = editor
-            .document
-            .insert_node(parent, node)
-            .expect("valid page");
+        let id = match editor.document.insert_node(parent, node) {
+            Ok(id) => id,
+            Err(error) => {
+                editor.cancel_transaction();
+                drop(editor);
+                self.emit(CanvasEvent::Notice(error.to_string()));
+                return None;
+            }
+        };
+        self.creation_parent.set(destination.map(|parent| (id, parent)));
         editor.selection = vec![id];
         editor.refresh();
-        id
+        Some(id)
     }
 }
 impl InputElementImpl for DesignCanvas {
@@ -926,7 +936,7 @@ impl InputElementImpl for DesignCanvas {
                 let id = if let Some(id) = this.pen_node.get() {
                     id
                 } else {
-                    let id = this.new_node(Tool::Pen, p);
+                    let Some(id) = this.new_node(Tool::Pen, p) else { return };
                     this.pen_node.set(Some(id));
                     id
                 };
@@ -997,7 +1007,7 @@ impl InputElementImpl for DesignCanvas {
                     if let Some(snap) = this.layout_grids.borrow_mut().snap(&editor, &[start],
                         5.0 / this.viewport.get().zoom, &[], None) { start = start + snap.delta; }
                 }
-                let id = this.new_node(tool, start);
+                let Some(id) = this.new_node(tool, start) else { return };
                 if tool == Tool::Pencil {
                     this.editor
                         .borrow_mut()
@@ -1432,13 +1442,13 @@ impl InputElementImpl for DesignCanvas {
             Gesture::Pencil { id, .. } => {
                 let mut editor = this.editor.borrow_mut();
                 normalize_drawn_vector(&mut editor, id);
-                editor.commit_transaction();
+                this.commit_created_layer(&mut editor, id);
                 drop(editor);
                 this.tool.set(Tool::Select);
                 this.emit(CanvasEvent::Document);
             }
             Gesture::Draw(drag) => {
-                this.editor.borrow_mut().commit_transaction();
+                this.commit_created_layer(&mut this.editor.borrow_mut(), drag.id);
                 this.tool.set(Tool::Select);
                 this.emit(CanvasEvent::Document);
                 if drag.tool == Tool::Text {

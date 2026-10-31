@@ -1123,7 +1123,8 @@ impl Node {
             }
         }
     }
-    pub(crate) fn contains_clip_point(&self, point: Point) -> bool {
+    /// Tests the rounded clipping boundary in layer-local coordinates.
+    pub fn contains_clip_point(&self, point: Point) -> bool {
         self.local_bounds().contains(point) && crate::corner_path(self).contains(point)
     }
 }

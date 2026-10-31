@@ -270,6 +270,19 @@ pub struct LayoutTransferSession {
     original_marker: LayoutInsertionMarker,
 }
 
+impl Document {
+    /// Editable containers shared by drawing tools and cross-frame drags.
+    /// Materialized instance children cannot accept new authored children.
+    pub fn is_layer_destination(&self, id: NodeId) -> bool {
+        self.nodes.get(&id).is_some_and(|node| {
+            (matches!(node.kind, NodeKind::Frame | NodeKind::Component | NodeKind::Section)
+                || (node.kind == NodeKind::Group && node.layout.is_some()))
+                && !self.is_component_set(id)
+                && validate_layout_reorder_ancestry(self, id).is_ok()
+        })
+    }
+}
+
 impl LayoutTransferSession {
     pub fn new(
         document: &Document,
@@ -413,14 +426,7 @@ impl LayoutTransferSession {
             }
             clip_indices.insert(id, clip);
             let source = source_parents.contains(&id);
-            let frame_kind = matches!(
-                node.kind,
-                NodeKind::Frame | NodeKind::Component | NodeKind::Section
-            ) || (node.layout.is_some() && node.kind == NodeKind::Group);
-            let eligible = frame_kind
-                && !excluded.contains(&id)
-                && !document.is_component_set(id)
-                && validate_layout_reorder_ancestry(document, id).is_ok();
+            let eligible = !excluded.contains(&id) && document.is_layer_destination(id);
             if eligible || source {
                 match TransferFrame::capture(document, id, &selected, clip, order + 1, eligible) {
                     Ok(frame) => frames.push(frame),

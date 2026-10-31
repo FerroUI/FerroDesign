@@ -11,6 +11,63 @@ pub(super) struct ShapeDrag {
     dragging: bool,
 }
 
+impl DesignCanvas {
+    pub(super) fn drawing_parent_at(&self, press: Point, tool: Tool) -> Option<NodeId> {
+        let editor = self.editor.borrow();
+        let doc = &editor.document;
+        let roots = &doc.page(editor.active_page)?.children;
+        let mut painter = self.painter.borrow_mut();
+        let mut current = editor.hit_test_filtered(press, 0.0, |id| {
+            painter.mask_contains(&editor, roots, id, press)
+        });
+        // Follow the frontmost visible layer. A page-level shape over a frame
+        // must not silently put new artwork behind that shape.
+        for _ in 0..core::MAX_DOCUMENT_DEPTH {
+            let id = current?;
+            let node = doc.nodes.get(&id)?;
+            if doc.is_layer_destination(id)
+                && (tool != Tool::Section || node.kind == NodeKind::Section)
+                && doc
+                    .world_transform(id)
+                    .and_then(core::Transform::inverse)
+                    .is_some_and(|inverse| node.contains_clip_point(inverse.apply(press)))
+            {
+                return Some(id);
+            }
+            current = node.parent;
+        }
+        None
+    }
+
+    pub(super) fn commit_created_layer(&self, editor: &mut Editor, id: NodeId) {
+        // Keep the in-progress path and drag guides in world space. Adopt the
+        // finished node before committing, so one undo removes the whole edit.
+        if let Some((_, parent)) = self
+            .creation_parent
+            .take()
+            .filter(|(created, _)| *created == id)
+        {
+            let doc = &mut editor.document;
+            let inverse = doc
+                .world_transform(parent)
+                .and_then(core::Transform::inverse);
+            if let (Some(inverse), Some(world)) = (inverse, doc.world_transform(id)) {
+                if doc.is_layer_destination(parent) && doc.reparent(id, parent, usize::MAX).is_ok()
+                {
+                    doc.nodes
+                        .get_mut(&id)
+                        .unwrap()
+                        .set_local_transform(inverse * world);
+                    if doc.nodes[&parent].layout.is_some() {
+                        doc.layout_all();
+                    }
+                }
+            }
+        }
+        editor.commit_transaction();
+    }
+}
+
 impl ShapeDrag {
     pub(super) fn new(id: NodeId, tool: Tool, press: Point, anchor: Point) -> Self {
         Self {
@@ -139,7 +196,7 @@ mod tests {
         let document = core::Document::new("Shape placement");
         let canvas = DesignCanvas::new(Rc::new(RefCell::new(Editor::new(document))));
         canvas.snap.set(false);
-        let id = canvas.new_node(tool, press);
+        let id = canvas.new_node(tool, press).unwrap();
         (canvas, ShapeDrag::new(id, tool, press, press))
     }
 
@@ -220,6 +277,39 @@ mod tests {
             );
             assert_eq!(node.strokes[0].cap, core::StrokeCap::Arrow);
         }
+    }
+
+    #[test]
+    fn creating_in_a_rotated_frame_keeps_world_geometry_and_rolls_back_membership() {
+        use ferroui_base::{platform::IPlatformRenderInterface, FerroLocator};
+        let scope = FerroLocator::enter_scope();
+        FerroLocator::current_mutable()
+            .bind::<dyn IPlatformRenderInterface>()
+            .to_constant(Rc::new(ferroui_vello::PlatformRenderInterface::default()));
+        let mut document = core::Document::new("Nested drawing");
+        let page = document.pages[0].id;
+        let mut frame = Node::new(NodeKind::Frame, "Rotated frame", 30.0, 40.0, 120.0, 120.0);
+        frame.rotation = 31.0;
+        let parent = document.insert_node(page, frame).unwrap();
+        let canvas = DesignCanvas::new(Rc::new(RefCell::new(Editor::new(document))));
+        canvas.snap.set(false);
+        let start = Point::new(90.0, 100.0);
+        let end = Point::new(56.0, 117.0);
+        let id = canvas.new_node(Tool::Arrow, start).unwrap();
+        let mut drag = ShapeDrag::new(id, Tool::Arrow, start, start);
+        drag.update(&canvas, end, KeyModifiers::empty(), true);
+        let mut editor = canvas.editor.borrow_mut();
+        canvas.commit_created_layer(&mut editor, id);
+        assert_eq!(editor.document.nodes[&id].parent, Some(parent));
+        let world = editor.document.world_transform(id).unwrap();
+        assert!(world.apply(Point::default()).distance(start) < 1e-8);
+        assert!(world.apply(Point::new(34.0, 17.0)).distance(end) < 1e-8);
+        assert_eq!(editor.history_len(), 1);
+        assert!(editor.undo());
+        assert!(editor.document.nodes[&parent].children.is_empty());
+        assert!(editor.redo());
+        assert_eq!(editor.document.nodes[&parent].children, [id]);
+        scope.dispose();
     }
 
     #[test]
