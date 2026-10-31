@@ -16,7 +16,10 @@ pub(super) fn draw(ctx: &mut DrawingContext, editor: &Editor, viewport: Viewport
         for i in 0..4 {
             ctx.draw_line(&outline, ui(corners[i]), ui(corners[(i + 1) % 4]));
         }
-        label(ctx, &node.name, Point::new(corners[0].x, corners[0].y - 16.0), 11.0, "#788596");
+        let left = corners.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
+        let right = corners.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
+        let top = corners.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+        canvas_caption(ctx, &node.name, Point::new(left, top - 16.0), right - left, "#788596");
     }
 }
 

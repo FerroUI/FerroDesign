@@ -1926,6 +1926,20 @@ fn label(ctx: &mut DrawingContext, text: &str, point: Point, size: f64, color: &
     );
     ctx.draw_text(&text, ui(point));
 }
+/// Captions stay at a readable screen font size while the artboard zooms.
+fn canvas_caption(ctx: &mut DrawingContext, name: &str, origin: Point, screen_width: f64, color: &str) {
+    // The root-origin query includes 400 DIPs to the left of the viewport.
+    let width = (screen_width - 4.0).min(400.0);
+    if width < 20.0 || name.is_empty() { return; }
+    let caption = FormattedText::new(
+        name, CultureInfo::invariant_culture(), FlowDirection::LeftToRight,
+        Typeface::from_name("fonts:Inter#Inter"), 11.0, Some(brush(color)),
+    );
+    caption.set_max_text_width(width);
+    caption.set_max_line_count(1);
+    caption.set_trimming(<dyn ferroui_base::media::TextTrimming>::character_ellipsis());
+    ctx.draw_text(&caption, ui(origin));
+}
 fn render_vector_editor(
     ctx: &mut DrawingContext,
     path: &VectorPath,
@@ -2189,7 +2203,11 @@ impl VisualImpl for DesignCanvas {
             let color = if matches!(node.kind, NodeKind::Component | NodeKind::Instance) {
                 "#9747FF"
             } else if this.dark.get() { "#999999" } else { "#777777" };
-            label(ctx, &node.name, Point::new(point.x, point.y - 20.0), 11.0, color);
+            // Reuse the world transform prepared by the spatial index, including shear/rotation.
+            let transform = editor.scene.transforms[&id];
+            let local = node.local_bounds();
+            let world_width = transform.a.abs() * local.width + transform.c.abs() * local.height;
+            canvas_caption(ctx, &node.name, Point::new(point.x, point.y - 20.0), world_width * v.zoom, color);
         }
         if let Some(id) = this.highlighted_layer() {
             if !editor.selection.contains(&id) && doc.effective_visible(id) {
