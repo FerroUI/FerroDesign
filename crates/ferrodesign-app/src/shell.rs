@@ -1040,6 +1040,7 @@ impl EditorShell {
         // clicking artwork never recreates every page, icon and layer control.
         self.canvas.reconcile_image_crop();
         self.canvas.reconcile_vector_edit();
+        self.sync_toolbar();
         self.refresh_layer_selection();
         self.refresh_inspector();
         self.updating.set(false);
