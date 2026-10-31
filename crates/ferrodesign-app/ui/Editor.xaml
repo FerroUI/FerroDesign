@@ -21,6 +21,14 @@
       <Setter Property="Background" Value="#0D99FF"/>
       <Setter Property="Foreground" Value="White"/>
     </Style>
+    <Style Selector="Button.tab">
+      <Setter Property="MinHeight" Value="26"/><Setter Property="Padding" Value="8,3"/>
+      <Setter Property="Foreground" Value="#626262"/>
+    </Style>
+    <Style Selector="Button.tab.active">
+      <Setter Property="Background" Value="#F0F0F0"/><Setter Property="Foreground" Value="#171717"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
     <Style Selector="Button.constraint">
       <Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/>
       <Setter Property="Padding" Value="0"/><Setter Property="CornerRadius" Value="2"/>
@@ -43,9 +51,9 @@
       <Setter Property="Padding" Value="8,4"/><Setter Property="CornerRadius" Value="5"/>
       <Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="#F5F5F5"/>
     </Style>
-    <Style Selector="TextBlock.label"><Setter Property="Foreground" Value="#777777"/><Setter Property="FontSize" Value="10"/></Style>
-    <Style Selector="TextBlock.heading"><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="FontSize" Value="11"/></Style>
-    <Style Selector="Border.rule"><Setter Property="Background" Value="#EEEEEE"/><Setter Property="Height" Value="1"/><Setter Property="Margin" Value="0,12"/></Style>
+    <Style Selector="TextBlock.label"><Setter Property="Foreground" Value="#626262"/><Setter Property="FontSize" Value="11"/></Style>
+    <Style Selector="TextBlock.heading"><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="FontSize" Value="12"/></Style>
+    <Style Selector="Border.rule"><Setter Property="Background" Value="#EEEEEE"/><Setter Property="Height" Value="1"/><Setter Property="Margin" Value="-16,8"/></Style>
     <Style Selector="ComboBox">
       <Setter Property="MinHeight" Value="28"/><Setter Property="FontSize" Value="11"/>
       <Setter Property="Padding" Value="8,4"/><Setter Property="Background" Value="#F5F5F5"/>
@@ -79,8 +87,8 @@
       <Grid RowDefinitions="78,Auto,Auto,*,32">
         <StackPanel Margin="16,19,12,0" Spacing="8">
           <Grid ColumnDefinitions="*,30">
-            <TextBlock Name="FileTitle" Text="Orbit · Mobile banking" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <Button Name="FileActionsButton" Grid.Column="1" Content="···" Padding="0" ToolTip.Tip="File actions"/>
+            <TextBlock Name="FileTitle" Text="Orbit · Mobile banking" TextTrimming="CharacterEllipsis" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Button Name="FileActionsButton" Grid.Column="1" Content="•••" Padding="0" ToolTip.Tip="File actions"/>
           </Grid>
           <TextBlock Text="Drafts / FerroDesign" Classes="label"/>
         </StackPanel>
@@ -108,24 +116,28 @@
         </ScrollViewer>
         <TextBlock Name="EmptyLayers" Grid.Row="3" Text="Draw a frame or shape to get started." Margin="20,12" TextWrapping="Wrap" Foreground="#888888" IsVisible="False"/>
         <Border Grid.Row="4" BorderBrush="#EEEEEE" BorderThickness="0,1,0,0" Padding="12,9">
-          <TextBlock Name="DocumentStatus" Text="All changes saved locally" FontSize="9" Foreground="#777777"/>
+          <TextBlock Name="DocumentStatus" Text="All changes saved locally" FontSize="10" Foreground="#626262"/>
         </Border>
       </Grid>
     </Border>
     <Border Name="RightPanel" Grid.Column="3" Background="White" BorderBrush="#D9D9D9" BorderThickness="1,0,0,0">
       <Grid RowDefinitions="48,40,*">
-        <Grid ColumnDefinitions="*,34,64" Margin="12,8">
-          <Border Width="28" Height="28" CornerRadius="14" Background="#7B61FF" HorizontalAlignment="Left">
-            <TextBlock Text="WS" FontSize="10" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <Grid ColumnDefinitions="Auto,*,32,60" Margin="12,8">
+          <Border Name="ZoomPanel" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal">
+              <Button Name="ZoomOutButton" Content="−" ToolTip.Tip="Zoom out"/>
+              <Button Name="ZoomValueButton" Content="100%" MinWidth="48" ToolTip.Tip="Zoom and view options"/>
+              <Button Name="ZoomInButton" Content="+" ToolTip.Tip="Zoom in"/>
+            </StackPanel>
           </Border>
-          <Button Name="PresentButton" Grid.Column="1" ToolTip.Tip="Present prototype"/>
-          <Button Name="ShareButton" Grid.Column="2" Classes="primary" Content="Share"/>
+          <Button Name="PresentButton" Grid.Column="2" ToolTip.Tip="Present prototype"/>
+          <Button Name="ShareButton" Grid.Column="3" Classes="primary" Content="Share"/>
         </Grid>
         <Border Grid.Row="1" BorderBrush="#EEEEEE" BorderThickness="0,0,0,1">
-          <StackPanel Orientation="Horizontal" Spacing="4" Margin="12,0">
-            <Button Name="DesignTab" Content="Design" Classes="active"/>
-            <Button Name="PrototypeTab" Content="Prototype"/>
-            <Button Name="InspectTab" Content="Inspect"/>
+          <StackPanel Orientation="Horizontal" Spacing="4" Margin="12,0" VerticalAlignment="Center">
+            <Button Name="DesignTab" Content="Design" Classes="tab active"/>
+            <Button Name="PrototypeTab" Classes="tab" Content="Prototype"/>
+            <Button Name="InspectTab" Classes="tab" Content="Inspect"/>
           </StackPanel>
         </Border>
         <ScrollViewer Name="InspectorViewport" Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
@@ -360,9 +372,6 @@
         <Border Width="1" Background="#EEEEEE" Margin="5,5"/>
         <Button Name="ActionsButton" Classes="tool" ToolTip.Tip="Actions (Ctrl+K)"/>
       </StackPanel>
-    </Border>
-    <Border Name="ZoomPanel" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="16,0,16,94" Background="White" CornerRadius="8" Padding="3" BorderBrush="#D9D9D9" BorderThickness="1">
-      <StackPanel Orientation="Horizontal"><Button Name="ZoomOutButton" Content="−"/><Button Name="ZoomValueButton" Content="65%" ToolTip.Tip="Zoom to fit"/><Button Name="ZoomInButton" Content="+"/></StackPanel>
     </Border>
     <Border Name="Toast" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="16" Padding="16,10" Background="#252525" CornerRadius="8" IsVisible="False">
       <TextBlock Name="ToastText" Foreground="White"/>
