@@ -22,10 +22,20 @@ export async function selectionRegressions(page, reference, check, helpers, outp
             await waitForNativeFrame(page, before.renderedFrames, "Keyboard selection " + key);
         }
     };
-    const click = async (point, modifiers, expected, options) => {
+    const click = async (point, modifiers, expected) => {
         for (const modifier of modifiers) await page.keyboard.down(modifier);
-        try { await clickWorld(page, point.x, point.y, options); }
+        try { await clickWorld(page, point.x, point.y); }
         finally { for (const modifier of [...modifiers].reverse()) await page.keyboard.up(modifier); }
+        await selected(expected);
+    };
+    const doubleClick = async (point, expected) => {
+        const { serial } = (await state(page)).pointerPresses;
+        // Send both button sequences together. Playwright's delay option waits
+        // for each CDP reply and can turn this into two separate native clicks.
+        await clickWorld(page, point.x, point.y, { clickCount: 2 });
+        const presses = (await state(page)).pointerPresses.entries.filter(press => press.serial > serial);
+        assert.deepEqual(presses.map(press => press.clickCount), [1, 2],
+            "Group descent requires a real native double-click: " + JSON.stringify(presses));
         await selected(expected);
     };
     const action = async (search, command) => {
@@ -142,9 +152,9 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     // A distinct preceding pointer position resets the native double-click
     // count, including consecutive nested descent sequences.
     await click({ x: 48, y: 48 }, [], [2]);
-    await click(child, [], [3], { clickCount: 2, delay: 80 });
+    await doubleClick(child, [3]);
     await click({ x: 205, y: 155 }, [], [3]);
-    await click(child, [], [4], { clickCount: 2, delay: 80 });
+    await doubleClick(child, [4]);
     await press("Escape", []);
     await click(child, ["Control"], [4]);
     await press("Escape", []);
