@@ -6,7 +6,7 @@ use ferroui_controls::{MenuItem, ToolTip, automation::AutomationProperties};
 #[derive(Default)]
 pub(super) struct ToolbarState {
     displayed: Cell<Option<Tool>>,
-    choices: Cell<[usize; 3]>,
+    choices: Cell<[usize; 4]>,
 }
 
 struct Group {
@@ -16,7 +16,16 @@ struct Group {
     choices: &'static [(&'static str, Tool, &'static str, &'static str)],
 }
 
-const GROUPS: [Group; 3] = [
+const GROUPS: [Group; 4] = [
+    Group {
+        primary: "SelectTool",
+        menu: "MoveToolMenu",
+        choices: &[
+            ("MoveChoice", Tool::Select, "select", "pointer"),
+            ("HandChoice", Tool::Hand, "hand", "hand"),
+            ("ScaleChoice", Tool::Scale, "scale", "scale"),
+        ],
+    },
     Group {
         primary: "FrameTool",
         menu: "RegionToolMenu",
@@ -105,9 +114,7 @@ impl EditorShell {
         }
         self.toolbar.choices.set(choices);
         for (name, tool, glyph) in [
-            ("SelectTool", Tool::Select, "pointer"),
             ("TextTool", Tool::Text, "text"),
-            ("HandTool", Tool::Hand, "hand"),
             ("CommentTool", Tool::Comment, "comment"),
         ] {
             if previous.is_none() || active == tool || previous == Some(tool) {

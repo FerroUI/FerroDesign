@@ -18,6 +18,7 @@ mod text;
 mod variables;
 mod zoom;
 mod toolbar;
+mod scale;
 mod workspace;
 mod vector_export;
 mod text_export;
@@ -82,6 +83,7 @@ pub struct EditorShell {
     inspector_tab: Cell<u8>,
     displayed_zoom: Cell<Option<i32>>,
     toolbar: toolbar::ToolbarState,
+    scale_anchor: Cell<usize>,
     compact: Cell<bool>,
     compact_panel: Cell<workspace::CompactPanel>,
     prototype_targets: RefCell<Vec<NodeId>>,
@@ -146,6 +148,7 @@ impl EditorShell {
             inspector_tab: Cell::new(0),
             displayed_zoom: Cell::new(None),
             toolbar: toolbar::ToolbarState::default(),
+            scale_anchor: Cell::new(4),
             compact: Cell::new(false),
             compact_panel: Cell::default(),
             prototype_targets: RefCell::new(Vec::new()),
@@ -427,6 +430,7 @@ impl EditorShell {
             self.icon(name, icon);
         }
         self.wire_toolbar();
+        self.wire_scale();
         self.wire_workspace();
         for (name, command) in [
             ("MenuButton", "menu"),
@@ -440,9 +444,7 @@ impl EditorShell {
             ("ThemeButton", "theme"),
             ("PresentButton", "present"),
             ("ShareButton", "share"),
-            ("SelectTool", "select"),
             ("TextTool", "text"),
-            ("HandTool", "hand"),
             ("CommentTool", "comment"),
             ("ActionsButton", "actions"),
             ("DesignTab", "design-tab"),
@@ -533,6 +535,7 @@ impl EditorShell {
         });
         for name in [
             "NameField",
+            "ScaleFactorField", "ScaleWidthField", "ScaleHeightField",
             "XField",
             "YField",
             "RotationField",
@@ -626,7 +629,7 @@ impl EditorShell {
                 self.sync_zoom();
                 self.position_inline_text();
             }
-            CanvasEvent::Tool => self.sync_tools(),
+            CanvasEvent::Tool => self.refresh_selection(),
             CanvasEvent::Notice(message) => self.toast(&message),
             CanvasEvent::EditText(id) => {
                 self.begin_inline_text(id);
@@ -722,7 +725,7 @@ impl EditorShell {
             "RegionToolMenu", "ShapeToolMenu", "DrawingToolMenu",
             "PenTool",
             "TextTool",
-            "HandTool",
+            "MoveToolMenu", "ScaleFactorField", "ScaleWidthField", "ScaleHeightField",
             "CommentTool",
             "ActionsButton",
             "PresentButton",
@@ -1317,7 +1320,8 @@ impl EditorShell {
             .first()
             .and_then(|id| editor.document.nodes.get(id));
         self.refresh_constraint_diagram(node);
-        self.visible("DesignInspector", self.inspector_tab.get() == 0 && node.is_some());
+        let scaling = self.sync_scale_panel(&editor);
+        self.visible("DesignInspector", !scaling && self.inspector_tab.get() == 0 && node.is_some());
         self.visible("PageInspector", self.inspector_tab.get() == 0 && node.is_none());
         self.visible("VisibleButton", node.is_some());
         self.visible("LockedButton", node.is_some());
@@ -1667,6 +1671,9 @@ impl EditorShell {
             return false;
         }
         let text = self.field(name).text().unwrap_or_default();
+        if matches!(name, "ScaleFactorField" | "ScaleWidthField" | "ScaleHeightField") {
+            return self.commit_scale_field(name, &text);
+        }
         let id = self.editor.borrow().selection.first().copied();
         self.canvas.finish_linear_gradient_edit();
         self.canvas.finish_corner_radius_edit();
@@ -1857,6 +1864,9 @@ impl EditorShell {
     }
 
     pub fn command(self: &Rc<Self>, command: &str) -> bool {
+        if command != "storage-status" && self.canvas.cancel_scale_drag() && matches!(command, "undo" | "redo") {
+            return true;
+        }
         if command == "commit-edit" {
             self.canvas.finish_linear_gradient_edit();
             self.canvas.finish_corner_radius_edit();
@@ -1904,6 +1914,7 @@ impl EditorShell {
         }
         let tool = match command {
             "select" => Some(Tool::Select),
+            "scale" => Some(Tool::Scale),
             "frame" => Some(Tool::Frame),
             "rectangle" => Some(Tool::Rectangle),
             "ellipse" => Some(Tool::Ellipse),
@@ -3355,6 +3366,7 @@ const LAYER_ACTIONS: &[(&str, &str)] = &[
 ];
 const ACTIONS: &[(&str, &str)] = &[
     ("Move / Select  V", "select"),
+    ("Scale  K", "scale"),
     ("Select groups · toggle", "toggle-select-groups"),
     ("Select layer under pointer…", "select-layer"),
     ("Select same properties…", "select-matching"),

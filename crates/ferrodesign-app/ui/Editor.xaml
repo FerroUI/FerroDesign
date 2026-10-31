@@ -35,6 +35,15 @@
       <Setter Property="Background" Value="#BDBDBD"/>
     </Style>
     <Style Selector="Button.constraint.active"><Setter Property="Background" Value="#0D99FF"/></Style>
+    <Style Selector="Button.scale-anchor">
+      <Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/>
+      <Setter Property="Margin" Value="1"/><Setter Property="Padding" Value="0"/>
+      <Setter Property="Background" Value="#ECECEC"/><Setter Property="CornerRadius" Value="3"/>
+      <Setter Property="Content" Value="·"/>
+    </Style>
+    <Style Selector="Button.scale-anchor.active">
+      <Setter Property="Background" Value="#0C8CE9"/><Setter Property="Foreground" Value="White"/>
+    </Style>
     <Style Selector="Button.tool">
       <Setter Property="Width" Value="38"/><Setter Property="Height" Value="38"/>
       <Setter Property="Padding" Value="9"/><Setter Property="CornerRadius" Value="8"/>
@@ -234,6 +243,47 @@
               <Border Classes="rule"/>
               <Button Name="PageFramePresetsButton" Content="Frame presets…" HorizontalContentAlignment="Left"/>
             </StackPanel>
+            <StackPanel Name="ScaleInspector" Spacing="8" IsVisible="False">
+              <TextBlock Text="Scale" Classes="heading"/>
+              <Grid ColumnDefinitions="*,10,60">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="Multiplier" Classes="label"/>
+                  <Grid ColumnDefinitions="*,24">
+                    <TextBox Name="ScaleFactorField" Text="1" AutomationProperties.Name="Scale multiplier" ToolTip.Tip="Enter a multiplier or percentage"/>
+                    <Button Name="ScalePresets" Grid.Column="1" Content="⌄" ToolTip.Tip="Scale presets">
+                      <Button.Flyout>
+                        <MenuFlyout>
+                          <MenuItem Name="ScaleQuarter" Header="0.25×"/>
+                          <MenuItem Name="ScaleHalf" Header="0.5×"/>
+                          <MenuItem Name="ScaleDouble" Header="2×"/>
+                          <MenuItem Name="ScaleTriple" Header="3×"/>
+                          <MenuItem Name="ScaleQuadruple" Header="4×"/>
+                        </MenuFlyout>
+                      </Button.Flyout>
+                    </Button>
+                  </Grid>
+                </StackPanel>
+                <UniformGrid Grid.Column="2" Rows="3" Columns="3" Width="60" Height="60">
+                    <Button Name="ScaleAnchor0" Classes="scale-anchor" AutomationProperties.Name="Top left anchor" ToolTip.Tip="Top left"/>
+                    <Button Name="ScaleAnchor1" Classes="scale-anchor" AutomationProperties.Name="Top anchor" ToolTip.Tip="Top"/>
+                    <Button Name="ScaleAnchor2" Classes="scale-anchor" AutomationProperties.Name="Top right anchor" ToolTip.Tip="Top right"/>
+                    <Button Name="ScaleAnchor3" Classes="scale-anchor" AutomationProperties.Name="Left anchor" ToolTip.Tip="Left"/>
+                    <Button Name="ScaleAnchor4" Classes="scale-anchor" AutomationProperties.Name="Center anchor" ToolTip.Tip="Center"/>
+                    <Button Name="ScaleAnchor5" Classes="scale-anchor" AutomationProperties.Name="Right anchor" ToolTip.Tip="Right"/>
+                    <Button Name="ScaleAnchor6" Classes="scale-anchor" AutomationProperties.Name="Bottom left anchor" ToolTip.Tip="Bottom left"/>
+                    <Button Name="ScaleAnchor7" Classes="scale-anchor" AutomationProperties.Name="Bottom anchor" ToolTip.Tip="Bottom"/>
+                    <Button Name="ScaleAnchor8" Classes="scale-anchor" AutomationProperties.Name="Bottom right anchor" ToolTip.Tip="Bottom right"/>
+                </UniformGrid>
+              </Grid>
+              <Grid ColumnDefinitions="*,8,*">
+                <TextBox Name="ScaleWidthField" AutomationProperties.Name="Scaled width" ToolTip.Tip="Scale to width">
+                  <TextBox.InnerLeftContent><TextBlock Text="W" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
+                <TextBox Name="ScaleHeightField" Grid.Column="2" AutomationProperties.Name="Scaled height" ToolTip.Tip="Scale to height">
+                  <TextBox.InnerLeftContent><TextBlock Text="H" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
+              </Grid>
+            </StackPanel>
             <StackPanel Name="DesignInspector" Spacing="8" IsVisible="False">
               <UniformGrid Columns="6">
                 <Button Name="AlignLeftButton" ToolTip.Tip="Align left"/>
@@ -422,6 +472,15 @@
       <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
       <StackPanel Orientation="Horizontal" Spacing="1">
         <Button Name="SelectTool" Classes="dock-tool" ToolTip.Tip="Move (V)"/>
+        <Button Name="MoveToolMenu" Classes="tool-menu" ToolTip.Tip="Move tools">
+          <Button.Flyout>
+            <MenuFlyout Placement="TopEdgeAlignedLeft">
+              <MenuItem Name="MoveChoice" Header="Move" InputGesture="V"/>
+              <MenuItem Name="HandChoice" Header="Hand" InputGesture="H"/>
+              <MenuItem Name="ScaleChoice" Header="Scale" InputGesture="K"/>
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
         <Button Name="FrameTool" Classes="dock-tool"/>
         <Button Name="RegionToolMenu" Classes="tool-menu" ToolTip.Tip="Region tools">
           <Button.Flyout>
@@ -455,7 +514,6 @@
           </Button.Flyout>
         </Button>
         <Button Name="TextTool" Classes="dock-tool" ToolTip.Tip="Text (T)"/>
-        <Button Name="HandTool" Classes="dock-tool" ToolTip.Tip="Hand (H) · Hold Space to pan"/>
         <Button Name="CommentTool" Classes="dock-tool" ToolTip.Tip="Comment (C)"/>
         <Border Width="1" Background="#E6E6E6" Margin="4,6"/>
         <Button Name="ActionsButton" Classes="dock-tool" ToolTip.Tip="Quick actions (Ctrl/Cmd+/)"/>
