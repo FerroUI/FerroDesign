@@ -1234,6 +1234,22 @@ try {
             check("Native Add page clicks retain a scrollable page list and usable layer viewport at 980×650");
             assert.equal(await page.evaluate((json) => globalThis.ferroDesign.ferroDesignImportJson(json), svgJson), true);
             assert.deepEqual(JSON.parse(await page.evaluate(() => globalThis.ferroDesign.ferroDesignExportJson())), svgDocument);
+            await page.setViewportSize({ width: 390, height: 844 });
+            await page.waitForFunction(() => {
+                const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+                return view.chrome.CompactLayers.visible && view.canvas.width === 390;
+            });
+            await clickNative(page, "CompactLayers");
+            await clickNative(page, "CompactProperties");
+            await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.ZoomValueButton.visible);
+            await clickNative(page, "CompactProperties");
+            await clickNative(page, "TextTool");
+            const phone = await state(page);
+            assert.equal(phone.tool, "Text");
+            assert.equal(phone.canvas.width, 390);
+            assert.deepEqual(await documentState(page), svgDocument);
+            await canvas.screenshot({ path: resolve(output, mode + "-phone.png") });
+            check("At phone width, drawers share a full-width artboard and the drawing tools remain reachable");
             await page.setViewportSize({ width: 1600, height: 1000 });
             await frames(page);
 

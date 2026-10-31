@@ -17,6 +17,7 @@ mod text;
 mod variables;
 mod zoom;
 mod toolbar;
+mod workspace;
 mod vector_export;
 mod text_export;
 mod stroke_profiles;
@@ -80,6 +81,8 @@ pub struct EditorShell {
     inspector_tab: Cell<u8>,
     displayed_zoom: Cell<Option<i32>>,
     toolbar: toolbar::ToolbarState,
+    compact: Cell<bool>,
+    compact_panel: Cell<workspace::CompactPanel>,
     prototype_targets: RefCell<Vec<NodeId>>,
     prototype: Rc<PrototypeRuntime>,
     pending_save: Cell<bool>,
@@ -142,6 +145,8 @@ impl EditorShell {
             inspector_tab: Cell::new(0),
             displayed_zoom: Cell::new(None),
             toolbar: toolbar::ToolbarState::default(),
+            compact: Cell::new(false),
+            compact_panel: Cell::default(),
             prototype_targets: RefCell::new(Vec::new()),
             prototype,
             pending_save: Cell::new(false),
@@ -421,6 +426,7 @@ impl EditorShell {
             self.icon(name, icon);
         }
         self.wire_toolbar();
+        self.wire_workspace();
         for (name, command) in [
             ("MenuButton", "menu"),
             ("FileActionsButton", "menu"),
@@ -708,7 +714,7 @@ impl EditorShell {
         };
         let mut chrome: serde_json::Map<String, serde_json::Value> = [
             "CanvasHost",
-            "Toolbar",
+            "Toolbar", "CompactLayers", "CompactProperties",
             "SelectTool",
             "FrameTool",
             "RectTool",
@@ -2900,20 +2906,7 @@ impl EditorShell {
         match event {
             PrototypeRuntimeEvent::Started(_) | PrototypeRuntimeEvent::Stopped => {
                 let present = self.prototype.is_active();
-                for name in [
-                    "NavigationRail",
-                    "LeftPanel",
-                    "RightPanel",
-                    "Toolbar",
-                    "ZoomPanel",
-                    "CanvasCaption",
-                ] {
-                    self.visible(name, !present);
-                }
-                self.control::<Grid>("Workspace").set_column_definitions(
-                    ColumnDefinitions::parse(if present { "0,0,*,0" } else { "48,248,*,288" })
-                        .unwrap(),
-                );
+                self.layout_workspace();
                 if !present {
                     self.refresh();
                 }

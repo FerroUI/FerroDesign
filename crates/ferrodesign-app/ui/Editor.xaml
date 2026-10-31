@@ -389,8 +389,16 @@
         </ScrollViewer>
       </Grid>
     </Border>
+    <Border Name="CompactHeader" Grid.ColumnSpan="4" IsVisible="False" Height="48" VerticalAlignment="Top" Background="White" BorderBrush="#E6E6E6" BorderThickness="0,0,0,1" Padding="8,4">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <Button Name="CompactLayers" Classes="tab" Content="Layers" ToolTip.Tip="Open or close pages and layers"/>
+        <TextBlock Grid.Column="1" Classes="heading" Text="FerroDesign" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <Button Name="CompactProperties" Grid.Column="2" Classes="tab" Content="Properties" ToolTip.Tip="Open or close the inspector"/>
+      </Grid>
+    </Border>
     <TextBlock Name="CanvasCaption" Grid.Column="2" Text="" FontSize="10" Foreground="#868686" Margin="24,25" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"/>
     <Border Name="Toolbar" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="8,0,8,24" Padding="7" Background="White" CornerRadius="13" BorderBrush="#D7D7D7" BorderThickness="1" BoxShadow="0 3 14 0 #20000000">
+      <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
       <StackPanel Orientation="Horizontal" Spacing="1">
         <Button Name="SelectTool" Classes="dock-tool" ToolTip.Tip="Move (V)"/>
         <Button Name="FrameTool" Classes="dock-tool"/>
@@ -430,6 +438,7 @@
         <Border Width="1" Background="#E6E6E6" Margin="4,6"/>
         <Button Name="ActionsButton" Classes="dock-tool" ToolTip.Tip="Actions (Ctrl+K)"/>
       </StackPanel>
+      </ScrollViewer>
     </Border>
     <Border Name="Toast" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="16" Padding="16,10" Background="#252525" CornerRadius="8" IsVisible="False">
       <TextBlock Name="ToastText" Foreground="White"/>
