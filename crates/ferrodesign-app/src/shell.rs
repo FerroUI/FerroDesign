@@ -1422,7 +1422,8 @@ impl EditorShell {
         ];
         for &(name, property) in GEOMETRY_AND_APPEARANCE {
             let value = selection.common(property).map(|v| v.map(number).unwrap_or_default());
-            selection.show(&self.field(name), value.as_deref(), None);
+            let hint = (name == "PaddingField").then_some("Mixed");
+            selection.show(&self.field(name), value.as_deref(), hint);
         }
         let page_background = editor.document.page(editor.active_page)
             .map_or(Color::WHITE, |page| page.background);
