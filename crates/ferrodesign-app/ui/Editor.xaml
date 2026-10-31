@@ -69,6 +69,11 @@
       <Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="#F5F5F5"/>
     </Style>
     <Style Selector="TextBlock.label"><Setter Property="Foreground" Value="#626262"/><Setter Property="FontSize" Value="11"/></Style>
+    <Style Selector="TextBlock.field-prefix">
+      <Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="8,0,0,0"/>
+      <Setter Property="Width" Value="12"/><Setter Property="Foreground" Value="#686868"/>
+      <Setter Property="FontSize" Value="11"/><Setter Property="IsHitTestVisible" Value="False"/>
+    </Style>
     <Style Selector="TextBlock.heading"><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="FontSize" Value="12"/></Style>
     <Style Selector="Border.rule"><Setter Property="Background" Value="#EEEEEE"/><Setter Property="Height" Value="1"/><Setter Property="Margin" Value="-16,8"/></Style>
     <Style Selector="ComboBox">
@@ -124,7 +129,13 @@
             <TextBlock Name="LeftTitle" Text="Layers" Classes="heading" VerticalAlignment="Center"/>
             <Button Name="CollapseLayersButton" Grid.Column="1" Content="⌃" ToolTip.Tip="Expand or collapse all"/>
           </Grid>
-          <TextBox Name="LayerSearch" PlaceholderText="Search layers…"/>
+          <TextBox Name="LayerSearch" PlaceholderText="Search layers…" AutomationProperties.Name="Search layers">
+            <TextBox.InnerLeftContent>
+              <Path Data="M10,3 A7,7 0 1 0 10,17 A7,7 0 1 0 10,3 M15,15 L21,21"
+                    Stroke="#686868" StrokeThickness="2" Stretch="Uniform" Width="13" Height="13"
+                    Margin="8,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
+            </TextBox.InnerLeftContent>
+          </TextBox>
         </StackPanel>
         <ScrollViewer Name="LayersViewport" Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
           <ItemsControl Name="LayersHost" Margin="8,0,8,12">
@@ -235,19 +246,29 @@
               <Border Classes="rule"/>
               <TextBlock Text="Position" Classes="heading"/>
               <Grid ColumnDefinitions="*,12,*">
-                <StackPanel Spacing="4"><TextBlock Text="X" Classes="label"/><TextBox Name="XField" Text="0"/></StackPanel>
-                <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="Y" Classes="label"/><TextBox Name="YField" Text="0"/></StackPanel>
+                <TextBox Name="XField" Text="0" AutomationProperties.Name="X position" ToolTip.Tip="X position">
+                  <TextBox.InnerLeftContent><TextBlock Text="X" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
+                <TextBox Name="YField" Grid.Column="2" Text="0" AutomationProperties.Name="Y position" ToolTip.Tip="Y position">
+                  <TextBox.InnerLeftContent><TextBlock Text="Y" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
               </Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <StackPanel Spacing="4"><TextBlock Text="Rotation" Classes="label"/><TextBox Name="RotationField" Text="0"/></StackPanel>
+                <TextBox Name="RotationField" Text="0" AutomationProperties.Name="Rotation in degrees" ToolTip.Tip="Rotation in degrees">
+                  <TextBox.InnerLeftContent><TextBlock Text="∠" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
                 <Button Name="FlipButton" Grid.Column="2" Content="Flip horizontal" VerticalAlignment="Bottom"/>
               </Grid>
               <Button Name="AffineButton" Content="Affine transform and skew…" HorizontalContentAlignment="Left"/>
               <Border Classes="rule"/>
               <Grid ColumnDefinitions="*,28"><TextBlock Text="Layout" Classes="heading" VerticalAlignment="Center"/><Button Name="AddLayoutButton" Grid.Column="1" Content="+" ToolTip.Tip="Add auto layout"/></Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <StackPanel Spacing="4"><TextBlock Text="W" Classes="label"/><TextBox Name="WidthField" Text="0"/></StackPanel>
-                <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="H" Classes="label"/><TextBox Name="HeightField" Text="0"/></StackPanel>
+                <TextBox Name="WidthField" Text="0" AutomationProperties.Name="Width" ToolTip.Tip="Width">
+                  <TextBox.InnerLeftContent><TextBlock Text="W" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
+                <TextBox Name="HeightField" Grid.Column="2" Text="0" AutomationProperties.Name="Height" ToolTip.Tip="Height">
+                  <TextBox.InnerLeftContent><TextBlock Text="H" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
               </Grid>
               <Grid ColumnDefinitions="*,12,*">
                 <ComboBox Name="WidthSizingChoice" HorizontalAlignment="Stretch" ToolTip.Tip="Width sizing"/>
