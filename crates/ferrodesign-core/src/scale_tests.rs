@@ -247,3 +247,79 @@ fn stale_gesture_cannot_cancel_or_commit_another_transaction() {
     assert!(editor.has_active_transaction());
     editor.cancel_transaction();
 }
+
+#[test]
+fn scaling_preserves_tiled_image_period_for_fills_strokes_and_network_faces() {
+    use crate::{Fill, ImageScale, NetworkEdgeRef, Paint};
+
+    let mut document = Document::new("Tile scale");
+    let page = document.pages[0].id;
+    let crop = Some(Rect::new(0.0, 0.0, 0.5, 1.0));
+    let paint = |scale| {
+        Paint::Image {
+        href: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGH0AAAAASUVORK5CYII=".into(),
+        scale, crop,
+    }
+    };
+    let tile = Fill {
+        paint: paint(ImageScale::Tile),
+        visible: true,
+        opacity: 1.0,
+    };
+    let mut shape = Node::new(NodeKind::Rectangle, "Tiled fill", 12.0, 16.0, 40.0, 30.0);
+    shape.fills = vec![tile.clone()];
+    let fill = document.insert_node(page, shape).unwrap();
+    let mut line = Node::new(NodeKind::Line, "Tiled stroke", 80.0, 16.0, 50.0, 0.0);
+    line.strokes[0].paint = tile.paint.clone();
+    let stroke = document.insert_node(page, line).unwrap();
+    let mut face = Node::new(NodeKind::Vector, "Tiled face", 120.0, 16.0, 40.0, 30.0);
+    let mut network = VectorNetwork::default();
+    let [a, b, c] = [
+        Point::new(0.0, 0.0),
+        Point::new(40.0, 0.0),
+        Point::new(20.0, 30.0),
+    ]
+    .map(|p| network.add_vertex(p).unwrap());
+    let edges = [(a, b), (b, c), (c, a)]
+        .map(|(a, b)| NetworkEdgeRef::forward(network.connect(a, b).unwrap()));
+    let region = network.add_region(vec![edges.to_vec()]).unwrap();
+    network.regions.get_mut(&region).unwrap().fills = Some(vec![tile]);
+    face.vector_network = Some(network);
+    let face = document.insert_node(page, face).unwrap();
+    let others = [ImageScale::Fill, ImageScale::Fit, ImageScale::Stretch].map(|mode| {
+        let mut relative = Node::new(NodeKind::Rectangle, "Normalized", 0.0, 0.0, 40.0, 30.0);
+        relative.fills = vec![Fill {
+            paint: paint(mode),
+            visible: true,
+            opacity: 1.0,
+        }];
+        document.insert_node(page, relative).unwrap()
+    });
+    let mut editor = Editor::new(document);
+    editor.selection = [fill, stroke, face].into_iter().chain(others).collect();
+    for factor in [2.0, 0.25] {
+        let before = [fill, stroke, face].map(|id| {
+            editor
+                .document
+                .world_transform(id)
+                .unwrap()
+                .apply_vector(Point::new(0.5, 1.0))
+        });
+        assert!(editor.scale_selection(Point::new(10.0, 20.0), factor));
+        for (id, period) in [fill, stroke, face].into_iter().zip(before) {
+            let transformed = editor
+                .document
+                .world_transform(id)
+                .unwrap()
+                .apply_vector(Point::new(0.5, 1.0));
+            near(transformed, period * factor);
+        }
+    }
+    for id in others {
+        let node = &editor.document.nodes[&id];
+        assert_eq!((node.width, node.height), (20.0, 15.0));
+        assert!(node.affine_transform.is_none());
+        assert!(matches!(&node.fills[0].paint, Paint::Image{ crop:c, .. } if *c==crop));
+    }
+    editor.document.validate().unwrap();
+}

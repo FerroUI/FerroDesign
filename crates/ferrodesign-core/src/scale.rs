@@ -2,9 +2,9 @@
 //! lengths. Pointer samples never compound a previous preview.
 use crate::{
     parse_layout_guide_binding, parse_layout_variable_binding, Editor, EditorRenderToken,
-    EditorTransactionToken, GridTrack, LayoutGridPattern, LayoutGuideVariableField, NetworkCurve,
-    Node, NodeId, NodeKind, PathSegment, Point, Rect, Transform, MAX_EFFECT_DISTANCE,
-    MAX_EFFECT_RADIUS,
+    EditorTransactionToken, GridTrack, ImageScale, LayoutGridPattern, LayoutGuideVariableField,
+    NetworkCurve, Node, NodeId, NodeKind, Paint, PathSegment, Point, Rect, Transform,
+    MAX_EFFECT_DISTANCE, MAX_EFFECT_RADIUS,
 };
 
 #[derive(Clone, Debug)]
@@ -49,10 +49,36 @@ fn scale_roots(editor: &Editor) -> impl Iterator<Item = (NodeId, Transform, Rect
     })
 }
 
+// Tiled paints use source pixels for their period. An affine keeps the
+// number of repeats constant, including on stroked paths and network faces.
+fn contains_tiled_image(node: &Node) -> bool {
+    let region_fills = node
+        .vector_network
+        .iter()
+        .flat_map(|network| network.regions.values())
+        .filter_map(|region| region.fills.as_ref())
+        .flatten();
+    node.fills
+        .iter()
+        .chain(region_fills)
+        .map(|fill| &fill.paint)
+        .chain(node.strokes.iter().map(|stroke| &stroke.paint))
+        .any(|paint| {
+            matches!(
+                paint,
+                Paint::Image {
+                    scale: ImageScale::Tile,
+                    ..
+                }
+            )
+        })
+}
+
 // An instance's local affine survives component refresh. Applying scale at the
 // same boundary preserves linked dimensions when styles or variables change.
 fn retains_geometry(node: &Node) -> bool {
     node.kind == NodeKind::Instance
+        || contains_tiled_image(node)
         || node.text_style.is_some()
         || node.effect_style.is_some()
         || node.grid_style.is_some()
