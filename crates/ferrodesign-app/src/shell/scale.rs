@@ -3,8 +3,15 @@ use super::*;
 use ferroui_controls::MenuItem;
 
 const ANCHORS: [&str; 9] = [
-    "ScaleAnchor0", "ScaleAnchor1", "ScaleAnchor2", "ScaleAnchor3", "ScaleAnchor4",
-    "ScaleAnchor5", "ScaleAnchor6", "ScaleAnchor7", "ScaleAnchor8",
+    "ScaleAnchor0",
+    "ScaleAnchor1",
+    "ScaleAnchor2",
+    "ScaleAnchor3",
+    "ScaleAnchor4",
+    "ScaleAnchor5",
+    "ScaleAnchor6",
+    "ScaleAnchor7",
+    "ScaleAnchor8",
 ];
 
 impl EditorShell {
@@ -19,9 +26,16 @@ impl EditorShell {
                 }
             });
         }
-        self.button(ANCHORS[self.scale_anchor.get()]).classes().set("active", true);
-        for (name, factor) in [("ScaleQuarter", 0.25), ("ScaleHalf", 0.5), ("ScaleDouble", 2.0),
-                                ("ScaleTriple", 3.0), ("ScaleQuadruple", 4.0)] {
+        self.button(ANCHORS[self.scale_anchor.get()])
+            .classes()
+            .set("active", true);
+        for (name, factor) in [
+            ("ScaleQuarter", 0.25),
+            ("ScaleHalf", 0.5),
+            ("ScaleDouble", 2.0),
+            ("ScaleTriple", 3.0),
+            ("ScaleQuadruple", 4.0),
+        ] {
             let weak = Rc::downgrade(self);
             self.control::<MenuItem>(name).click(move |_, _| {
                 if let Some(shell) = weak.upgrade() {
@@ -38,7 +52,10 @@ impl EditorShell {
         self.visible("ScaleInspector", bounds.is_some());
         if let Some(bounds) = bounds {
             self.field("ScaleFactorField").set_text(Some("1"));
-            for (name, value) in [("ScaleWidthField", bounds.width), ("ScaleHeightField", bounds.height)] {
+            for (name, value) in [
+                ("ScaleWidthField", bounds.width),
+                ("ScaleHeightField", bounds.height),
+            ] {
                 self.field(name).set_text(Some(&number(value)));
                 self.field(name).set_is_enabled(value > 0.0);
             }
@@ -47,12 +64,20 @@ impl EditorShell {
     }
 
     fn apply_scale(self: &Rc<Self>, factor: f64) -> bool {
-        if self.canvas.tool.get() != Tool::Scale { return false; }
+        if self.canvas.tool.get() != Tool::Scale {
+            return false;
+        }
         let mut editor = self.editor.borrow_mut();
-        let Some(bounds) = editor.selection_scale_bounds() else { return false; };
-        if factor == 1.0 { return true; }
+        let Some(bounds) = editor.selection_scale_bounds() else {
+            return false;
+        };
+        if factor == 1.0 {
+            return true;
+        }
         let pivot = crate::canvas::scale::anchor(bounds, self.scale_anchor.get());
-        if !editor.scale_selection(pivot, factor) { return false; }
+        if !editor.scale_selection(pivot, factor) {
+            return false;
+        }
         drop(editor);
         self.changed();
         true
@@ -70,12 +95,21 @@ impl EditorShell {
         } else {
             let bounds = self.editor.borrow().selection_scale_bounds();
             bounds.and_then(|bounds| {
-                let extent = if name == "ScaleWidthField" { bounds.width } else { bounds.height };
+                let extent = if name == "ScaleWidthField" {
+                    bounds.width
+                } else {
+                    bounds.height
+                };
                 text.parse::<f64>().ok().map(|value| value / extent)
             })
         };
-        if !factor.is_some_and(|factor| factor.is_finite() && factor > 0.0 && self.apply_scale(factor)) {
-            return self.reject_inspector_field(name, "Enter a positive scale within the document limits.");
+        if !factor
+            .is_some_and(|factor| factor.is_finite() && factor > 0.0 && self.apply_scale(factor))
+        {
+            return self.reject_inspector_field(
+                name,
+                "Enter a positive scale within the document limits.",
+            );
         }
         self.field(name).set_border_brush(None);
         true
