@@ -99,12 +99,24 @@ export function ferroBytes(name, bytes, mime) {
         pub fn bytes(name: &str, bytes: &[u8], mime: &str);
     }
 }
+// Native interaction tests pump real dispatcher timers, including autosave.
+// Keep their sessions thread-local. Atomic filesystem writes have separate
+// coverage against disposable paths.
+#[cfg(all(test, not(target_os = "emscripten")))]
+thread_local! {
+    static TEST_SESSION: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
 pub fn load_document() -> String {
     #[cfg(target_os = "emscripten")]
     {
         browser::load()
     }
-    #[cfg(not(target_os = "emscripten"))]
+    #[cfg(all(test, not(target_os = "emscripten")))]
+    {
+        TEST_SESSION.with_borrow(Clone::clone)
+    }
+    #[cfg(all(not(test), not(target_os = "emscripten")))]
     {
         std::fs::read_to_string("ferrodesign-autosave.json").unwrap_or_default()
     }
@@ -114,7 +126,12 @@ pub fn save_document(text: &str) -> bool {
     {
         browser::save(text)
     }
-    #[cfg(not(target_os = "emscripten"))]
+    #[cfg(all(test, not(target_os = "emscripten")))]
+    {
+        TEST_SESSION.with_borrow_mut(|session| text.clone_into(session));
+        true
+    }
+    #[cfg(all(not(test), not(target_os = "emscripten")))]
     {
         let saved =
             write_document_atomically(std::path::Path::new("ferrodesign-autosave.json"), text)
