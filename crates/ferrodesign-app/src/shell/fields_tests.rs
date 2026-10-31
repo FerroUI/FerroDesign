@@ -11,6 +11,9 @@ use ferroui_headless::{FerroHeadlessPlatformExtensions, FerroHeadlessPlatformOpt
 use ferroui_themes_fluent::FluentTheme;
 use ferroui_vello::{VelloApplicationExtensions, VelloOptions, VelloRenderingMode};
 
+#[path = "slice_input_tests.rs"]
+mod slice_input_tests;
+
 struct Fixture {
     shell: Rc<EditorShell>,
     window: Ref<Window>,

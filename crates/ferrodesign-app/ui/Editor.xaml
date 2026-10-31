@@ -311,7 +311,7 @@
               </Grid>
               <Button Name="AffineButton" Content="Affine transform and skew…" HorizontalContentAlignment="Left"/>
               <Border Classes="rule"/>
-              <Grid ColumnDefinitions="*,28"><TextBlock Text="Layout" Classes="heading" VerticalAlignment="Center"/><Button Name="AddLayoutButton" Grid.Column="1" Content="+" ToolTip.Tip="Add auto layout"/></Grid>
+              <Grid ColumnDefinitions="*,28"><TextBlock Name="DimensionsTitle" Text="Layout" Classes="heading" VerticalAlignment="Center"/><Button Name="AddLayoutButton" Grid.Column="1" Content="+" ToolTip.Tip="Add auto layout"/></Grid>
               <Grid ColumnDefinitions="*,12,*">
                 <TextBox Name="WidthField" Text="0" AutomationProperties.Name="Width" ToolTip.Tip="Width">
                   <TextBox.InnerLeftContent><TextBlock Text="W" Classes="field-prefix"/></TextBox.InnerLeftContent>
@@ -320,6 +320,9 @@
                   <TextBox.InnerLeftContent><TextBlock Text="H" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
               </Grid>
+              <TextBlock Name="SliceHint" IsVisible="False" Classes="label" TextWrapping="Wrap"
+                         Text="The export includes visible artwork inside these bounds. Empty areas stay transparent."/>
+              <StackPanel Name="ArtworkOptions" Spacing="8">
               <Grid ColumnDefinitions="*,12,*">
                 <ComboBox Name="WidthSizingChoice" HorizontalAlignment="Stretch" ToolTip.Tip="Width sizing"/>
                 <ComboBox Name="HeightSizingChoice" Grid.Column="2" HorizontalAlignment="Stretch" ToolTip.Tip="Height sizing"/>
@@ -436,6 +439,7 @@
               <Grid ColumnDefinitions="*,28"><TextBlock Text="Component" Classes="heading" VerticalAlignment="Center"/><Button Name="CreateComponentButton" Grid.Column="1" ToolTip.Tip="Create component"/></Grid>
               <UniformGrid Columns="2"><Button Name="CreateInstanceButton" Content="Create instance"/><Button Name="DetachButton" Content="Detach instance"/></UniformGrid>
               <Button Name="EditComponentsButton" Content="Properties and variants…" HorizontalAlignment="Stretch"/>
+              </StackPanel>
             </StackPanel>
             <StackPanel Name="PrototypeInspector" IsVisible="False" Spacing="12">
               <Border Classes="rule"/><TextBlock Text="Interactions" Classes="heading"/>

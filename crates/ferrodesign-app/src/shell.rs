@@ -1320,6 +1320,12 @@ impl EditorShell {
             .selection
             .first()
             .and_then(|id| editor.document.nodes.get(id));
+        let slices_only = !editor.selection.is_empty() && editor.selection.iter()
+            .all(|id| editor.document.nodes.get(id).is_some_and(|node| node.kind == NodeKind::Slice));
+        self.visible("SliceHint", slices_only);
+        self.visible("ArtworkOptions", !slices_only);
+        self.visible("AddLayoutButton", !slices_only);
+        self.text("DimensionsTitle", if slices_only { "Export bounds" } else { "Layout" });
         self.refresh_constraint_diagram(node);
         let scaling = self.sync_scale_panel(&editor);
         self.visible("DesignInspector", !scaling && self.inspector_tab.get() == 0 && node.is_some());
