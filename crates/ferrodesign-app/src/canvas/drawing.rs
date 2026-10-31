@@ -163,7 +163,7 @@ impl ShapeDrag {
     }
 }
 
-fn constrained_delta(delta: Point, line: bool) -> Point {
+pub(super) fn constrained_delta(delta: Point, line: bool) -> Point {
     if line {
         // Choose the nearest of the eight compass directions. Project onto
         // that ray so horizontal/vertical lines have an exactly zero extent.

@@ -1,5 +1,6 @@
 //! Interactive retained-mode surface. Artwork uses only FerroUI's public DrawingContext API.
 mod drawing;
+mod line_endpoint;
 mod network;
 mod network_bucket;
 mod grids;
@@ -139,6 +140,7 @@ enum Gesture {
         additive: bool,
     },
     Draw(drawing::ShapeDrag),
+    LineEndpoint(line_endpoint::EndpointDrag),
     Pencil {
         id: NodeId,
         origin: Point,
@@ -714,12 +716,19 @@ impl DesignCanvas {
         }
         let id = editor.selection[0];
         let node = editor.document.nodes.get(&id)?;
-        if node.locked {
+        if editor.document.effective_locked(id) {
             return None;
         }
         let transform = editor.document.world_transform(id)?;
         let corners = node.local_bounds().corners().map(|p| transform.apply(p));
         let tolerance = 8.0 / self.viewport.get().zoom;
+        if node.kind == NodeKind::Line {
+            return [2, 0].into_iter()
+                .map(|i| (i, corners[i].distance(p)))
+                .filter(|(_, distance)| *distance < tolerance)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(i, _)| i);
+        }
         for (i, c) in corners.iter().enumerate() {
             if c.distance(p) < tolerance {
                 return Some(i);
@@ -847,7 +856,12 @@ impl InputElementImpl for DesignCanvas {
                     let mut editor = this.editor.borrow_mut();
                     let id = editor.selection[0];
                     let node = editor.document.nodes[&id].clone();
-                    if corner == 4 {
+                    if node.kind == NodeKind::Line {
+                        if let Some(drag) = line_endpoint::EndpointDrag::new(&editor, node, corner == 0, world) {
+                            editor.begin_node_transaction(&[id], "Move line endpoint");
+                            *this.gesture.borrow_mut() = Gesture::LineEndpoint(drag);
+                        }
+                    } else if corner == 4 {
                         let center = editor
                             .document
                             .world_transform(id)
@@ -1244,6 +1258,7 @@ impl InputElementImpl for DesignCanvas {
             }
             Gesture::Marquee { current, .. } => *current = world,
             Gesture::Draw(drag) => drag.update(this, world, e.key_modifiers(), false),
+            Gesture::LineEndpoint(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::Pencil { id, origin } => {
                 let local = world - *origin;
                 let mut editor = this.editor.borrow_mut();
@@ -1417,9 +1432,11 @@ impl InputElementImpl for DesignCanvas {
             return;
         }
         let mut gesture = std::mem::replace(&mut *this.gesture.borrow_mut(), Gesture::None);
-        if let Gesture::Draw(drag) = &mut gesture {
-            // Hosts may coalesce the last move into the release event.
-            drag.update(this, this.world(release_screen), e.key_modifiers(), true);
+        // Hosts may coalesce the last move into the release event.
+        match &mut gesture {
+            Gesture::Draw(drag) => drag.update(this, this.world(release_screen), e.key_modifiers(), true),
+            Gesture::LineEndpoint(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
+            _ => {}
         }
         this.snap_guides.set((None, None));
         this.layout_grids.borrow_mut().clear_snap();
@@ -1456,6 +1473,7 @@ impl InputElementImpl for DesignCanvas {
                 }
             }
             Gesture::Move { .. }
+            | Gesture::LineEndpoint(_)
             | Gesture::Resize { .. }
             | Gesture::Rotate { .. }
             | Gesture::VectorPoint { .. }
@@ -2164,6 +2182,15 @@ impl VisualImpl for DesignCanvas {
                 .local_bounds()
                 .corners()
                 .map(|p| v.world_to_screen(t.apply(p)));
+            if n.kind == NodeKind::Line {
+                ctx.draw_line(&blue, ui(corners[0]), ui(corners[2]));
+                if editor.selection.len() == 1 && !doc.effective_locked(id) {
+                    for point in [corners[0], corners[2]] {
+                        ctx.draw_ellipse_at(Some(&white), Some(&blue), ui(point), 3.5, 3.5);
+                    }
+                }
+                continue;
+            }
             for i in 0..4 {
                 ctx.draw_line(&blue, ui(corners[i]), ui(corners[(i + 1) % 4]));
             }
