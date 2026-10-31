@@ -2038,7 +2038,9 @@ impl VisualImpl for DesignCanvas {
         let mut v = this.viewport.get();
         v.width = bounds.width;
         v.height = bounds.height;
-        if v.width <= 0.0 || v.height <= 0.0 {
+        // The browser surface reports 1×1 until its first real resize. A
+        // placeholder frame must not consume the pending document fit.
+        if v.width <= 1.0 || v.height <= 1.0 {
             return;
         }
         let editor = this.editor.borrow();

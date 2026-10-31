@@ -572,3 +572,33 @@ mod toolbar_input_tests;
 
 #[path = "layer_rename_tests.rs"]
 mod layer_rename_tests;
+
+#[test]
+fn native_initial_document_fit_waits_for_the_real_surface_extent() {
+    let fixture = Fixture::new(false);
+    let canvas = &fixture.shell.canvas;
+    canvas.set_width(1.0);
+    canvas.set_height(1.0);
+    canvas.reset_fit();
+    fixture.window.capture_rendered_frame().unwrap();
+    assert_eq!((canvas.bounds().width, canvas.bounds().height), (1.0, 1.0));
+
+    canvas.set_width(1016.0);
+    canvas.set_height(640.0);
+    fixture.window.capture_rendered_frame().unwrap();
+    let actual = canvas.viewport.get();
+    let mut expected = actual;
+    let bounds = fixture.shell.editor.borrow().document.world_bounds(fixture.id).unwrap();
+    expected.fit(bounds, 65.0);
+    expected.pan.y -= 22.0;
+    assert_eq!(actual.zoom, expected.zoom);
+    assert_eq!(actual.pan, expected.pan);
+
+    let center = actual.world_to_screen(bounds.center());
+    let click = canvas.translate_point(ferroui_base::Point::new(center.x, center.y), &fixture.window).unwrap();
+    fixture.shell.editor.borrow_mut().selection.clear();
+    fixture.window.mouse_move(click, RawInputModifiers::NONE);
+    fixture.window.mouse_down(click, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.mouse_up(click, MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(fixture.shell.editor.borrow().selection, [fixture.id]);
+}
