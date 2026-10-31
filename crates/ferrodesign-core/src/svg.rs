@@ -740,6 +740,16 @@ impl Document {
         });
         roots.dedup();
         roots.retain(|id| self.nodes.get(id).is_some_and(|node| node.kind != NodeKind::Slice));
+        if let Some(slice) = slice {
+            // Preserve mask scopes in painter order; a disjoint mask can still
+            // suppress artwork within the slice. Ordinary disjoint top-level
+            // subtrees need not be serialized into the exported asset.
+            roots.retain(|id| {
+                let node = &self.nodes[id];
+                node.visible && (node.is_mask || self.world_transform(*id).is_some_and(|world|
+                    world.transform_rect(self.svg_ink_bounds(*id, 0)).intersects(slice.world_bounds)))
+            });
+        }
         let bounds = slice.map(|slice| slice.local).unwrap_or_else(|| roots
             .iter()
             .filter_map(|id| self.world_transform(*id)
@@ -776,7 +786,7 @@ impl Document {
             &projected
         };
         document.export_svg_siblings(
-            if selection.is_empty() || needs_mask_context {
+            if slice.is_none() && (selection.is_empty() || needs_mask_context) {
                 document.children(page).unwrap_or_default()
             } else {
                 &roots
@@ -791,15 +801,17 @@ impl Document {
         if let Some(slice) = slice {
             body = format!(r#"<g transform="{}">{}</g>"#, matrix(slice.world_to_local), body);
         }
+        let (width, height) = if slice.is_some() { (bounds.width, bounds.height) }
+            else { (bounds.width.max(1.0), bounds.height.max(1.0)) };
         let source = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{}" height="{}" viewBox="{} {} {} {}" role="img" aria-label="{}"><title>{}</title><defs>{}</defs>{}</svg>"#,
-            number(bounds.width.max(1.0)),
-            number(bounds.height.max(1.0)),
+            number(width),
+            number(height),
             number(bounds.x),
             number(bounds.y),
-            number(bounds.width.max(1.0)),
-            number(bounds.height.max(1.0)),
+            number(width),
+            number(height),
             escape_xml(&self.name),
             escape_xml(&self.name),
             defs,

@@ -23,6 +23,7 @@ mod workspace;
 mod vector_export;
 mod text_export;
 mod stroke_profiles;
+mod slice_export;
 use crate::{
     canvas::{CanvasEvent, DesignCanvas, Tool},
     icons, platform,
@@ -2273,32 +2274,8 @@ impl EditorShell {
                 self.import_dialog();
                 return true;
             }
-            "export-svg" => {
-                let report = {
-                    let editor = self.editor.borrow();
-                    editor.document.export_svg_report(editor.active_page, &editor.selection)
-                };
-                platform::download("FerroDesign.svg", &report.source, "image/svg+xml");
-                self.close_modal();
-                if let Some(first) = report.warnings.first() {
-                    let message = if report.warnings.len() == 1 {
-                        first.clone()
-                    } else {
-                        format!("{} ({} export warnings.)", first, report.warnings.len())
-                    };
-                    self.toast(&message);
-                }
-                return true;
-            }
-            "export-png" => {
-                match self.canvas.export_png() {
-                    Ok(bytes) => {
-                        if !platform::download_bytes("FerroDesign.png", &bytes, "image/png") {
-                            self.toast("Could not save the PNG.");
-                        }
-                    }
-                    Err(message) => self.toast(&message),
-                }
+            "export-svg" | "export-png" => {
+                self.export_artwork(command == "export-svg");
                 return true;
             }
             "copy-css" => {

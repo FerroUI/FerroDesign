@@ -939,8 +939,11 @@ impl Editor {
             .reduce(|a, b| a.union(b))
     }
     pub fn root_selection(&self) -> Vec<NodeId> {
-        let selected: BTreeSet<_> = self.selection.iter().copied().collect();
-        self.selection
+        self.root_selection_for(&self.selection)
+    }
+    pub fn root_selection_for(&self, ids: &[NodeId]) -> Vec<NodeId> {
+        let selected: BTreeSet<_> = ids.iter().copied().collect();
+        ids
             .iter()
             .filter(|id| {
                 !self.document.effective_locked(**id)

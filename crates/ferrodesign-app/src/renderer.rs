@@ -2017,7 +2017,7 @@ fn core_rect(rect: UiRect) -> Rect {
     Rect::new(rect.x, rect.y, rect.width, rect.height)
 }
 
-fn ui_matrix(transform: Transform) -> Matrix {
+pub(crate) fn ui_matrix(transform: Transform) -> Matrix {
     Matrix::new(
         transform.a,
         transform.b,

@@ -403,26 +403,29 @@ impl DesignCanvas {
     pub fn register_image_data(&self, href: &str) -> std::io::Result<(f64, f64)> {
         self.painter.borrow_mut().register_image_data(href)
     }
-    pub fn export_png(&self) -> Result<Vec<u8>, String> {
+    pub fn export_png_for(&self, selection: &[NodeId]) -> Result<Vec<u8>, String> {
         use ferroui_base::media::imaging::{
             BitmapEncoderOptions, PngBitmapEncoderOptions, RenderTargetBitmap,
         };
         use ferroui_base::PixelSize;
         let editor = self.editor.borrow();
-        let roots = if editor.selection.is_empty() {
-            editor
-                .document
-                .page(editor.active_page)
-                .map(|p| p.children.clone())
-                .unwrap_or_default()
+        let doc = &editor.document;
+        let slice = doc.export_slice(editor.active_page, selection);
+        if let [id] = selection {
+            if doc.nodes.get(id).is_some_and(|node| node.kind == NodeKind::Slice) && slice.is_none() {
+                return Err("This slice has empty or singular bounds.".into());
+            }
+        }
+        let roots = if slice.is_some() || selection.is_empty() {
+            doc.page(editor.active_page).map(|p| p.children.clone()).unwrap_or_default()
         } else {
-            editor.root_selection()
+            editor.root_selection_for(selection)
         };
-        let bounds = self
-            .painter
-            .borrow_mut()
-            .rendered_editor_bounds(&editor, &roots)
-            .ok_or_else(|| "There are no layers to export.".to_string())?;
+        let bounds = match slice {
+            Some(slice) => slice.local,
+            None => self.painter.borrow_mut().rendered_editor_bounds(&editor, &roots)
+                .ok_or_else(|| "There are no layers to export.".to_string())?,
+        };
         let width = bounds.width.ceil().max(1.0);
         let height = bounds.height.ceil().max(1.0);
         if width > 16384.0 || height > 16384.0 || width * height > 32_000_000.0 {
@@ -431,14 +434,17 @@ impl DesignCanvas {
         let bitmap = RenderTargetBitmap::new(PixelSize::new(width as i32, height as i32));
         {
             let mut context = bitmap.create_drawing_context();
-            let transform =
-                context.push_transform(Matrix::create_translation(-bounds.x, -bounds.y));
+            let clip = slice.map(|slice| context.push_clip(rect(slice.local)));
+            let matrix = slice.map_or_else(|| Matrix::create_translation(-bounds.x, -bounds.y),
+                |s| crate::renderer::ui_matrix(s.world_to_local));
+            let transform = context.push_transform(matrix);
             let mut painter = self.painter.borrow_mut();
             // This export has one output pixel per document unit. Canvas zoom
             // and the window's display density must not affect the saved PNG.
             painter.set_raster_scale(1.0);
-            painter.render_editor(&mut context, &editor, &roots, bounds);
+            painter.render_editor(&mut context, &editor, &roots, slice.map_or(bounds, |s| s.world_bounds));
             context.pop(transform);
+            if let Some(clip) = clip { context.pop(clip); }
             context.dispose();
         }
         let mut bytes = Vec::new();
