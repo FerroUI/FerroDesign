@@ -1744,6 +1744,7 @@ impl InputElementImpl for DesignCanvas {
                 }),
                 Key::S => Some("save"),
                 Key::O => Some("open"),
+                Key::R if !alt && !shift => Some("rename-layer"),
                 Key::OemQuestion if !alt && !shift => Some("actions"),
                 Key::K => Some(if shift {
                     "place-image"
@@ -1757,6 +1758,7 @@ impl InputElementImpl for DesignCanvas {
         } else {
             match e.key {
                 Key::Delete | Key::Back => Some("delete"),
+                Key::F2 => Some("rename-layer"),
                 Key::V => Some("select"),
                 Key::F => Some(if shift { "section" } else { "frame" }),
                 Key::R => Some("rectangle"),

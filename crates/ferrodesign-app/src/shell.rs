@@ -12,6 +12,7 @@ mod compositing;
 mod components;
 mod layout;
 mod layer_projection;
+mod layer_rename;
 mod prototyping;
 mod rich_text;
 mod text;
@@ -1211,6 +1212,9 @@ impl EditorShell {
         ));
         if row.has_children {
             let collapse = Button::new();
+            let verb = if row.expanded { "Collapse" } else { "Expand" };
+            ferroui_controls::automation::AutomationProperties::set_name(
+                &collapse, Some(&format!("{verb} {}", row.name)));
             collapse.set_min_width(20.0);
             collapse.set_padding(Thickness::uniform(0.0));
             collapse.set_content(Some(Control::boxed(icons::icon(
@@ -1238,6 +1242,8 @@ impl EditorShell {
         }
         let button = Button::new();
         button.classes().add("layer");
+        ferroui_controls::automation::AutomationProperties::set_name(&button, Some(&row.name));
+        ferroui_controls::ToolTip::set_tip(&button, Some(Rc::new(row.name.clone())));
         button
             .classes()
             .set("active", self.editor.borrow().selection.contains(&id));
@@ -1946,6 +1952,7 @@ impl EditorShell {
             return true;
         }
         match command {
+            "rename-layer" => return self.rename_selected_layer(),
             "select-matching" => { self.select_matching_dialog(); return true; }
             "select-same-properties" => return self.select_same(core::SelectionMatch::Appearance),
             "select-same-fill" => return self.select_same(core::SelectionMatch::Fill),
@@ -3306,6 +3313,7 @@ const FILE_ACTIONS: &[(&str, &str)] = &[
     ("Present prototype", "present"),
 ];
 const LAYER_ACTIONS: &[(&str, &str)] = &[
+    ("Rename layer  F2", "rename-layer"),
     ("Select layer under pointer…", "select-layer"),
     ("Select same properties…", "select-matching"),
     ("Select inverse  Ctrl+Shift+A", "select-inverse"),
@@ -3358,6 +3366,7 @@ const LAYER_ACTIONS: &[(&str, &str)] = &[
 ];
 const ACTIONS: &[(&str, &str)] = &[
     ("Move / Select  V", "select"),
+    ("Rename layer  F2", "rename-layer"),
     ("Scale  K", "scale"),
     ("Select groups · toggle", "toggle-select-groups"),
     ("Select layer under pointer…", "select-layer"),

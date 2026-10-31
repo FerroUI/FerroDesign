@@ -73,6 +73,10 @@ impl LayerProjection {
         editor.select(id, modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META));
     }
 
+    pub(super) fn index_of(&self, id: NodeId) -> Option<usize> {
+        self.indices.get(&id).copied()
+    }
+
     pub(super) fn stats(&self) -> LayerProjectionStats {
         self.stats
     }

@@ -26,14 +26,21 @@ impl EditorShell {
         // Button raises Click during the bubble phase of a successful release.
         // Keep that hit testing and keyboard/automation activation in the control.
         let modifiers = Rc::new(Cell::new(KeyModifiers::empty()));
+        let second_press = Rc::new(Cell::new(false));
         if !asset {
+            let presses = second_press.clone();
+            button.add_handler_with(InputElement::pointer_pressed_event(), move |_, event| {
+                presses.set(event.click_count() == 2 && event.properties().is_left_button_pressed);
+            }, RoutingStrategies::TUNNEL, true);
             let before = modifiers.clone();
             button.add_handler_with(InputElement::pointer_released_event(), move |_, event| {
                 before.set(event.key_modifiers());
             }, RoutingStrategies::TUNNEL, true);
             let after = modifiers.clone();
+            let released = second_press.clone();
             button.add_handler_with(InputElement::pointer_released_event(), move |_, _| {
                 after.set(KeyModifiers::empty());
+                released.set(false);
             }, RoutingStrategies::BUBBLE, true);
         }
         let weak = Rc::downgrade(self);
@@ -46,9 +53,12 @@ impl EditorShell {
                 shell.editor.borrow_mut().create_instance(id, point.x, point.y);
                 shell.changed();
             } else {
+                let rename = second_press.get() && modifiers.get().is_empty()
+                    && shell.editor.borrow().selection.as_slice() == [id];
                 shell.layer_projection.borrow().select_row(&mut shell.editor.borrow_mut(), id, modifiers.get());
                 shell.refresh_selection();
                 shell.canvas.invalidate_visual();
+                if rename && shell.rename_selected_layer() { return; }
             }
             shell.canvas.focus();
         });
