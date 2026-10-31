@@ -15,6 +15,7 @@ mod prototyping;
 mod rich_text;
 mod text;
 mod variables;
+mod zoom;
 mod vector_export;
 mod text_export;
 mod stroke_profiles;
@@ -69,6 +70,7 @@ pub struct EditorShell {
     page_rows: RefCell<Vec<(NodeId, String)>>,
     assets: Cell<bool>,
     inspector_tab: Cell<u8>,
+    displayed_zoom: Cell<Option<i32>>,
     prototype_targets: RefCell<Vec<NodeId>>,
     prototype: Rc<PrototypeRuntime>,
     pending_save: Cell<bool>,
@@ -129,6 +131,7 @@ impl EditorShell {
             page_rows: RefCell::new(Vec::new()),
             assets: Cell::new(false),
             inspector_tab: Cell::new(0),
+            displayed_zoom: Cell::new(None),
             prototype_targets: RefCell::new(Vec::new()),
             prototype,
             pending_save: Cell::new(false),
@@ -216,6 +219,7 @@ impl EditorShell {
     }
     fn wire(self: &Rc<Self>) {
         self.wire_inline_text();
+        self.wire_zoom();
         self.wire_panels();
         self.wire_geometry_authoring();
         self.wire_stroke_profiles();
@@ -481,7 +485,6 @@ impl EditorShell {
             ("ExportSvgButton", "export-svg"),
             ("ExportPngButton", "export-png"),
             ("ZoomOutButton", "zoom-out"),
-            ("ZoomValueButton", "fit"),
             ("ZoomInButton", "zoom-in"),
             ("CloseModalButton", "close-modal"),
             ("EditVectorButton", "edit-vector"),
@@ -997,13 +1000,6 @@ impl EditorShell {
         self.pending_save.set(false);
         platform::set_document_serialization_pending(false);
         self.text("DocumentStatus", &platform::document_save_status());
-    }
-    fn sync_zoom(&self) {
-        self.button("ZoomValueButton")
-            .set_content(Some(Rc::new(format!(
-                "{}%",
-                (self.canvas.viewport.get().zoom * 100.0).round()
-            ))));
     }
     fn sync_tools(&self) {
         let active = self.canvas.tool.get();
@@ -2067,6 +2063,11 @@ impl EditorShell {
             }
             "fit" => {
                 self.canvas.reset_fit();
+                self.canvas.focus();
+                return true;
+            }
+            "actual-size" => {
+                self.canvas.set_zoom(1.0);
                 self.canvas.focus();
                 return true;
             }
@@ -3453,7 +3454,8 @@ const ACTIONS: &[(&str, &str)] = &[
     ("Layout grid guides…", "layout-grid-settings"),
     ("Toggle rulers", "rulers"),
     ("Toggle pixel and object snapping", "snapping"),
-    ("Zoom to fit  1", "fit"),
-    ("Zoom to selection  2", "fit-selection"),
+    ("Zoom to 100%  Shift+0", "actual-size"),
+    ("Zoom to fit  Shift+1", "fit"),
+    ("Zoom to selection  Shift+2", "fit-selection"),
     ("Layer data…", "advanced"),
 ];

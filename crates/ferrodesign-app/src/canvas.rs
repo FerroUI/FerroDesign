@@ -19,7 +19,7 @@ use ferrodesign_core::{
     Point, Rect, VectorPath, Viewport,
 };
 use ferroui_base::input::{
-    InputElement, InputElementImpl, InputElementImplExt, Key, KeyEventArgs, KeyModifiers,
+    FocusChangedEventArgs, InputElement, InputElementImpl, InputElementImplExt, Key, KeyEventArgs, KeyModifiers,
     PointerCaptureLostEventArgs, PointerEventArgs, PointerPressedEventArgs,
     PointerReleasedEventArgs, PointerWheelEventArgs,
 };
@@ -116,10 +116,7 @@ pub enum CanvasEvent {
 }
 enum Gesture {
     None,
-    Pan {
-        start: Point,
-        original: Point,
-    },
+    Pan { previous: Point },
     Move {
         start: Point,
         nodes: Vec<Node>,
@@ -329,17 +326,36 @@ impl DesignCanvas {
         self.initialized.set(false);
         self.invalidate_visual();
     }
-    pub fn zoom(&self, factor: f64) {
+    pub fn set_zoom(&self, zoom: f64) {
         self.cancel_linear_gradient_gesture();
         self.clear_gradient_hover();
         self.cancel_corner_radius_gesture();
         self.clear_corner_radius_hover();
         self.cancel_layout_drag();
         let mut v = self.viewport.get();
-        v.zoom_at(Point::new(v.width / 2.0, v.height / 2.0), v.zoom * factor);
-        self.viewport.set(v);
-        self.invalidate_visual();
-        self.emit(CanvasEvent::Camera);
+        v.zoom_at(Point::new(v.width / 2.0, v.height / 2.0), zoom);
+        self.update_camera(v);
+    }
+    pub fn zoom(&self, factor: f64) {
+        self.set_zoom(self.viewport.get().zoom * factor);
+    }
+    fn update_camera(&self, viewport: Viewport) {
+        if self.viewport.replace(viewport) != viewport {
+            self.invalidate_visual();
+            self.emit(CanvasEvent::Camera);
+        }
+    }
+    fn pan_pointer(&self, screen: Point) -> bool {
+        // A captured pan is independent of the document. In particular, do not
+        // run vector/gradient hover probes while dragging over their handles.
+        let delta = match &mut *self.gesture.borrow_mut() {
+            Gesture::Pan { previous } => screen - std::mem::replace(previous, screen),
+            _ => return false,
+        };
+        let mut viewport = self.viewport.get();
+        viewport.pan = viewport.pan + delta;
+        self.update_camera(viewport);
+        true
     }
     pub fn zoom_to_selection(&self) {
         self.cancel_linear_gradient_gesture();
@@ -795,10 +811,8 @@ impl InputElementImpl for DesignCanvas {
             || this.tool.get() == Tool::Hand
             || e.properties().is_middle_button_pressed
         {
-            *this.gesture.borrow_mut() = Gesture::Pan {
-                start: screen,
-                original: this.viewport.get().pan,
-            };
+            *this.gesture.borrow_mut() = Gesture::Pan { previous: screen };
+            if this.hover.take().is_some() { this.invalidate_visual(); }
             return;
         }
         if this.linear_gradient_press(world, e.click_count()) { return; }
@@ -1008,11 +1022,22 @@ impl InputElementImpl for DesignCanvas {
     fn on_pointer_moved(this: &Self, e: &PointerEventArgs) {
         Self::parent_on_pointer_moved(this, e);
         let screen = e.get_position(Some(this));
-        this.selection_pointer.set(Some(Point::new(screen.x, screen.y)));
+        let position = Point::new(screen.x, screen.y);
+        this.selection_pointer.set(Some(position));
+        if this.presentation.get().is_none() {
+            if this.pan_pointer(position) {
+                e.set_handled(true);
+                return;
+            }
+            if (this.space.get() || this.tool.get() == Tool::Hand)
+                && matches!(*this.gesture.borrow(), Gesture::None)
+            {
+                return;
+            }
+        }
         let world = this.world(screen);
         if this.presentation.get().is_some() {
             this.emit(CanvasEvent::PrototypePointerMoved(Point::new(screen.x, screen.y)));
-            let world = this.world(screen);
             let hover = this.prototype_pick(world);
             let previous = this.hover.replace(hover);
             if previous != hover {
@@ -1042,7 +1067,6 @@ impl InputElementImpl for DesignCanvas {
             if this.hover.take().is_some() { this.invalidate_visual(); }
             return;
         }
-        let mut camera_changed = false;
         let mut gesture = this.gesture.borrow_mut();
         match &mut *gesture {
             Gesture::None => {
@@ -1052,12 +1076,7 @@ impl InputElementImpl for DesignCanvas {
                 }
                 return;
             }
-            Gesture::Pan { start, original } => {
-                let mut v = this.viewport.get();
-                v.pan = *original + Point::new(screen.x - start.x, screen.y - start.y);
-                this.viewport.set(v);
-                camera_changed = true;
-            }
+            Gesture::Pan { .. } => return, // Handled before tool hit testing.
             Gesture::Move {
                 start,
                 nodes,
@@ -1318,9 +1337,6 @@ impl InputElementImpl for DesignCanvas {
         }
         drop(gesture);
         this.invalidate_visual();
-        if camera_changed {
-            this.emit(CanvasEvent::Camera);
-        }
     }
     fn on_pointer_released(this: &Self, e: &PointerReleasedEventArgs) {
         Self::parent_on_pointer_released(this, e);
@@ -1339,8 +1355,15 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
+        let screen = e.get_position(Some(this));
+        if this.pan_pointer(Point::new(screen.x, screen.y)) {
+            *this.gesture.borrow_mut() = Gesture::None;
+            e.pointer().capture(None);
+            e.set_handled(true);
+            return;
+        }
         if this.linear_gradient_active() {
-            this.linear_gradient_move(this.world(e.get_position(Some(this))));
+            this.linear_gradient_move(this.world(screen));
         }
         if this.finish_linear_gradient_edit() {
             e.pointer().capture(None);
@@ -1439,6 +1462,12 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_pointer_capture_lost(this: &Self, e: &PointerCaptureLostEventArgs) {
         Self::parent_on_pointer_capture_lost(this, e);
+        if matches!(*this.gesture.borrow(), Gesture::Pan { .. }) {
+            // A temporary hand drag can coexist with an unfinished pen path.
+            // Losing camera capture must never roll back that transaction.
+            *this.gesture.borrow_mut() = Gesture::None;
+            return;
+        }
         if this.cancel_linear_gradient_gesture() { return; }
         if this.cancel_corner_radius_gesture() { return; }
         if this.cancel_stroke_width_gesture() { return; }
@@ -1494,9 +1523,12 @@ impl InputElementImpl for DesignCanvas {
         } else {
             v.pan = v.pan + Point::new(e.delta().x * 36.0, e.delta().y * 36.0);
         }
-        this.viewport.set(v);
-        this.invalidate_visual();
-        this.emit(CanvasEvent::Camera);
+        this.update_camera(v);
+    }
+    fn on_lost_focus(this: &Self, e: &FocusChangedEventArgs) {
+        Self::parent_on_lost_focus(this, e);
+        // KeyUp is routed to the new focus owner.
+        this.space.set(false);
     }
     fn on_key_down(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_down(this, e);
@@ -1521,6 +1553,11 @@ impl InputElementImpl for DesignCanvas {
             return;
         }
         if e.key == Key::Space {
+            if this.space.replace(true) {
+                e.set_handled(true);
+                return;
+            }
+            if this.hover.take().is_some() { this.invalidate_visual(); }
             this.cancel_linear_gradient_gesture();
             this.clear_gradient_hover();
             this.cancel_corner_radius_gesture();
@@ -1529,7 +1566,6 @@ impl InputElementImpl for DesignCanvas {
             this.clear_stroke_width_hover();
             this.cancel_network_bucket_gesture();
             this.clear_bucket_hover();
-            this.space.set(true);
             e.set_handled(true);
             return;
         }
@@ -1589,6 +1625,8 @@ impl InputElementImpl for DesignCanvas {
         }
         let action = if command {
             match e.key {
+                Key::Add | Key::OemPlus if !alt => Some("zoom-in"),
+                Key::Subtract | Key::OemMinus if !alt => Some("zoom-out"),
                 Key::Z => Some(if shift { "redo" } else { "undo" }),
                 Key::Y => Some("redo"),
                 Key::C => Some("copy"),
@@ -1629,6 +1667,9 @@ impl InputElementImpl for DesignCanvas {
                 Key::C => Some("comment"),
                 Key::A if shift => Some("auto-layout"),
                 Key::S if shift => Some("section"),
+                Key::Add | Key::OemPlus if !alt => Some("zoom-in"),
+                Key::Subtract | Key::OemMinus if !alt => Some("zoom-out"),
+                Key::D0 if shift && !alt => Some("actual-size"),
                 Key::D1 => Some("fit"),
                 Key::D2 => Some("fit-selection"),
                 Key::K => Some("actions"),
