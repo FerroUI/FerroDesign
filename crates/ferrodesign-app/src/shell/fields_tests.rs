@@ -363,3 +363,65 @@ fn native_compact_workspace_overlays_drawers_without_moving_the_artboard() {
     assert_eq!(shell.editor.borrow().selection, selection);
     assert_eq!(fixture.json(), before);
 }
+
+#[test]
+fn native_scale_inspector_and_handle_share_undo_and_cancel() {
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let canvas = &shell.canvas;
+    let key = |key| {
+        assert!(canvas.focus());
+        let mut event = KeyEventArgs::new();
+        event.set_routed_event(Some(InputElement::key_down_event()));
+        event.key = key;
+        canvas.raise_event(&event);
+        assert!(event.handled());
+    };
+    let bounds = || shell.editor.borrow().selection_scale_bounds().unwrap();
+    let before = fixture.json();
+    fixture.window.capture_rendered_frame().unwrap();
+    key(Key::K);
+    fixture.window.capture_rendered_frame().unwrap();
+    assert_eq!(canvas.tool.get(), Tool::Scale);
+    assert!(shell.control::<StackPanel>("ScaleInspector").is_effectively_visible());
+    let original = bounds();
+    fixture.click_button(&shell.button("ScaleAnchor0"), RawInputModifiers::NONE);
+    let field = shell.field("ScaleFactorField");
+    assert!(field.focus());
+    field.set_text(Some("150%"));
+    fixture.key(&field, Key::Enter);
+    assert_eq!(bounds(), core::Rect::new(original.x, original.y, original.width * 1.5, original.height * 1.5));
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+
+    // Keep target coordinates exact in the headless pointer device.
+    let mut view = canvas.viewport.get();
+    view.zoom = 1.0;
+    view.pan = Point::new(80.0, 80.0);
+    canvas.viewport.set(view);
+    canvas.invalidate_visual();
+    fixture.window.capture_rendered_frame().unwrap();
+    let screen = |world: Point| {
+        let p = view.world_to_screen(world);
+        canvas.translate_point(ferroui_base::Point::new(p.x, p.y), &fixture.window).unwrap()
+    };
+    let corner = original.corners()[2];
+    let press = screen(corner);
+    let release = screen(corner + Point::new(original.width * 0.5, original.height * 0.5));
+    fixture.window.mouse_move(press, RawInputModifiers::NONE);
+    fixture.window.mouse_down(press, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.mouse_move(release, RawInputModifiers::LEFT_MOUSE_BUTTON);
+    assert_eq!(bounds().width, original.width * 1.5);
+    key(Key::Escape);
+    fixture.window.mouse_up(release, MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(fixture.json(), before, "Escape restores the original and the late release cannot commit it");
+    fixture.window.mouse_move(press, RawInputModifiers::NONE);
+    fixture.window.mouse_down(press, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.mouse_up(release, MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(bounds().width, original.width * 1.5, "coalesced pointer-up supplies the final geometry");
+    assert_eq!(canvas.tool.get(), Tool::Scale);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+    fixture.stop_save_timer();
+}

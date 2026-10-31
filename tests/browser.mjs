@@ -1190,14 +1190,14 @@ try {
             await frames(page);
             const compact = await state(page);
             assertInside(compact.chrome.Toolbar, compact.chrome.CanvasHost, "Floating toolbar");
-            for (const name of ["SelectTool", "FrameTool", "RegionToolMenu", "RectTool", "ShapeToolMenu", "PenTool", "DrawingToolMenu", "TextTool", "HandTool", "CommentTool", "ActionsButton"]) {
+            for (const name of ["SelectTool", "MoveToolMenu", "FrameTool", "RegionToolMenu", "RectTool", "ShapeToolMenu", "PenTool", "DrawingToolMenu", "TextTool", "CommentTool", "ActionsButton"]) {
                 assertInside(compact.chrome[name], compact.chrome.Toolbar, name);
             }
-            for (const [name, tool] of [["HandTool", "Hand"], ["SelectTool", "Select"]]) {
-                const bounds = compact.chrome[name];
-                await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-                await page.waitForFunction((expected) => JSON.parse(globalThis.ferroDesign.ferroDesignState()).tool === expected, tool);
-            }
+            await clickNative(page, "MoveToolMenu");
+            await clickNative(page, "HandChoice");
+            assert.equal((await state(page)).tool, "Hand");
+            await page.keyboard.press("v");
+            assert.equal((await state(page)).tool, "Select");
             await frames(page);
             result.compact = { viewport: { width: 980, height: 650 }, chrome: (await state(page)).chrome };
             await canvas.screenshot({ path: resolve(output, mode + "-compact.png") });
@@ -1215,6 +1215,12 @@ try {
                 assert.equal((await state(page)).tool, tool);
             }
             await clickNative(page, "SelectTool");
+            await clickNative(page, "MoveToolMenu");
+            await clickNative(page, "ScaleChoice");
+            await clickNative(page, "TextTool");
+            await clickNative(page, "SelectTool");
+            assert.equal((await state(page)).tool, "Scale", "Move family recalls Scale");
+            await page.keyboard.press("v");
             check("Region, shape and drawing flyouts activate native tools and retain the last choice on the main button");
 
             for (let added = 0; added < 8; added++) {
