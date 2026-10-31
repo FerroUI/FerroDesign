@@ -95,3 +95,27 @@ fn layer_rename_reveals_a_filtered_collapsed_virtualized_selection() {
     fixture.key(&field, Key::Enter);
     assert_eq!(shell.editor.borrow().document.nodes[&child].name, "Child after scroll");
 }
+
+#[test]
+fn layer_rename_preserves_an_unrelated_edit_and_ignores_a_replacement_document() {
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    press_f2(&fixture);
+    let field = rename_field(&fixture);
+    field.set_text(Some("Approved name"));
+    shell.editor.borrow_mut().update_node(fixture.id, "Move", |node| node.x += 5.0);
+    fixture.key(&field, Key::Enter);
+    assert_eq!(shell.editor.borrow().document.nodes[&fixture.id].name, "Approved name");
+    assert_eq!(shell.editor.borrow().history_len(), 2);
+
+    press_f2(&fixture);
+    let field = rename_field(&fixture);
+    field.set_text(Some("Stale draft"));
+    let same_ids = shell.editor.borrow().document.clone();
+    let mut replacement = Editor::new(same_ids);
+    replacement.select(fixture.id, false);
+    *shell.editor.borrow_mut() = replacement;
+    fixture.key(&field, Key::Enter);
+    assert_eq!(shell.editor.borrow().document.nodes[&fixture.id].name, "Approved name");
+    assert_eq!(shell.editor.borrow().history_len(), 0);
+}
