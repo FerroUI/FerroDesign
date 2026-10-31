@@ -255,3 +255,58 @@ fn native_explicit_equal_radius_enter_detaches_binding_once_while_blur_and_flush
         "An unbound equal literal remains a no-op"
     );
 }
+
+#[test]
+fn native_layer_rows_route_click_range_and_toggle_modifiers() {
+    use ferroui_base::input::{MouseButton, RawInputModifiers};
+    use ferroui_headless::HeadlessWindowExtensions;
+
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let (back, middle, front) = {
+        let mut editor = shell.editor.borrow_mut();
+        let page = editor.active_page;
+        let mut add = |name| {
+            editor
+                .document
+                .insert_node(
+                    page,
+                    Node::new(NodeKind::Rectangle, name, 0.0, 0.0, 16.0, 16.0),
+                )
+                .unwrap()
+        };
+        let middle = add("Middle");
+        let front = add("Front");
+        editor.refresh();
+        (fixture.id, middle, front)
+    };
+    shell.refresh();
+    Dispatcher::ui_thread().run_jobs(None);
+    let before = fixture.json();
+    let click = |id, modifiers| {
+        let button = shell.layer_buttons.borrow()[&id]
+            .upgrade()
+            .expect("realized layer button");
+        let bounds = button.bounds();
+        let center = ferroui_base::Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let point = button.translate_point(center, &fixture.window).unwrap();
+        fixture.window.mouse_move(point, RawInputModifiers::NONE);
+        fixture
+            .window
+            .mouse_down(point, MouseButton::Left, modifiers);
+        fixture.window.mouse_up(point, MouseButton::Left, modifiers);
+    };
+
+    click(front, RawInputModifiers::NONE);
+    assert_eq!(shell.editor.borrow().selection, [front]);
+    click(back, RawInputModifiers::SHIFT);
+    assert_eq!(shell.editor.borrow().selection, [front, middle, back]);
+    click(middle, RawInputModifiers::CONTROL);
+    assert_eq!(shell.editor.borrow().selection, [front, back]);
+    click(middle, RawInputModifiers::META);
+    assert_eq!(shell.editor.borrow().selection, [front, back, middle]);
+    click(back, RawInputModifiers::NONE);
+    assert_eq!(shell.editor.borrow().selection, [back]);
+    assert_eq!(fixture.json(), before);
+    assert_eq!(shell.editor.borrow().history_len(), 0);
+}
