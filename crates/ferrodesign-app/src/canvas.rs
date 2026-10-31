@@ -10,6 +10,7 @@ mod selection;
 mod input_observations;
 mod vector_width;
 mod corner_radius;
+mod slices;
 mod gradient_edit;
 use crate::{
     icons::brush,
@@ -59,6 +60,7 @@ pub enum Tool {
     Hand,
     Comment,
     Section,
+    Slice,
 }
 impl Tool {
     pub fn name(self) -> &'static str {
@@ -77,6 +79,7 @@ impl Tool {
             Self::Hand => "Hand",
             Self::Comment => "Comment",
             Self::Section => "Section",
+            Self::Slice => "Slice",
         }
     }
     fn kind(self) -> NodeKind {
@@ -89,6 +92,7 @@ impl Tool {
             Self::Pen | Self::Pencil => NodeKind::Vector,
             Self::Text => NodeKind::Text,
             Self::Section => NodeKind::Section,
+            Self::Slice => NodeKind::Slice,
             _ => NodeKind::Rectangle,
         }
     }
@@ -760,6 +764,10 @@ impl DesignCanvas {
         if tool == Tool::Frame {
             node = node.with_fill(Color::WHITE);
             node.clip_content = true;
+        }
+        if tool == Tool::Slice {
+            node.fills.clear();
+            node.name = format!("Slice {}", editor.document.next_id);
         }
         if tool == Tool::Section {
             node = node.with_fill(Color::rgba(216, 209, 255, 48));
@@ -1705,7 +1713,7 @@ impl InputElementImpl for DesignCanvas {
                 Key::H => Some("hand"),
                 Key::C => Some("comment"),
                 Key::A if shift => Some("auto-layout"),
-                Key::S if shift => Some("section"),
+                Key::S => Some(if shift { "section" } else { "slice" }),
                 Key::Add | Key::OemPlus if !alt => Some("zoom-in"),
                 Key::Subtract | Key::OemMinus if !alt => Some("zoom-out"),
                 Key::D0 if shift && !alt => Some("actual-size"),
@@ -2119,6 +2127,7 @@ impl VisualImpl for DesignCanvas {
             v.screen_to_world(Point::new(-400.0, -30.0)),
             v.screen_to_world(Point::new(v.width, v.height)),
         );
+        slices::draw(ctx, &editor, v);
         for (id, origin) in editor.scene.root_container_origins_in(captions) {
             let node = &doc.nodes[&id];
             let point = v.world_to_screen(origin);

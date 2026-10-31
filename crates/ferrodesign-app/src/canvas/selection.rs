@@ -76,7 +76,11 @@ impl DesignCanvas {
             .as_slice();
         let mut painter = self.painter.borrow_mut();
         let hit = editor.hit_test_filtered(point, 3.0 / self.viewport.get().zoom, |id| {
-            painter.mask_contains(&editor, roots, id, point)
+            if editor.document.nodes[&id].kind == NodeKind::Slice {
+                slices::pick(&editor, id, point, 3.0 / self.viewport.get().zoom)
+            } else {
+                painter.mask_contains(&editor, roots, id, point)
+            }
         })?;
         if !self.select_groups.get()
             || modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META)
@@ -138,7 +142,7 @@ impl DesignCanvas {
                 include_locked,
             )
             .into_iter()
-            .filter(|id| painter.mask_contains(&editor, &page.children, *id, point))
+            .filter(|id| editor.document.nodes[id].kind == NodeKind::Slice || painter.mask_contains(&editor, &page.children, *id, point))
             .collect()
     }
 

@@ -428,6 +428,7 @@
             <MenuFlyout Placement="TopEdgeAlignedLeft">
               <MenuItem Name="FrameChoice" Header="Frame" InputGesture="F"/>
               <MenuItem Name="SectionChoice" Header="Section" InputGesture="Shift+S"/>
+              <MenuItem Name="SliceChoice" Header="Slice" InputGesture="S"/>
             </MenuFlyout>
           </Button.Flyout>
         </Button>

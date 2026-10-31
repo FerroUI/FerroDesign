@@ -1253,6 +1253,7 @@ impl EditorShell {
             NodeKind::Component => "component",
             NodeKind::Instance => "instance",
             NodeKind::Section => "section",
+            NodeKind::Slice => "slice",
             _ => "rect",
         };
         content.children().add(icons::icon(
@@ -1916,6 +1917,7 @@ impl EditorShell {
             "hand" => Some(Tool::Hand),
             "comment" => Some(Tool::Comment),
             "section" => Some(Tool::Section),
+            "slice" => Some(Tool::Slice),
             _ => None,
         };
         if let Some(tool) = tool {
@@ -3388,6 +3390,7 @@ const ACTIONS: &[(&str, &str)] = &[
     ("Hand  H", "hand"),
     ("Comment  C", "comment"),
     ("Section  Shift+S", "section"),
+    ("Slice  S", "slice"),
     ("Undo  Ctrl+Z", "undo"),
     ("Redo  Ctrl+Shift+Z", "redo"),
     ("Duplicate  Ctrl+D", "duplicate"),

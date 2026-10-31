@@ -23,6 +23,7 @@ const GROUPS: [Group; 3] = [
         choices: &[
             ("FrameChoice", Tool::Frame, "frame", "frame"),
             ("SectionChoice", Tool::Section, "section", "section"),
+            ("SliceChoice", Tool::Slice, "slice", "slice"),
         ],
     },
     Group {

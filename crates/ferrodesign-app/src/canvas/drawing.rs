@@ -13,6 +13,7 @@ pub(super) struct ShapeDrag {
 
 impl DesignCanvas {
     pub(super) fn drawing_parent_at(&self, press: Point, tool: Tool) -> Option<NodeId> {
+        if tool == Tool::Slice { return None; }
         let editor = self.editor.borrow();
         let doc = &editor.document;
         let roots = &doc.page(editor.active_page)?.children;

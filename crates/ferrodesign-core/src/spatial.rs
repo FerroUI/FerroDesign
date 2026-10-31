@@ -166,11 +166,13 @@ pub struct SceneIndex {
     pub revision: u64,
     variable_strokes: BTreeMap<NodeId, crate::stroke_hit::VariableStrokeHits>,
     root_container_origins: SpatialIndex,
+    slice_regions: SpatialIndex,
 }
 impl SceneIndex {
     pub fn rebuild(&mut self, document: &Document, page: NodeId) {
         self.spatial.clear();
         self.root_container_origins.clear();
+        self.slice_regions.clear();
         self.transforms.clear();
         self.draw_order.clear();
         self.z_order.clear();
@@ -306,6 +308,13 @@ impl SceneIndex {
                     }
                 }
             }
+            if page.is_some() && node.kind == NodeKind::Slice {
+                if let Some(region) = self.spatial.bounds(id).filter(|_| indexed) {
+                    self.slice_regions.insert(id, region);
+                } else {
+                    self.slice_regions.remove(id);
+                }
+            }
             if !indexed {
                 self.spatial.remove(id);
             }
@@ -321,6 +330,12 @@ impl SceneIndex {
             stack.extend(node.children.iter().rev().map(|child| (*child, next)));
         }
     }
+    pub fn slice_regions_in(&self, area: Rect) -> Vec<NodeId> {
+        let mut ids = self.slice_regions.query(area);
+        ids.sort_unstable_by_key(|id| self.z_order.get(id));
+        ids
+    }
+
     /// Top-left corners of visible page containers in painter order. Indexing
     /// these points separately lets offscreen artwork have an onscreen caption.
     pub fn root_container_origins_in(&self, area: Rect) -> impl Iterator<Item = (NodeId, Point)> + '_ {

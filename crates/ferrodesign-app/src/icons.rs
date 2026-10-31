@@ -49,6 +49,7 @@ pub fn icon(name: &str, color: &str, size: f64) -> Ref<Path> {
         "group" => "M2,8 V2 H8 M16,2 H22 V8 M22,16 V22 H16 M8,22 H2 V16 M7,7 H17 V17 H7 Z",
         "polygon" => "M12,2 L23,21 H1 Z",
         "star" => "M12,1 L15,8 L23,9 L17,14 L19,22 L12,18 L5,22 L7,14 L1,9 L9,8 Z",
+        "slice" => "M3,6 H7 V4 H3 Z M10,4 H14 V6 H10 Z M17,4 H21 V6 H17 Z M20,9 V13 H22 V9 Z M20,16 V20 H17 V22 H22 V16 Z M10,20 H14 V22 H10 Z M3,16 H5 V20 H7 V22 H3 Z M3,9 H5 V13 H3 Z",
         "section" => "M2,4 H9 L12,7 H22 V21 H2 Z",
         _ => "M5,12 H19 M12,5 V19",
     };
