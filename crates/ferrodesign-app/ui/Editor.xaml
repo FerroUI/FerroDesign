@@ -195,14 +195,18 @@
         </Border>
         <ScrollViewer Name="InspectorViewport" Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Name="Inspector" Margin="16,14,16,24" Spacing="8">
-            <Grid ColumnDefinitions="*,28,28">
-              <TextBlock Name="SelectionTitle" Text="Page" Classes="heading" VerticalAlignment="Center"/>
-              <Button Name="VisibleButton" Grid.Column="1" ToolTip.Tip="Show or hide layer"/>
-              <Button Name="LockedButton" Grid.Column="2" ToolTip.Tip="Lock or unlock layer"/>
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+              <TextBlock Name="SelectionTitle" Text="Page" Classes="heading" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+              <Button Name="SelectMatchingButton" Grid.Column="1" Width="28" Height="28" Padding="5" IsVisible="False" AutomationProperties.Name="Select same properties" ToolTip.Tip="Select layers with matching properties">
+                <Path Data="M3,3 H13 V7 H7 V13 H3 Z M10,10 H21 V21 H10 Z" Stretch="Uniform" Width="15" Height="15" Stroke="#525252" StrokeThickness="1.5" IsHitTestVisible="False"/>
+              </Button>
+              <Button Name="LayoutGridSettingsButton" Grid.Column="2" Width="28" Height="28" Padding="5" IsVisible="False" AutomationProperties.Name="Layout grid guides" ToolTip.Tip="Edit layout grid guides">
+                <Path Data="M3,3 H21 V21 H3 Z M9,3 V21 M15,3 V21 M3,9 H21 M3,15 H21" Stretch="Uniform" Width="15" Height="15" Stroke="#525252" StrokeThickness="1.5" IsHitTestVisible="False"/>
+              </Button>
+              <Button Name="VisibleButton" Grid.Column="3" Width="28" Height="28" Padding="5" AutomationProperties.Name="Toggle layer visibility" ToolTip.Tip="Show or hide layer"/>
+              <Button Name="LockedButton" Grid.Column="4" Width="28" Height="28" Padding="5" AutomationProperties.Name="Toggle layer locking" ToolTip.Tip="Lock or unlock layer"/>
             </Grid>
-            <TextBox Name="NameField" PlaceholderText="Layer name"/>
-            <Button Name="SelectMatchingButton" Content="Select same…" HorizontalContentAlignment="Left" IsVisible="False"/>
-            <Button Name="LayoutGridSettingsButton" Content="Layout grid" HorizontalContentAlignment="Left" IsVisible="False"/>
+            <TextBox Name="NameField" PlaceholderText="Layer name" AutomationProperties.Name="Name"/>
             <StackPanel Name="VectorOptions" Spacing="8" IsVisible="False">
               <Button Name="EditVectorButton" Content="Edit vector" ToolTip.Tip="Edit vector points (Enter)" HorizontalContentAlignment="Left"/>
               <Button Name="ConvertNetworkButton" Content="Convert to vector network"/>
@@ -380,8 +384,12 @@
               <ComboBox Name="BlendModeChoice" HorizontalAlignment="Stretch" ToolTip.Tip="Blend the completed layer with the content underneath"/>
               <Button Name="CompositingButton" Content="Masks and compositing…" HorizontalContentAlignment="Left"/>
               <Grid ColumnDefinitions="*,12,*">
-                <StackPanel Spacing="4"><TextBlock Text="Opacity %" Classes="label"/><TextBox Name="OpacityField" Text="100"/></StackPanel>
-                <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="Corner radius" Classes="label"/><TextBox Name="RadiusField" Text="0"/></StackPanel>
+                <StackPanel Spacing="4"><TextBlock Text="Opacity" Classes="label"/>
+                  <TextBox Name="OpacityField" Text="100" AutomationProperties.Name="Opacity percent" ToolTip.Tip="Opacity percent">
+                    <TextBox.InnerRightContent><TextBlock Text="%" Margin="0,0,8,0" Classes="label" VerticalAlignment="Center" IsHitTestVisible="False"/></TextBox.InnerRightContent>
+                  </TextBox>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="Corner radius" Classes="label"/><TextBox Name="RadiusField" Text="0" AutomationProperties.Name="Corner radius"/></StackPanel>
               </Grid>
               <Grid Name="CornerSmoothingOptions" ColumnDefinitions="*,72"><TextBlock Text="Corner smoothing %" Classes="label" VerticalAlignment="Center"/><TextBox Name="CornerSmoothingField" Grid.Column="1" Text="0" ToolTip.Tip="Smooth the transition between straight edges and rounded corners (0–100%)"/></Grid>
               <Button Name="IndependentCornersButton" Content="Independent corners" HorizontalContentAlignment="Left"/>
