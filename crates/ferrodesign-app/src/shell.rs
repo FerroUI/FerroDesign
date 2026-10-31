@@ -1095,9 +1095,11 @@ impl EditorShell {
 
         if title_changed {
             self.text("FileTitle", &editor.document.name);
+            self.text("CompactDocumentTitle", &editor.document.name);
         }
         let page = editor.document.page(active).map(|page| page.name.as_str()).unwrap_or("");
         self.text("CanvasCaption", &format!("{} / {page}", editor.document.name));
+        self.text("CompactPageTitle", page);
         let update_button = |button: &Button, name: &str, selected: bool| {
             button.classes().set("active", selected);
             button.set_content(Some(Rc::new(format!("{}  {name}", if selected { "✓" } else { " " }))));

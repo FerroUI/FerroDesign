@@ -98,6 +98,15 @@
       <Setter Property="Padding" Value="8,4"/><Setter Property="Background" Value="#F5F5F5"/>
       <Setter Property="BorderThickness" Value="0"/><Setter Property="CornerRadius" Value="5"/>
     </Style>
+    <Style Selector="ToggleButton.drawer-toggle">
+      <Setter Property="MinHeight" Value="44"/><Setter Property="MinWidth" Value="44"/>
+      <Setter Property="Padding" Value="8,4"/><Setter Property="Margin" Value="0"/>
+      <Setter Property="CornerRadius" Value="6"/><Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontSize" Value="11"/><Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="ToggleButton.drawer-toggle:checked">
+      <Setter Property="Background" Value="#E5F4FF"/><Setter Property="Foreground" Value="#005F9E"/>
+    </Style>
   </UserControl.Styles>
   <Grid Name="Workspace" ColumnDefinitions="48,248,*,288">
     <Grid Name="CanvasHost" Grid.Column="2" ClipToBounds="True">
@@ -108,6 +117,7 @@
                  HorizontalContentAlignment="Left" VerticalContentAlignment="Top"/>
       </Canvas>
     </Grid>
+    <Border Name="DrawerBackdrop" Grid.ColumnSpan="4" Margin="0,48,0,0" Background="#30000000" IsVisible="False"/>
     <Border Name="NavigationRail" Grid.Column="0" Background="#F7F7F7" BorderBrush="#D9D9D9" BorderThickness="0,0,1,0">
       <Grid RowDefinitions="48,*,48">
         <Button Name="MenuButton" Classes="tool" HorizontalAlignment="Center" ToolTip.Tip="FerroDesign menu"/>
@@ -482,11 +492,29 @@
         </ScrollViewer>
       </Grid>
     </Border>
-    <Border Name="CompactHeader" Grid.ColumnSpan="4" IsVisible="False" Height="48" VerticalAlignment="Top" Background="White" BorderBrush="#E6E6E6" BorderThickness="0,0,0,1" Padding="8,4">
+    <Border Name="CompactHeader" Grid.ColumnSpan="4" IsVisible="False" Height="48"
+            VerticalAlignment="Top" Background="White" BorderBrush="#E6E6E6" BorderThickness="0,0,0,1" Padding="4,0">
       <Grid ColumnDefinitions="Auto,*,Auto">
-        <Button Name="CompactLayers" Classes="tab" Content="Layers" ToolTip.Tip="Open or close pages and layers"/>
-        <TextBlock Grid.Column="1" Classes="heading" Text="FerroDesign" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        <Button Name="CompactProperties" Grid.Column="2" Classes="tab" Content="Properties" ToolTip.Tip="Open or close the inspector"/>
+        <ToggleButton Name="CompactLayers" Classes="drawer-toggle" AutomationProperties.Name="Layers panel"
+                      ToolTip.Tip="Pages and layers">
+          <StackPanel Orientation="Horizontal" Spacing="5">
+            <Path Data="M2,3 H18 V17 H2 Z M7,3 V17" Stroke="#555555" StrokeThickness="1.5"
+                  Width="15" Height="15" Stretch="Uniform" VerticalAlignment="Center"/>
+            <TextBlock Text="Layers" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
+        <StackPanel Grid.Column="1" Margin="6,0" VerticalAlignment="Center" IsHitTestVisible="False">
+          <TextBlock Name="CompactDocumentTitle" TextAlignment="Center" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+          <TextBlock Name="CompactPageTitle" TextAlignment="Center" FontSize="10" Foreground="#626262" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+        <ToggleButton Name="CompactProperties" Grid.Column="2" Classes="drawer-toggle" AutomationProperties.Name="Properties panel"
+                      ToolTip.Tip="Layer and page properties">
+          <StackPanel Orientation="Horizontal" Spacing="5">
+            <Path Data="M2,3 H18 V17 H2 Z M13,3 V17" Stroke="#555555" StrokeThickness="1.5"
+                  Width="15" Height="15" Stretch="Uniform" VerticalAlignment="Center"/>
+            <TextBlock Text="Inspect" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
       </Grid>
     </Border>
     <TextBlock Name="CanvasCaption" Grid.Column="2" Text="" FontSize="10" Foreground="#868686" Margin="24,25" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"/>

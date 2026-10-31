@@ -1,5 +1,7 @@
 //! Keep a usable artboard when the two desktop sidebars would consume the window.
 use super::*;
+use ferroui_base::interactivity::RoutingStrategies;
+use ferroui_controls::primitives::ToggleButton;
 
 #[derive(Clone, Copy, Default, PartialEq)]
 pub(super) enum CompactPanel {
@@ -18,13 +20,30 @@ impl EditorShell {
             let weak = Rc::downgrade(self);
             self.button(button).click(move |_, _| {
                 if let Some(shell) = weak.upgrade() {
-                    let open = shell.compact_panel.get() != panel;
-                    shell.compact_panel.set(if open { panel } else { CompactPanel::Canvas });
-                    shell.layout_workspace();
-                    if !open { shell.canvas.focus(); }
+                    let next = if shell.compact_panel.get() == panel { CompactPanel::Canvas } else { panel };
+                    shell.switch_compact_panel(next);
                 }
             });
         }
+        let weak = Rc::downgrade(self);
+        self.control::<Border>("DrawerBackdrop").add_handler(InputElement::tapped_event(), move |_, event| {
+            if let Some(shell) = weak.upgrade() {
+                shell.switch_compact_panel(CompactPanel::Canvas);
+                event.set_handled(true);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.root.add_handler_with(InputElement::key_down_event(), move |_, event| {
+            if event.key != Key::Escape || !event.key_modifiers.is_empty() { return; }
+            let Some(shell) = weak.upgrade() else { return; };
+            if shell.compact_panel.get() == CompactPanel::Canvas
+                || shell.control::<Border>("ModalBackdrop").is_visible() { return; }
+            // Give text and popup controls their own Escape. Canvas shortcuts
+            // must not clear the selection underneath an open drawer.
+            if event.route() == RoutingStrategies::TUNNEL && !shell.canvas.is_focused() { return; }
+            shell.switch_compact_panel(CompactPanel::Canvas);
+            event.set_handled(true);
+        }, RoutingStrategies::TUNNEL | RoutingStrategies::BUBBLE, false);
         let weak = Rc::downgrade(self);
         self.root.size_changed(move |_, event| {
             let Some(shell) = weak.upgrade() else { return; };
@@ -38,6 +57,25 @@ impl EditorShell {
                 shell.layout_workspace();
             }
         });
+    }
+
+    fn switch_compact_panel(self: &Rc<Self>, next: CompactPanel) {
+        let current = self.compact_panel.get();
+        if current != next && self.flush_inspector_drafts() {
+            self.compact_panel.set(next);
+            self.layout_workspace();
+            if next == CompactPanel::Canvas { self.canvas.focus(); }
+        } else {
+            // Native toggles have already toggled when Click arrives. Keep
+            // their accessible state consistent when a draft rejects dismissal.
+            self.sync_drawer_toggles(current);
+        }
+    }
+
+    fn sync_drawer_toggles(&self, panel: CompactPanel) {
+        for (button, value) in [("CompactLayers", CompactPanel::Layers), ("CompactProperties", CompactPanel::Properties)] {
+            self.control::<ToggleButton>(button).set_is_checked(Some(panel == value));
+        }
     }
 
     pub(super) fn layout_workspace(&self) {
@@ -54,9 +92,8 @@ impl EditorShell {
         self.visible("CanvasCaption", !present && !compact);
         self.visible("Toolbar", !present && (!compact || panel == CompactPanel::Canvas));
         self.visible("CompactHeader", !present && compact);
-        for (button, selected) in [("CompactLayers", layers), ("CompactProperties", properties)] {
-            self.button(button).classes().set("active", selected);
-        }
+        self.visible("DrawerBackdrop", !present && compact && panel != CompactPanel::Canvas);
+        self.sync_drawer_toggles(panel);
         let columns = match (present, compact, panel) {
             (true, _, _) | (false, true, CompactPanel::Canvas) => "0,0,*,0",
             (false, true, CompactPanel::Layers) => "48,248,*,0",
