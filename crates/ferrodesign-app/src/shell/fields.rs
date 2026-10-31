@@ -5,6 +5,35 @@ use super::*;
 use ferroui_base::interactivity::RoutingStrategies;
 use std::rc::Weak;
 
+/// Compare the displayed properties of a selection without cloning layers or
+/// their text, paths and paint stacks. Single selection needs no row buffer.
+pub(super) struct InspectorSelection<'a> {
+    pub first: Option<&'a Node>,
+    rest: Vec<&'a Node>,
+}
+
+impl<'a> InspectorSelection<'a> {
+    pub fn new(editor: &'a Editor) -> Self {
+        let mut nodes = editor.selection.iter().filter_map(|id| editor.document.nodes.get(id));
+        Self { first: nodes.next(), rest: nodes.collect() }
+    }
+
+    pub fn common<T: PartialEq>(&self, property: impl Fn(&'a Node) -> T) -> Option<T> {
+        let value = property(self.first?);
+        self.rest.iter().all(|node| property(node) == value).then_some(value)
+    }
+
+    pub fn show(&self, field: &TextBox, text: Option<&str>, hint: Option<&str>) {
+        let hint = if text.is_none() && !self.rest.is_empty() { Some("Mixed") } else { hint };
+        if field.placeholder_text().as_deref() != hint {
+            field.set_placeholder_text(hint);
+        }
+        // A mixed property has no editable value until the user types one.
+        // An untouched placeholder must stay outside draft and undo history.
+        field.set_text(Some(text.unwrap_or_default()));
+    }
+}
+
 pub(super) struct InspectorDraft {
     field: WeakRef<TextBox>,
     committed: Rc<RefCell<String>>,
@@ -174,7 +203,7 @@ impl EditorShell {
             // Enter is an explicit literal override for radius, even if its
             // displayed number already equals the bound variable. Passive
             // blur/flush must not detach an unchanged binding or add history.
-            if !(explicit && name == "RadiusField")
+            if !(explicit && name == "RadiusField" && !value.borrow().is_empty())
                 && field.text().unwrap_or_default() == *value.borrow()
             {
                 return true;

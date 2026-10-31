@@ -14,6 +14,9 @@ use ferroui_vello::{VelloApplicationExtensions, VelloOptions, VelloRenderingMode
 #[path = "slice_input_tests.rs"]
 mod slice_input_tests;
 
+#[path = "mixed_fields_tests.rs"]
+mod mixed_fields_tests;
+
 struct Fixture {
     shell: Rc<EditorShell>,
     window: Ref<Window>,

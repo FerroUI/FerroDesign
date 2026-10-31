@@ -1325,10 +1325,8 @@ impl EditorShell {
     }
     fn refresh_inspector(&self) {
         let editor = self.editor.borrow();
-        let node = editor
-            .selection
-            .first()
-            .and_then(|id| editor.document.nodes.get(id));
+        let selection = fields::InspectorSelection::new(&editor);
+        let node = selection.first;
         let slices_only = !editor.selection.is_empty() && editor.selection.iter()
             .all(|id| editor.document.nodes.get(id).is_some_and(|node| node.kind == NodeKind::Slice));
         self.visible("SliceHint", slices_only);
@@ -1388,79 +1386,44 @@ impl EditorShell {
             },
         );
         let set = |name: &str, value: String| self.field(name).set_text(Some(&value));
-        set(
-            "NameField",
-            node.map(|n| n.name.clone()).unwrap_or_else(|| {
-                editor
-                    .document
-                    .page(editor.active_page)
-                    .map(|p| p.name.clone())
-                    .unwrap_or_default()
-            }),
-        );
-        for (name, value) in [
-            ("XField", node.map(|n| n.x)),
-            ("YField", node.map(|n| n.y)),
-            ("WidthField", node.map(|n| n.width)),
-            ("HeightField", node.map(|n| n.height)),
-            ("RotationField", node.map(|n| n.rotation)),
-            ("RadiusField", node.map(|n| n.corner_radius)),
-            ("CornerSmoothingField", node.map(|n| n.corner_smoothing * 100.0)),
-            ("OpacityField", node.map(|n| n.opacity * 100.0)),
-            ("FontSizeField", node.map(|n| n.font_size)),
-            ("FontWeightField", node.map(|n| n.font_weight as f64)),
-            ("LineHeightField", node.map(|n| n.line_height * 100.0)),
-            ("LetterSpacingField", node.map(|n| n.letter_spacing)),
-            (
-                "CornerTLField",
-                node.map(|n| n.corner_radii.unwrap_or([n.corner_radius; 4])[0]),
-            ),
-            (
-                "CornerTRField",
-                node.map(|n| n.corner_radii.unwrap_or([n.corner_radius; 4])[1]),
-            ),
-            (
-                "CornerBRField",
-                node.map(|n| n.corner_radii.unwrap_or([n.corner_radius; 4])[2]),
-            ),
-            (
-                "CornerBLField",
-                node.map(|n| n.corner_radii.unwrap_or([n.corner_radius; 4])[3]),
-            ),
-            (
-                "CrossGapField",
-                node.and_then(|n| n.layout.as_ref().map(|l| l.cross_gap)),
-            ),
-            (
-                "LayoutColumnsField",
-                node.and_then(|n| n.layout.as_ref().map(|l| l.columns as f64)),
-            ),
-            (
-                "StrokeWidthField",
-                node.map(|n| n.strokes.first().map_or(0.0, |s| s.width)),
-            ),
-            (
-                "GapField",
-                node.and_then(|n| n.layout.as_ref().map(|l| l.gap)),
-            ),
-            (
-                "PaddingField",
-                node.and_then(|n| n.layout.as_ref().and_then(|l| {
-                    let p = l.padding;
-                    (p.top == p.left && p.right == p.left && p.bottom == p.left).then_some(p.left)
-                })),
-            ),
-        ] {
-            set(name, value.map(number).unwrap_or_default());
+        let name = if node.is_some() {
+            selection.common(|n| n.name.as_str())
+        } else {
+            editor.document.page(editor.active_page).map(|page| page.name.as_str())
+        };
+        selection.show(&self.field("NameField"), name, Some("Layer name"));
+
+        type NumericProperty = (&'static str, fn(&Node) -> Option<f64>);
+        const GEOMETRY_AND_APPEARANCE: &[NumericProperty] = &[
+            ("XField", |n| Some(n.x)),
+            ("YField", |n| Some(n.y)),
+            ("WidthField", |n| Some(n.width)),
+            ("HeightField", |n| Some(n.height)),
+            ("RotationField", |n| Some(n.rotation)),
+            ("RadiusField", |n| Some(n.corner_radius)),
+            ("CornerSmoothingField", |n| Some(n.corner_smoothing * 100.0)),
+            ("OpacityField", |n| Some(n.opacity * 100.0)),
+            ("FontSizeField", |n| Some(n.font_size)),
+            ("FontWeightField", |n| Some(n.font_weight as f64)),
+            ("LineHeightField", |n| Some(n.line_height * 100.0)),
+            ("LetterSpacingField", |n| Some(n.letter_spacing)),
+            ("CornerTLField", |n| Some(n.corner_radii.unwrap_or([n.corner_radius; 4])[0])),
+            ("CornerTRField", |n| Some(n.corner_radii.unwrap_or([n.corner_radius; 4])[1])),
+            ("CornerBRField", |n| Some(n.corner_radii.unwrap_or([n.corner_radius; 4])[2])),
+            ("CornerBLField", |n| Some(n.corner_radii.unwrap_or([n.corner_radius; 4])[3])),
+            ("CrossGapField", |n| n.layout.as_ref().map(|l| l.cross_gap)),
+            ("LayoutColumnsField", |n| n.layout.as_ref().map(|l| l.columns as f64)),
+            ("StrokeWidthField", |n| Some(n.strokes.first().map_or(0.0, |s| s.width))),
+            ("GapField", |n| n.layout.as_ref().map(|l| l.gap)),
+            ("PaddingField", |n| n.layout.as_ref().and_then(|l| {
+                let p = l.padding;
+                (p.top == p.left && p.right == p.left && p.bottom == p.left).then_some(p.left)
+            })),
+        ];
+        for &(name, property) in GEOMETRY_AND_APPEARANCE {
+            let value = selection.common(property).map(|v| v.map(number).unwrap_or_default());
+            selection.show(&self.field(name), value.as_deref(), None);
         }
-        let fill = node.map(|n| n.fill_color()).unwrap_or_else(|| {
-            editor
-                .document
-                .page(editor.active_page)
-                .map(|p| p.background)
-                .unwrap_or(Color::WHITE)
-        });
-        set("FillField", fill.hex().trim_start_matches('#').to_string());
         let page_background = editor.document.page(editor.active_page)
             .map_or(Color::WHITE, |page| page.background);
         set("PageBackgroundField", page_background.hex().trim_start_matches('#').to_string());
@@ -1468,26 +1431,18 @@ impl EditorShell {
             .set_background(Some(icons::brush(&xaml_color(page_background))));
         self.text("PageResourcesSummary", &format!("{} styles · {} variable collections",
             editor.document.styles.len(), editor.document.variables.len()));
-        self.button("FillSwatch")
-            .set_background(Some(icons::brush(&xaml_color(fill))));
-        set(
-            "StrokeField",
-            node.and_then(|n| n.strokes.first())
-                .map(|s| s.paint.representative_color().hex())
-                .unwrap_or_else(|| "000000".into()),
-        );
-        set(
-            "DashField",
-            node.and_then(|n| n.strokes.first())
-                .map(|s| {
-                    s.dash
-                        .iter()
-                        .map(|v| number(*v))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default(),
-        );
+        let fill = if node.is_some() { selection.common(Node::fill_color) } else { Some(page_background) };
+        let hex = fill.map(|color| color.hex().trim_start_matches('#').to_string());
+        selection.show(&self.field("FillField"), hex.as_deref(), None);
+        let swatch = self.button("FillSwatch");
+        swatch.set_background(Some(icons::brush(&fill.map(xaml_color).unwrap_or_else(|| "#E5E5E5".into()))));
+        swatch.set_content(fill.is_none().then(|| Rc::new("—".to_owned()) as BoxedValue));
+        let stroke = selection.common(|n| n.strokes.first().map(|s| s.paint.representative_color()))
+            .map(|color| color.map_or_else(|| "000000".into(), |color| color.hex()));
+        selection.show(&self.field("StrokeField"), stroke.as_deref(), None);
+        let dash = selection.common(|n| n.strokes.first().map(|s| s.dash.as_slice()))
+            .map(|dash| dash.unwrap_or_default().iter().map(|v| number(*v)).collect::<Vec<_>>().join(", "));
+        selection.show(&self.field("DashField"), dash.as_deref(), Some("Dash pattern, for example 8, 4"));
         self.visible("CornerSmoothingOptions", node.is_some_and(|n| matches!(n.kind, NodeKind::Rectangle | NodeKind::Frame | NodeKind::Component | NodeKind::Instance | NodeKind::Section)));
         self.visible("IndependentCornersButton", node.is_some_and(|n| matches!(n.kind, NodeKind::Rectangle | NodeKind::Frame | NodeKind::Component | NodeKind::Instance | NodeKind::Section)));
         self.field("RadiusField").set_is_enabled(editor.selection.iter().any(|id|
@@ -1601,24 +1556,17 @@ impl EditorShell {
             self.control::<ComboBox>(name)
                 .set_selected_index(index.unwrap_or(-1));
         }
-        set(
-            "TextField",
-            node.map(|n| n.text.clone()).unwrap_or_default(),
-        );
-        set(
-            "FontFamilyField",
-            node.map(|n| n.font_family.clone())
-                .unwrap_or_else(|| "Inter".into()),
-        );
+        selection.show(&self.field("TextField"), selection.common(|n| n.text.as_str()), None);
+        selection.show(&self.field("FontFamilyField"), selection.common(|n| n.font_family.as_str()), None);
         self.control::<CheckBox>("ClipCheck")
-            .set_is_checked(Some(node.is_some_and(|n| n.clip_content)));
+            .set_is_checked(selection.common(|n| n.clip_content));
         self.visible("LayoutOptions", node.is_some_and(|n| n.layout.is_some()));
         self.visible("EditLayoutButton", node.is_some_and(|node| node.layout.is_some()
             || node.parent.and_then(|parent| editor.document.nodes.get(&parent))
                 .is_some_and(|parent| parent.layout.is_some())));
         self.visible(
             "TextOptions",
-            node.is_some_and(|n| n.kind == NodeKind::Text),
+            selection.common(|n| n.kind) == Some(NodeKind::Text),
         );
         self.button("LockedButton")
             .classes()
