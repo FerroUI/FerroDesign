@@ -126,7 +126,21 @@
           <Border Name="ZoomPanel" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal">
               <Button Name="ZoomOutButton" Content="−" ToolTip.Tip="Zoom out"/>
-              <Button Name="ZoomValueButton" Content="100%" MinWidth="48" ToolTip.Tip="Zoom and view options"/>
+              <Button Name="ZoomValueButton" Content="100%" MinWidth="48" ToolTip.Tip="Zoom and view options">
+                <Button.Flyout>
+                  <Flyout Placement="Bottom">
+                    <StackPanel Width="184" Spacing="4">
+                      <TextBlock Text="Zoom" Classes="heading"/>
+                      <TextBox Name="ZoomPercentField" ToolTip.Tip="Zoom percentage, 2–6400%. Press Enter to apply."/>
+                      <Button Name="Zoom50" Content="50%"/>
+                      <Button Name="Zoom100" Content="100%"/>
+                      <Button Name="Zoom200" Content="200%"/>
+                      <Button Name="ZoomFitPage" Content="Fit page   ⇧1"/>
+                      <Button Name="ZoomFitSelection" Content="Fit selection   ⇧2"/>
+                    </StackPanel>
+                  </Flyout>
+                </Button.Flyout>
+              </Button>
               <Button Name="ZoomInButton" Content="+" ToolTip.Tip="Zoom in"/>
             </StackPanel>
           </Border>
