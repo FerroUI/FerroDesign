@@ -39,6 +39,15 @@
       <Setter Property="Width" Value="38"/><Setter Property="Height" Value="38"/>
       <Setter Property="Padding" Value="9"/><Setter Property="CornerRadius" Value="8"/>
     </Style>
+    <Style Selector="Button.dock-tool">
+      <Setter Property="Width" Value="34"/><Setter Property="Height" Value="34"/>
+      <Setter Property="Padding" Value="6"/><Setter Property="CornerRadius" Value="6"/>
+    </Style>
+    <Style Selector="Button.dock-tool.active"><Setter Property="Background" Value="#0C8CE9"/></Style>
+    <Style Selector="Button.tool-menu">
+      <Setter Property="Width" Value="18"/><Setter Property="MinWidth" Value="0"/>
+      <Setter Property="Height" Value="34"/><Setter Property="Padding" Value="3"/>
+    </Style>
     <Style Selector="Button.layer">
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -383,16 +392,43 @@
     <TextBlock Name="CanvasCaption" Grid.Column="2" Text="" FontSize="10" Foreground="#868686" Margin="24,25" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"/>
     <Border Name="Toolbar" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="8,0,8,24" Padding="7" Background="White" CornerRadius="13" BorderBrush="#D7D7D7" BorderThickness="1" BoxShadow="0 3 14 0 #20000000">
       <StackPanel Orientation="Horizontal" Spacing="1">
-        <Button Name="SelectTool" Classes="tool active" ToolTip.Tip="Move (V)"/>
-        <Button Name="FrameTool" Classes="tool" ToolTip.Tip="Frame (F)"/>
-        <Button Name="RectTool" Classes="tool" ToolTip.Tip="Rectangle (R)"/>
-        <Button Name="EllipseTool" Classes="tool" ToolTip.Tip="Ellipse (O)"/>
-        <Button Name="PenTool" Classes="tool" ToolTip.Tip="Pen (P)"/>
-        <Button Name="TextTool" Classes="tool" ToolTip.Tip="Text (T)"/>
-        <Button Name="HandTool" Classes="tool" ToolTip.Tip="Hand (H) · Hold Space to pan"/>
-        <Button Name="CommentTool" Classes="tool" ToolTip.Tip="Comment (C)"/>
-        <Border Width="1" Background="#EEEEEE" Margin="5,5"/>
-        <Button Name="ActionsButton" Classes="tool" ToolTip.Tip="Actions (Ctrl+K)"/>
+        <Button Name="SelectTool" Classes="dock-tool" ToolTip.Tip="Move (V)"/>
+        <Button Name="FrameTool" Classes="dock-tool"/>
+        <Button Name="RegionToolMenu" Classes="tool-menu" ToolTip.Tip="Region tools">
+          <Button.Flyout>
+            <MenuFlyout Placement="TopEdgeAlignedLeft">
+              <MenuItem Name="FrameChoice" Header="Frame" InputGesture="F"/>
+              <MenuItem Name="SectionChoice" Header="Section" InputGesture="Shift+S"/>
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+        <Button Name="RectTool" Classes="dock-tool"/>
+        <Button Name="ShapeToolMenu" Classes="tool-menu" ToolTip.Tip="Shape tools">
+          <Button.Flyout>
+            <MenuFlyout Placement="TopEdgeAlignedLeft">
+              <MenuItem Name="RectangleChoice" Header="Rectangle" InputGesture="R"/>
+              <MenuItem Name="LineChoice" Header="Line" InputGesture="L"/>
+              <MenuItem Name="ArrowChoice" Header="Arrow" InputGesture="Shift+L"/>
+              <MenuItem Name="EllipseChoice" Header="Ellipse" InputGesture="O"/>
+              <MenuItem Name="PolygonChoice" Header="Polygon"/>
+              <MenuItem Name="StarChoice" Header="Star"/>
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+        <Button Name="PenTool" Classes="dock-tool"/>
+        <Button Name="DrawingToolMenu" Classes="tool-menu" ToolTip.Tip="Drawing tools">
+          <Button.Flyout>
+            <MenuFlyout Placement="TopEdgeAlignedLeft">
+              <MenuItem Name="PenChoice" Header="Pen" InputGesture="P"/>
+              <MenuItem Name="PencilChoice" Header="Pencil" InputGesture="Shift+P"/>
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+        <Button Name="TextTool" Classes="dock-tool" ToolTip.Tip="Text (T)"/>
+        <Button Name="HandTool" Classes="dock-tool" ToolTip.Tip="Hand (H) · Hold Space to pan"/>
+        <Button Name="CommentTool" Classes="dock-tool" ToolTip.Tip="Comment (C)"/>
+        <Border Width="1" Background="#E6E6E6" Margin="4,6"/>
+        <Button Name="ActionsButton" Classes="dock-tool" ToolTip.Tip="Actions (Ctrl+K)"/>
       </StackPanel>
     </Border>
     <Border Name="Toast" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="16" Padding="16,10" Background="#252525" CornerRadius="8" IsVisible="False">

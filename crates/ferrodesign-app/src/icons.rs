@@ -20,6 +20,8 @@ pub fn icon(name: &str, color: &str, size: f64) -> Ref<Path> {
         "chevron-down" => "M5,8 L12,15 L19,8",
         "chevron-right" => "M8,5 L15,12 L8,19",
         "ellipse" => "M12,3 A9,9 0 1 1 11.99,3 Z",
+        "arrow" => "M4,20 L20,4 M11,4 H20 V13",
+        "pencil" => "M3,21 L4,15 L16,3 Q17,2 18,3 L21,6 Q22,7 21,8 L9,20 Z M14,5 L19,10 M4,15 L9,20",
         "line" => "M4,20 L20,4",
         "pen" => "M3,21 L7,8 L17,3 L21,7 L16,17 Z M3,21 L12,12 M10,10 L14,14",
         "text" => "M4,5 V3 H20 V5 M12,3 V21 M8,21 H16",

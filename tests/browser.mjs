@@ -1190,7 +1190,7 @@ try {
             await frames(page);
             const compact = await state(page);
             assertInside(compact.chrome.Toolbar, compact.chrome.CanvasHost, "Floating toolbar");
-            for (const name of ["SelectTool", "FrameTool", "RectTool", "EllipseTool", "PenTool", "TextTool", "HandTool", "CommentTool", "ActionsButton"]) {
+            for (const name of ["SelectTool", "FrameTool", "RegionToolMenu", "RectTool", "ShapeToolMenu", "PenTool", "DrawingToolMenu", "TextTool", "HandTool", "CommentTool", "ActionsButton"]) {
                 assertInside(compact.chrome[name], compact.chrome.Toolbar, name);
             }
             for (const [name, tool] of [["HandTool", "Hand"], ["SelectTool", "Select"]]) {
@@ -1201,7 +1201,21 @@ try {
             await frames(page);
             result.compact = { viewport: { width: 980, height: 650 }, chrome: (await state(page)).chrome };
             await canvas.screenshot({ path: resolve(output, mode + "-compact.png") });
-            check("All nine toolbar controls fit at 980×650; native toolbar pointer input switches tools");
+            check("The complete native toolbar fits at 980×650 and its buttons switch tools");
+            for (const [menu, item, primary, tool] of [
+                ["RegionToolMenu", "SectionChoice", "FrameTool", "Section"],
+                ["ShapeToolMenu", "ArrowChoice", "RectTool", "Arrow"],
+                ["DrawingToolMenu", "PencilChoice", "PenTool", "Pencil"],
+            ]) {
+                await clickNative(page, menu);
+                await clickNative(page, item);
+                await page.waitForFunction(expected => JSON.parse(globalThis.ferroDesign.ferroDesignState()).tool === expected, tool);
+                await clickNative(page, "SelectTool");
+                await clickNative(page, primary);
+                assert.equal((await state(page)).tool, tool);
+            }
+            await clickNative(page, "SelectTool");
+            check("Region, shape and drawing flyouts activate native tools and retain the last choice on the main button");
 
             for (let added = 0; added < 8; added++) {
                 const before = await state(page);

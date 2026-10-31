@@ -16,6 +16,7 @@ mod rich_text;
 mod text;
 mod variables;
 mod zoom;
+mod toolbar;
 mod vector_export;
 mod text_export;
 mod stroke_profiles;
@@ -71,6 +72,7 @@ pub struct EditorShell {
     assets: Cell<bool>,
     inspector_tab: Cell<u8>,
     displayed_zoom: Cell<Option<i32>>,
+    toolbar: toolbar::ToolbarState,
     prototype_targets: RefCell<Vec<NodeId>>,
     prototype: Rc<PrototypeRuntime>,
     pending_save: Cell<bool>,
@@ -132,6 +134,7 @@ impl EditorShell {
             assets: Cell::new(false),
             inspector_tab: Cell::new(0),
             displayed_zoom: Cell::new(None),
+            toolbar: toolbar::ToolbarState::default(),
             prototype_targets: RefCell::new(Vec::new()),
             prototype,
             pending_save: Cell::new(false),
@@ -399,14 +402,6 @@ impl EditorShell {
             ("VisibleButton", "eye"),
             ("LockedButton", "lock"),
             ("GradientButton", "gradient"),
-            ("SelectTool", "pointer"),
-            ("FrameTool", "frame"),
-            ("RectTool", "rect"),
-            ("EllipseTool", "ellipse"),
-            ("PenTool", "pen"),
-            ("TextTool", "text"),
-            ("HandTool", "hand"),
-            ("CommentTool", "comment"),
             ("ActionsButton", "actions"),
             ("AlignLeftButton", "align-left"),
             ("AlignCenterButton", "align-center"),
@@ -418,6 +413,7 @@ impl EditorShell {
         ] {
             self.icon(name, icon);
         }
+        self.wire_toolbar();
         for (name, command) in [
             ("MenuButton", "menu"),
             ("FileActionsButton", "menu"),
@@ -431,10 +427,6 @@ impl EditorShell {
             ("PresentButton", "present"),
             ("ShareButton", "share"),
             ("SelectTool", "select"),
-            ("FrameTool", "frame"),
-            ("RectTool", "rectangle"),
-            ("EllipseTool", "ellipse"),
-            ("PenTool", "pen"),
             ("TextTool", "text"),
             ("HandTool", "hand"),
             ("CommentTool", "comment"),
@@ -713,7 +705,7 @@ impl EditorShell {
             "SelectTool",
             "FrameTool",
             "RectTool",
-            "EllipseTool",
+            "RegionToolMenu", "ShapeToolMenu", "DrawingToolMenu",
             "PenTool",
             "TextTool",
             "HandTool",
@@ -769,6 +761,15 @@ impl EditorShell {
             )
         })
         .collect();
+        for (name, item) in self.open_tool_items() {
+            if item.is_attached_to_visual_tree() {
+                let mut bounds = native_bounds(&item);
+                let origin = self.root.point_to_client(item.point_to_screen(ferroui_base::Point::default()));
+                bounds["x"] = json!(origin.x);
+                bounds["y"] = json!(origin.y);
+                chrome.insert(name.into(), bounds);
+            }
+        }
         if self.control::<Control>("ModalBackdrop").is_visible() {
             for visual in self
                 .control::<Control>("ModalBackdrop")
@@ -1002,19 +1003,7 @@ impl EditorShell {
         self.text("DocumentStatus", &platform::document_save_status());
     }
     fn sync_tools(&self) {
-        let active = self.canvas.tool.get();
-        for (name, tool) in [
-            ("SelectTool", Tool::Select),
-            ("FrameTool", Tool::Frame),
-            ("RectTool", Tool::Rectangle),
-            ("EllipseTool", Tool::Ellipse),
-            ("PenTool", Tool::Pen),
-            ("TextTool", Tool::Text),
-            ("HandTool", Tool::Hand),
-            ("CommentTool", Tool::Comment),
-        ] {
-            self.button(name).classes().set("active", active == tool);
-        }
+        self.sync_toolbar();
         self.sync_zoom();
     }
     fn refresh(self: &Rc<Self>) {
