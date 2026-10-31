@@ -134,6 +134,12 @@ impl LayerProjection {
         else {
             return false;
         };
+        // Assets lists components without child rows, yet a child's name can
+        // make a component enter or leave the results. We cannot infer its
+        // former match from the displayed rows after a scoped edit.
+        if assets && !filter.is_empty() && !nodes.is_empty() {
+            return false;
+        }
         for id in nodes.into_iter().chain(ancestors) {
             let Some(&index) = self.indices.get(&id) else {
                 // A scoped rename can introduce a search result. Topology and
@@ -142,8 +148,7 @@ impl LayerProjection {
                 if !filter.is_empty() {
                     let Some(node) = editor.document.nodes.get(&id) else { return false; };
                     if node.name.to_lowercase().contains(filter)
-                        && if assets { node.kind == NodeKind::Component }
-                           else { editor.document.page_of(id) == Some(editor.active_page) }
+                        && editor.document.page_of(id) == Some(editor.active_page)
                     {
                         return false;
                     }
@@ -392,6 +397,23 @@ mod tests {
         assert_eq!(ids(&projection), vec![sibling, parent]);
         assert!(!projection.refresh(&editor, false, "", &expanded));
         assert_eq!(projection.stats(), LayerProjectionStats { builds: 4, reuses: 3 });
+    }
+
+    #[test]
+    fn asset_search_tracks_unlisted_children_entering_and_leaving_results() {
+        let (mut editor, parent, child, _) = tree_editor();
+        editor.document.nodes.get_mut(&parent).unwrap().kind = NodeKind::Component;
+        editor.refresh();
+        let mut projection = LayerProjection::default();
+        let expanded = BTreeSet::new();
+        projection.refresh(&editor, true, "needle", &expanded);
+        assert!(projection.rows().is_empty());
+        editor.update_node(child, "Rename", |node| node.name = "Needle".into());
+        assert!(projection.refresh(&editor, true, "needle", &expanded));
+        assert_eq!(ids(&projection), [parent]);
+        editor.update_node(child, "Rename", |node| node.name = "Thread".into());
+        assert!(projection.refresh(&editor, true, "needle", &expanded));
+        assert!(projection.rows().is_empty());
     }
 
     #[test]
