@@ -35,7 +35,9 @@ The floating toolbar groups region, shape and drawing tools. Open the arrow next
 
 Click with a shape tool to place its default size, or drag to set its bounds. Hold **Shift** for a circle, square or line in 45° increments. **Alt/Option** draws from the center. Hold **Space** during a shape drag to reposition it. Draw inside an unlocked frame to create a child. Use **Shift+L** for an arrow and drag either endpoint to edit it. With the Text tool, a click starts auto-sizing text and a drag defines a fixed text box.
 
-In **Layers**, hold **Shift** to select a range of displayed rows, or **Cmd/Ctrl** to toggle individual layers. The lock and eye buttons control locking and visibility independently.
+Press **K** to scale selected layers proportionally. Drag an edge or corner handle to scale around its opposite point, or hold **Alt/Option** to keep the center fixed. For an exact size, choose one of the nine anchors in the Scale inspector and enter a multiplier, percentage, width or height. Editable geometry, text, strokes and effects scale together. Instances and layers with linked dimensions keep their source values and take an affine scale. Press **Esc** to cancel a drag.
+
+In **Layers**, hold **Shift** to select a range of displayed rows, or **Cmd/Ctrl** to toggle individual layers. The lock and eye buttons control locking and visibility independently. Hover over a row to locate its layer on the canvas without changing the selection.
 
 Select an auto-layout frame or one of its children, then choose **Layout and grid placement…** in the inspector. Native controls edit child sizing, min/max limits, growth, absolute positioning, one-based grid cells and row/column spans. **Move before/after** follows the visual flow, including reversed layouts; pinned grid children keep their cells.
 
@@ -56,7 +58,8 @@ Select one or several layers and drag between layout frames, ordinary frames or 
 | Select / frame / rectangle / ellipse / line | `V` / `F` / `R` / `O` / `L` |
 | Pen / freehand pencil / text | `P` / `Shift+P` / `T` |
 | Paint bucket while editing a vector network | `Shift+B` |
-| Hand / comment / section | `H` / `C` / `Shift+S` |
+| Hand / comment / section / slice | `H` / `C` / `Shift+S` / `S` |
+| Scale selection | `K`. Drag a handle or set a multiplier in the Scale inspector. |
 | Auto layout / component / place image | `Shift+A` / `Ctrl`/`Cmd+Alt+K` / `Ctrl`/`Cmd+Shift+K` |
 | Pan | Hold `Space` and drag, middle-button drag, or scroll |
 | Zoom around the pointer | `Ctrl`/`Cmd` + scroll |
