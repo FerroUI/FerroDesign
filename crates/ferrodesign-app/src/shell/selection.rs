@@ -6,6 +6,22 @@ use ferroui_base::input::KeyModifiers;
 use ferroui_base::interactivity::RoutingStrategies;
 
 impl EditorShell {
+    pub(super) fn wire_layer_preview(&self, row: &Ref<Grid>, id: NodeId) {
+        let canvas = self.canvas.downgrade();
+        row.add_handler(InputElement::pointer_entered_event(), move |_, _| {
+            if let Some(canvas) = canvas.upgrade() { canvas.preview_layer(Some(id)); }
+        });
+        let canvas = self.canvas.downgrade();
+        row.add_handler(InputElement::pointer_exited_event(), move |_, _| {
+            if let Some(canvas) = canvas.upgrade() { canvas.end_layer_preview(id); }
+        });
+        // Virtualized rows can disappear under a stationary pointer.
+        let canvas = self.canvas.downgrade();
+        row.unloaded(move |_, _| {
+            if let Some(canvas) = canvas.upgrade() { canvas.end_layer_preview(id); }
+        });
+    }
+
     pub(super) fn wire_layer_activation(self: &Rc<Self>, button: &Ref<Button>, id: NodeId, asset: bool) {
         // Button raises Click during the bubble phase of a successful release.
         // Keep that hit testing and keyboard/automation activation in the control.

@@ -1199,6 +1199,7 @@ impl EditorShell {
     fn layer_row(self: &Rc<Self>, row: &LayerRow) -> Ref<Grid> {
         let id = row.id;
         let grid = Grid::new();
+        if !row.assets { self.wire_layer_preview(&grid, id); }
         grid.classes().add("layer-row");
         grid.set_column_definitions(ColumnDefinitions::parse("20,*,20,20").unwrap());
         grid.set_height(30.0);

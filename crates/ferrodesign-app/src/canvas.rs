@@ -181,6 +181,7 @@ pub struct DesignCanvas {
     painter: RefCell<ScenePainter>,
     callback: RefCell<Option<Rc<dyn Fn(CanvasEvent)>>>,
     hover: Cell<Option<NodeId>>,
+    layer_preview: Cell<Option<NodeId>>,
     prototype_press: Cell<Option<(NodeId, Point, bool)>>,
     space: Cell<bool>,
     initialized: Cell<bool>,
@@ -232,6 +233,7 @@ impl DesignCanvas {
             painter: RefCell::new(ScenePainter::default()),
             callback: RefCell::new(None),
             hover: Cell::new(None),
+            layer_preview: Cell::new(None),
             prototype_press: Cell::new(None),
             space: Cell::new(false),
             initialized: Cell::new(false),
@@ -315,6 +317,22 @@ impl DesignCanvas {
         self.hover.set(None);
         self.space.set(false);
     }
+    pub(crate) fn preview_layer(&self, id: Option<NodeId>) {
+        if self.layer_preview.replace(id) != id {
+            self.invalidate_visual();
+        }
+    }
+
+    pub(crate) fn end_layer_preview(&self, id: NodeId) {
+        if self.layer_preview.get() == Some(id) {
+            self.preview_layer(None);
+        }
+    }
+
+    pub(crate) fn highlighted_layer(&self) -> Option<NodeId> {
+        self.layer_preview.get().or(self.hover.get())
+    }
+
     pub fn set_tool(&self, tool: Tool) {
         self.leave_linear_gradient_edit();
         self.cancel_corner_radius_gesture();
@@ -1568,6 +1586,8 @@ impl InputElementImpl for DesignCanvas {
             if let Some(id) = this.hover.take() {
                 this.emit(CanvasEvent::PrototypeTrigger(id, core::Trigger::MouseLeave));
             }
+        } else if this.hover.take().is_some() {
+            this.invalidate_visual();
         }
     }
     fn on_pointer_wheel_changed(this: &Self, e: &PointerWheelEventArgs) {
@@ -2164,15 +2184,18 @@ impl VisualImpl for DesignCanvas {
             } else if this.dark.get() { "#999999" } else { "#777777" };
             label(ctx, &node.name, Point::new(point.x, point.y - 20.0), 11.0, color);
         }
-        if let Some(id) = this.hover.get() {
-            if !editor.selection.contains(&id) {
-                if let Some(b) = doc.world_bounds(id) {
-                    let a = v.world_to_screen(Point::new(b.x, b.y));
-                    ctx.draw_rectangle_outline(
-                        &blue,
-                        UiRect::new(a.x, a.y, b.width * v.zoom, b.height * v.zoom),
-                        0.0,
-                    );
+        if let Some(id) = this.highlighted_layer() {
+            if !editor.selection.contains(&id) && doc.effective_visible(id) {
+                if let (Some(node), Some(transform)) = (doc.nodes.get(&id), editor.scene.transforms.get(&id)) {
+                    let points = node.local_bounds().corners()
+                        .map(|p| ui(v.world_to_screen(transform.apply(p))));
+                    if node.kind == NodeKind::Line {
+                        ctx.draw_line(&blue, points[0], points[2]);
+                    } else {
+                        for i in 0..4 {
+                            ctx.draw_line(&blue, points[i], points[(i + 1) % 4]);
+                        }
+                    }
                 }
             }
         }

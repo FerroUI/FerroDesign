@@ -463,3 +463,26 @@ fn quick_actions_search_keyboard_activation_and_empty_results_preserve_the_docum
     assert!(shell.canvas.is_focused());
     assert_eq!(fixture.json(), original);
 }
+
+#[test]
+fn hovering_a_layer_row_previews_it_without_changing_selection_or_history() {
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let before = fixture.json();
+    shell.editor.borrow_mut().clear_selection();
+    shell.refresh_selection();
+    let row = shell.layer_buttons.borrow()[&fixture.id].upgrade().unwrap();
+    let history = shell.editor.borrow().history_len();
+    let move_over = |control: &Button| {
+        let b = control.bounds();
+        let p = control.translate_point(ferroui_base::Point::new(b.width / 2.0, b.height / 2.0), &fixture.window).unwrap();
+        fixture.window.mouse_move(p, RawInputModifiers::NONE);
+    };
+    move_over(&row);
+    assert_eq!(shell.canvas.highlighted_layer(), Some(fixture.id));
+    move_over(&shell.button("MenuButton"));
+    assert_eq!(shell.canvas.highlighted_layer(), None);
+    assert!(shell.editor.borrow().selection.is_empty());
+    assert_eq!(shell.editor.borrow().history_len(), history);
+    assert_eq!(fixture.json(), before);
+}

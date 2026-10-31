@@ -46,6 +46,7 @@ impl EditorShell {
         let panel = self.compact_panel.get();
         let layers = !present && (!compact || panel == CompactPanel::Layers);
         let properties = !present && (!compact || panel == CompactPanel::Properties);
+        if !layers { self.canvas.preview_layer(None); }
         self.visible("NavigationRail", layers);
         self.visible("LeftPanel", layers);
         self.visible("RightPanel", properties);
