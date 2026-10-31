@@ -37,6 +37,8 @@ Click with a shape tool to place its default size, or drag to set its bounds. Ho
 
 Press **K** to scale selected layers proportionally. Drag an edge or corner handle to scale around its opposite point, or hold **Alt/Option** to keep the center fixed. For an exact size, choose one of the nine anchors in the Scale inspector and enter a multiplier, percentage, width or height. Editable geometry, text, strokes and effects scale together. Instances and layers with linked dimensions keep their source values and take an affine scale. Press **Esc** to cancel a drag.
 
+Press **S** or choose **Slice** from the region tools to drag an export viewport. Select its edge or its Layers row to rename, move, rotate, or resize it. Export PNG or SVG for a transparent crop of the visible artwork, including overlapping layers. A multi-slice export produces one ZIP containing named files; any selected artwork outside the slice list is exported together as an additional file. Slice outlines and labels appear only in the editor.
+
 In **Layers**, hold **Shift** to select a range of displayed rows, or **Cmd/Ctrl** to toggle individual layers. The lock and eye buttons control locking and visibility independently. Hover over a row to locate its layer on the canvas without changing the selection.
 
 Select an auto-layout frame or one of its children, then choose **Layout and grid placement…** in the inspector. Native controls edit child sizing, min/max limits, growth, absolute positioning, one-based grid cells and row/column spans. **Move before/after** follows the visual flow, including reversed layouts; pinned grid children keep their cells.
