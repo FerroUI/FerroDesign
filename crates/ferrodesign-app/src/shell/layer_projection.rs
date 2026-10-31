@@ -107,9 +107,6 @@ impl LayerProjection {
             || context.assets != assets
             || context.filter != filter
             || &context.expanded != expanded
-            // An excluded node can become a search match after a rename.
-            // Keep filtering conservative instead of caching every node name.
-            || !filter.is_empty()
         {
             return false;
         }
@@ -120,10 +117,18 @@ impl LayerProjection {
         };
         for id in nodes.into_iter().chain(ancestors) {
             let Some(&index) = self.indices.get(&id) else {
-                // The feed makes hierarchy, ordering, kind and membership
-                // changes Full. With an empty search, a changed node outside
-                // this page, under a collapsed parent, or outside Assets
-                // cannot enter the projection through a content-only edit.
+                // A scoped rename can introduce a search result. Topology and
+                // membership changes already publish Full. Other unseen edits
+                // need no traversal of the page or reconstruction of its rows.
+                if !filter.is_empty() {
+                    let Some(node) = editor.document.nodes.get(&id) else { return false; };
+                    if node.name.to_lowercase().contains(filter)
+                        && if assets { node.kind == NodeKind::Component }
+                           else { editor.document.page_of(id) == Some(editor.active_page) }
+                    {
+                        return false;
+                    }
+                }
                 continue;
             };
             let Some(node) = editor.document.nodes.get(&id) else { return false; };
@@ -335,6 +340,9 @@ mod tests {
         let mut projection = LayerProjection::default();
         projection.refresh(&editor, false, "missing", &expanded);
         assert!(projection.rows().is_empty());
+        assert!(!projection.refresh(&editor, false, "missing", &expanded));
+        editor.update_node(sibling, "Move", |node| node.x += 2.0);
+        assert!(!projection.refresh(&editor, false, "missing", &expanded));
         editor.update_node(child, "Rename", |node| node.name = "Now missing matches".into());
         assert!(projection.refresh(&editor, false, "missing", &expanded));
         assert_eq!(ids(&projection), vec![parent, child]);
@@ -344,7 +352,7 @@ mod tests {
         assert!(projection.refresh(&editor, false, "", &expanded));
         assert_eq!(ids(&projection), vec![sibling, parent]);
         assert!(!projection.refresh(&editor, false, "", &expanded));
-        assert_eq!(projection.stats(), LayerProjectionStats { builds: 4, reuses: 1 });
+        assert_eq!(projection.stats(), LayerProjectionStats { builds: 4, reuses: 3 });
     }
 
     #[test]
