@@ -156,10 +156,13 @@ impl EditorShell {
         let mut choices = self.toolbar.choices.get();
         for (index, group) in GROUPS.iter().enumerate() {
             let selected = group.choices.iter().position(|choice| choice.1 == active);
-            let old = group.choices[choices[index]].1;
+            let (old_name, old_tool, _, _) = group.choices[choices[index]];
             if let Some(selected) = selected {
+                if selected != choices[index] {
+                    self.control::<MenuItem>(old_name).set_is_checked(false);
+                }
                 choices[index] = selected;
-            } else if previous.is_some() && previous != Some(old) {
+            } else if previous.is_some() && previous != Some(old_tool) {
                 continue;
             }
             let (name, tool, _, glyph) = group.choices[choices[index]];

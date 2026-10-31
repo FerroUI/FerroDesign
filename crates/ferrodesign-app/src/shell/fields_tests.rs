@@ -529,3 +529,6 @@ fn native_phone_frame_caption_stays_within_its_artboard() {
     }
     assert!(changed > 5, "caption still renders at phone zoom");
 }
+
+#[path = "toolbar_input_tests.rs"]
+mod toolbar_input_tests;
