@@ -31,6 +31,12 @@ Vello is selected through FerroUI's public `BrowserPlatformOptions` and `VelloAp
 
 The initial document contains editable Orbit mobile banking screens, a component page, styles, variables, comments and a linked prototype. Click a layer on the canvas or in the left sidebar; the right sidebar edits the selected layer. Empty-canvas selection exposes the page background.
 
+The floating toolbar groups region, shape and drawing tools. Open the arrow next to a tool to see its alternatives. The main button remembers your last choice, including choices made with keyboard shortcuts. In windows narrower than 900 design pixels, use **Layers** and **Properties** at the top to open a panel. Press the active button again to return to the full canvas.
+
+Click with a shape tool to place its default size, or drag to set its bounds. Hold **Shift** for a circle, square or line in 45° increments. **Alt/Option** draws from the center. Hold **Space** during a shape drag to reposition it. Draw inside an unlocked frame to create a child. Use **Shift+L** for an arrow and drag either endpoint to edit it. With the Text tool, a click starts auto-sizing text and a drag defines a fixed text box.
+
+In **Layers**, hold **Shift** to select a range of displayed rows, or **Cmd/Ctrl** to toggle individual layers. The lock and eye buttons control locking and visibility independently.
+
 Select an auto-layout frame or one of its children, then choose **Layout and grid placement…** in the inspector. Native controls edit child sizing, min/max limits, growth, absolute positioning, one-based grid cells and row/column spans. **Move before/after** follows the visual flow, including reversed layouts; pinned grid children keep their cells.
 
 The same dialog edits **Top, Right, Bottom and Left padding**, including on empty frames. Linking the fields preserves their existing values until an explicit edit applies one value to all sides. Independent edits retain the exact stored precision of untouched sides. All four drafts validate atomically; Escape discards the group, and **Save design** uses the normal document-save lifecycle. Nested layout reflow is one complete undo step. The compact inspector displays **Mixed** for unequal sides.
