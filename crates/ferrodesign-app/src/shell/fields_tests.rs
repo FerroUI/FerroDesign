@@ -425,3 +425,38 @@ fn native_scale_inspector_and_handle_share_undo_and_cancel() {
     assert_eq!(fixture.json(), before);
     fixture.stop_save_timer();
 }
+
+#[test]
+fn quick_actions_search_keyboard_activation_and_empty_results_preserve_the_document() {
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let original = fixture.json();
+    let commands = &[("Draw rectangle  R", "rectangle"), ("Draw ellipse  O", "ellipse")];
+    let open = || {
+        shell.action_dialog("Actions", "Find a tool", commands);
+        let header = shell.control::<Border>("DialogSearchHost");
+        let field = header.child().unwrap().cast::<TextBox>().unwrap();
+        assert!(field.is_focused());
+        field
+    };
+    let search = open();
+    fixture.key(&search, Key::Down);
+    fixture.key(&search, Key::Enter);
+    assert_eq!(shell.canvas.tool.get(), Tool::Ellipse);
+    assert!(!shell.control::<Border>("ModalBackdrop").is_visible());
+
+    let search = open();
+    search.set_text(Some("rectangle draw"));
+    Dispatcher::ui_thread().run_jobs(None);
+    fixture.key(&search, Key::Enter);
+    assert_eq!(shell.canvas.tool.get(), Tool::Rectangle);
+
+    let search = open();
+    search.set_text(Some("no such tool"));
+    Dispatcher::ui_thread().run_jobs(None);
+    fixture.key(&search, Key::Enter);
+    assert!(shell.control::<Border>("ModalBackdrop").is_visible());
+    fixture.key(&search, Key::Escape);
+    assert!(shell.canvas.is_focused());
+    assert_eq!(fixture.json(), original);
+}
