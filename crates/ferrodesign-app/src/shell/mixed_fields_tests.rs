@@ -69,3 +69,42 @@ fn mixed_inspector_fields_batch_edit_and_restore_shared_values_through_native_in
     assert!(horizontal.placeholder_text().is_none());
     assert!(shell.button("ConstraintRight").classes().contains("active"));
 }
+
+#[test]
+fn mixed_visibility_and_lock_actions_set_one_state_in_one_history_entry() {
+    use ferroui_controls::automation::AutomationProperties;
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let other = {
+        let mut editor = shell.editor.borrow_mut();
+        let mut node = editor.document.nodes[&fixture.id].clone();
+        node.visible = false;
+        node.locked = true;
+        let page = editor.active_page;
+        let id = editor.document.insert_node(page, node).unwrap();
+        editor.refresh();
+        editor.selection = vec![id, fixture.id];
+        id
+    };
+    shell.refresh();
+    let labels = || [
+        AutomationProperties::get_name(&shell.button("VisibleButton")).unwrap(),
+        AutomationProperties::get_name(&shell.button("LockedButton")).unwrap(),
+    ];
+    assert_eq!(labels(), ["Show all selected layers", "Lock all selected layers"]);
+    let before = fixture.json();
+    for (button, label) in [("VisibleButton", "Hide selection"), ("LockedButton", "Unlock selection")] {
+        let button = shell.button(button);
+        fixture.click_button(&button, RawInputModifiers::NONE);
+        assert_eq!(AutomationProperties::get_name(&button).as_deref(), Some(label));
+    }
+    assert!([other, fixture.id].iter().all(|id| {
+        let editor = shell.editor.borrow();
+        editor.document.nodes[id].visible && editor.document.nodes[id].locked
+    }));
+    assert_eq!(shell.editor.borrow().history_len(), 2);
+    assert!(shell.command("undo"));
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+    assert_eq!(labels(), ["Show all selected layers", "Lock all selected layers"]);
+}

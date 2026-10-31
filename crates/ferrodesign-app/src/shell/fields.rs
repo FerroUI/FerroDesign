@@ -72,6 +72,16 @@ impl InspectorDraft {
 }
 
 impl EditorShell {
+    pub(super) fn sync_state_button(&self, name: &str, glyph: &str, action: &str) {
+        use ferroui_controls::{automation::AutomationProperties, ToolTip};
+        let button = self.button(name);
+        if AutomationProperties::get_name(&button).as_deref() != Some(action) {
+            self.icon(name, glyph);
+            AutomationProperties::set_name(&button, Some(action));
+            ToolTip::set_tip(&button, Some(Rc::new(action.to_owned())));
+        }
+    }
+
     pub(super) fn reject_inspector_field(&self, name: &str, message: &str) -> bool {
         self.field(name)
             .set_border_brush(Some(icons::brush("#C8372B")));

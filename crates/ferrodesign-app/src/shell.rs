@@ -1519,9 +1519,19 @@ impl EditorShell {
             "TextOptions",
             selection.common(|n| n.kind) == Some(NodeKind::Text),
         );
-        self.button("LockedButton")
-            .classes()
-            .set("active", node.is_some_and(|n| n.locked));
+        if node.is_some() {
+            let visible = selection.common(|n| n.visible);
+            self.sync_state_button("VisibleButton", if visible == Some(false) { "eye-off" } else { "eye" },
+                match visible {
+                    Some(true) => "Hide selection", Some(false) => "Show selection", None => "Show all selected layers",
+                });
+            let locked = selection.common(|n| n.locked);
+            self.button("LockedButton").classes().set("active", locked == Some(true));
+            self.sync_state_button("LockedButton", if locked == Some(true) { "lock" } else { "unlock" },
+                match locked {
+                    Some(true) => "Unlock selection", Some(false) => "Lock selection", None => "Lock all selected layers",
+                });
+        }
         self.button("BoldButton")
             .classes()
             .set("active", node.is_some_and(|n| n.font_weight >= 600));
@@ -2312,17 +2322,14 @@ impl EditorShell {
                 });
             }
             "toggle-visible" | "toggle-lock" => {
-                let ids = self.editor.borrow().selection.clone();
                 let mut editor = self.editor.borrow_mut();
-                editor.begin_transaction("Toggle layer state");
-                for id in ids {
-                    if command == "toggle-visible" {
-                        editor.toggle_visibility(id)
-                    } else {
-                        editor.toggle_locked(id)
-                    }
-                }
-                editor.commit_transaction();
+                let ids = editor.selection.clone();
+                let visibility = command == "toggle-visible";
+                let target = !ids.iter().filter_map(|id| editor.document.nodes.get(id))
+                    .all(|node| if visibility { node.visible } else { node.locked });
+                editor.update_nodes(&ids, "Toggle layer state", |node| {
+                    if visibility { node.visible = target; } else { node.locked = target; }
+                });
             }
             "flip" => self.modify("Flip horizontal", |n| n.flip_x = !n.flip_x),
             "add-page" => {
