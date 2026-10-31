@@ -51,13 +51,13 @@
       <Setter Property="Padding" Value="9"/><Setter Property="CornerRadius" Value="8"/>
     </Style>
     <Style Selector="Button.dock-tool">
-      <Setter Property="Width" Value="34"/><Setter Property="Height" Value="34"/>
+      <Setter Property="Width" Value="34"/><Setter Property="Height" Value="40"/>
       <Setter Property="Padding" Value="6"/><Setter Property="CornerRadius" Value="6"/>
     </Style>
-    <Style Selector="Button.dock-tool.active"><Setter Property="Background" Value="#0C8CE9"/></Style>
     <Style Selector="Button.tool-menu">
-      <Setter Property="Width" Value="18"/><Setter Property="MinWidth" Value="0"/>
-      <Setter Property="Height" Value="34"/><Setter Property="Padding" Value="3"/>
+      <Setter Property="Width" Value="24"/><Setter Property="MinWidth" Value="0"/>
+      <Setter Property="Height" Value="40"/><Setter Property="Padding" Value="3"/>
+      <Setter Property="CornerRadius" Value="5"/>
     </Style>
     <Style Selector="Button.layer">
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
@@ -484,11 +484,20 @@
       </Grid>
     </Border>
     <TextBlock Name="CanvasCaption" Grid.Column="2" Text="" FontSize="10" Foreground="#868686" Margin="24,25" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"/>
-    <Border Name="Toolbar" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="8,0,8,24" Padding="7" Background="White" CornerRadius="13" BorderBrush="#D7D7D7" BorderThickness="1" BoxShadow="0 3 14 0 #20000000">
+    <Border Name="Toolbar" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="8,0,8,24" Padding="5" Background="White" CornerRadius="13" BorderBrush="#D7D7D7" BorderThickness="1" BoxShadow="0 3 14 0 #20000000">
+      <Border.Resources>
+        <!-- Fluent's button template reads these brushes from its presenter in each state. -->
+        <SolidColorBrush x:Key="AccentButtonBackground" Color="#087AC4"/>
+        <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#066AAA"/>
+        <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#06578A"/>
+        <SolidColorBrush x:Key="AccentButtonBackgroundDisabled" Color="#717B82"/>
+        <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#EDF1F4"/>
+        <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#DCE3E9"/>
+      </Border.Resources>
       <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
       <StackPanel Orientation="Horizontal" Spacing="1">
         <Button Name="SelectTool" Classes="dock-tool" ToolTip.Tip="Move (V)"/>
-        <Button Name="MoveToolMenu" Classes="tool-menu" ToolTip.Tip="Move tools">
+        <Button Name="MoveToolMenu" Classes="tool-menu" AutomationProperties.Name="Move tools" ToolTip.Tip="Move tools">
           <Button.Flyout>
             <MenuFlyout Placement="TopEdgeAlignedLeft">
               <MenuItem Name="MoveChoice" Header="Move" InputGesture="V"/>
@@ -498,7 +507,7 @@
           </Button.Flyout>
         </Button>
         <Button Name="FrameTool" Classes="dock-tool"/>
-        <Button Name="RegionToolMenu" Classes="tool-menu" ToolTip.Tip="Region tools">
+        <Button Name="RegionToolMenu" Classes="tool-menu" AutomationProperties.Name="Region tools" ToolTip.Tip="Region tools">
           <Button.Flyout>
             <MenuFlyout Placement="TopEdgeAlignedLeft">
               <MenuItem Name="FrameChoice" Header="Frame" InputGesture="F"/>
@@ -508,7 +517,7 @@
           </Button.Flyout>
         </Button>
         <Button Name="RectTool" Classes="dock-tool"/>
-        <Button Name="ShapeToolMenu" Classes="tool-menu" ToolTip.Tip="Shape tools">
+        <Button Name="ShapeToolMenu" Classes="tool-menu" AutomationProperties.Name="Shape tools" ToolTip.Tip="Shape tools">
           <Button.Flyout>
             <MenuFlyout Placement="TopEdgeAlignedLeft">
               <MenuItem Name="RectangleChoice" Header="Rectangle" InputGesture="R"/>
@@ -521,7 +530,7 @@
           </Button.Flyout>
         </Button>
         <Button Name="PenTool" Classes="dock-tool"/>
-        <Button Name="DrawingToolMenu" Classes="tool-menu" ToolTip.Tip="Drawing tools">
+        <Button Name="DrawingToolMenu" Classes="tool-menu" AutomationProperties.Name="Drawing tools" ToolTip.Tip="Drawing tools">
           <Button.Flyout>
             <MenuFlyout Placement="TopEdgeAlignedLeft">
               <MenuItem Name="PenChoice" Header="Pen" InputGesture="P"/>
@@ -529,10 +538,10 @@
             </MenuFlyout>
           </Button.Flyout>
         </Button>
-        <Button Name="TextTool" Classes="dock-tool" ToolTip.Tip="Text (T)"/>
-        <Button Name="CommentTool" Classes="dock-tool" ToolTip.Tip="Comment (C)"/>
+        <Button Name="TextTool" Classes="dock-tool" AutomationProperties.Name="Text" AutomationProperties.AcceleratorKey="T" ToolTip.Tip="Text (T)"/>
+        <Button Name="CommentTool" Classes="dock-tool" AutomationProperties.Name="Comment" AutomationProperties.AcceleratorKey="C" ToolTip.Tip="Comment (C)"/>
         <Border Width="1" Background="#E6E6E6" Margin="4,6"/>
-        <Button Name="ActionsButton" Classes="dock-tool" ToolTip.Tip="Quick actions (Ctrl/Cmd+/)"/>
+        <Button Name="ActionsButton" Classes="dock-tool" AutomationProperties.Name="Quick actions" ToolTip.Tip="Quick actions (Ctrl/Cmd+/)"/>
       </StackPanel>
       </ScrollViewer>
     </Border>
