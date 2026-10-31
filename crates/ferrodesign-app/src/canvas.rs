@@ -1954,14 +1954,10 @@ impl VisualImpl for DesignCanvas {
         let editor = this.editor.borrow();
         let prototype_scene = this.prototype_scene.borrow();
         let doc = prototype_scene.as_ref().map(|scene| &scene.document).unwrap_or(&editor.document);
-        let roots: Vec<NodeId> = if let Some(scene) = prototype_scene.as_ref() {
-            vec![scene.root]
-        } else if let Some(root) = this.presentation.get() {
-            vec![root]
-        } else {
-            doc.page(editor.active_page)
-                .map(|p| p.children.clone())
-                .unwrap_or_default()
+        let presentation_root = prototype_scene.as_ref().map(|scene| scene.root).or(this.presentation.get());
+        let roots = match &presentation_root {
+            Some(root) => std::slice::from_ref(root),
+            None => doc.page(editor.active_page).map_or(&[][..], |page| page.children.as_slice()),
         };
         let fitted = prototype_scene.is_none() && !this.initialized.replace(true);
         if fitted {
@@ -2041,9 +2037,9 @@ impl VisualImpl for DesignCanvas {
             let mut painter = this.painter.borrow_mut();
             painter.set_raster_scale(v.zoom * display_scale);
             if prototype_scene.is_none() && this.presentation.get().is_none() {
-                painter.render_editor(ctx, &editor, &roots, v.visible_rect());
+                painter.render_editor(ctx, &editor, roots, v.visible_rect());
             } else {
-                painter.render(ctx, doc, &roots, v.visible_rect());
+                painter.render(ctx, doc, roots, v.visible_rect());
             }
         }
         ctx.pop(camera);
@@ -2108,29 +2104,17 @@ impl VisualImpl for DesignCanvas {
                 ctx.draw_line(&guide, UiPoint::new(0.0, y), UiPoint::new(v.width, y));
             }
         }
-        for &id in &roots {
-            if let Some(n) = doc.nodes.get(&id) {
-                if n.kind.is_container() && n.visible {
-                    if let Some(bounds) = doc.world_bounds(id) {
-                        let p = v.world_to_screen(Point::new(bounds.x, bounds.y));
-                        if p.x > -400.0 && p.x < v.width && p.y > -30.0 && p.y < v.height {
-                            label(
-                                ctx,
-                                &n.name,
-                                Point::new(p.x, p.y - 20.0),
-                                11.0,
-                                if matches!(n.kind, NodeKind::Component | NodeKind::Instance) {
-                                    "#9747FF"
-                                } else if this.dark.get() {
-                                    "#999999"
-                                } else {
-                                    "#777777"
-                                },
-                            );
-                        }
-                    }
-                }
-            }
+        let captions = Rect::from_points(
+            v.screen_to_world(Point::new(-400.0, -30.0)),
+            v.screen_to_world(Point::new(v.width, v.height)),
+        );
+        for (id, origin) in editor.scene.root_container_origins_in(captions) {
+            let node = &doc.nodes[&id];
+            let point = v.world_to_screen(origin);
+            let color = if matches!(node.kind, NodeKind::Component | NodeKind::Instance) {
+                "#9747FF"
+            } else if this.dark.get() { "#999999" } else { "#777777" };
+            label(ctx, &node.name, Point::new(point.x, point.y - 20.0), 11.0, color);
         }
         if let Some(id) = this.hover.get() {
             if !editor.selection.contains(&id) {

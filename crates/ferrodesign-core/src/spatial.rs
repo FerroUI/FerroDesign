@@ -97,7 +97,7 @@ impl SpatialIndex {
         self.bounds.get(&id).copied()
     }
     pub fn query(&self, rect: Rect) -> Vec<NodeId> {
-        if !rect.is_finite() {
+        if self.is_empty() || !rect.is_finite() {
             return Vec::new();
         }
         let range = self.range(rect);
@@ -165,10 +165,12 @@ pub struct SceneIndex {
     pub z_order: BTreeMap<NodeId, usize>,
     pub revision: u64,
     variable_strokes: BTreeMap<NodeId, crate::stroke_hit::VariableStrokeHits>,
+    root_container_origins: SpatialIndex,
 }
 impl SceneIndex {
     pub fn rebuild(&mut self, document: &Document, page: NodeId) {
         self.spatial.clear();
+        self.root_container_origins.clear();
         self.transforms.clear();
         self.draw_order.clear();
         self.z_order.clear();
@@ -183,7 +185,7 @@ impl SceneIndex {
                     .collect()
             })
             .unwrap_or_default();
-        self.walk(document, roots, true);
+        self.walk(document, Some(page), roots, true);
         self.revision = document.revision;
     }
 
@@ -233,13 +235,14 @@ impl SceneIndex {
                 roots.push((*id, state));
             }
         }
-        self.walk(document, roots, false);
+        self.walk(document, Some(page), roots, false);
         self.revision = document.revision;
     }
 
     fn walk(
         &mut self,
         document: &Document,
+        page: Option<NodeId>,
         mut stack: Vec<(NodeId, WalkState)>,
         rebuild_order: bool,
     ) {
@@ -259,6 +262,13 @@ impl SceneIndex {
             let mut indexed = false;
             let visible = parent.visible && node.visible;
             let bounds = transform.transform_rect(node.local_bounds());
+            if page.is_some() && node.parent == page {
+                if visible && node.kind.is_container() {
+                    self.root_container_origins.insert(id, Rect::new(bounds.x, bounds.y, 0.0, 0.0));
+                } else if !rebuild_order {
+                    self.root_container_origins.remove(id);
+                }
+            }
             if visible && !parent.operand {
                 // Keep a stable order even for layers currently outside a clip:
                 // moving one into view must not change its sibling stacking.
@@ -310,6 +320,16 @@ impl SceneIndex {
             }
             stack.extend(node.children.iter().rev().map(|child| (*child, next)));
         }
+    }
+    /// Top-left corners of visible page containers in painter order. Indexing
+    /// these points separately lets offscreen artwork have an onscreen caption.
+    pub fn root_container_origins_in(&self, area: Rect) -> impl Iterator<Item = (NodeId, Point)> + '_ {
+        let mut ids = self.root_container_origins.query(area);
+        ids.sort_unstable_by_key(|id| self.z_order.get(id));
+        ids.into_iter().filter_map(|id| {
+            let bounds = self.root_container_origins.bounds(id)?;
+            Some((id, Point::new(bounds.x, bounds.y)))
+        })
     }
     pub fn visible_nodes(&self, r: Rect) -> Vec<NodeId> {
         let mut ids = self.spatial.query(r);
@@ -520,6 +540,7 @@ impl IsolatedSelectionIndex {
         let mut scene = SceneIndex::default();
         scene.walk(
             document,
+            None,
             vec![(
                 root,
                 WalkState {
@@ -588,5 +609,34 @@ impl IsolatedSelectionIndex {
                     Some(self.root),
                 ) && accept(id)
             })
+    }
+}
+
+#[cfg(test)]
+mod container_origin_tests {
+    use super::*;
+
+    #[test]
+    fn queries_moved_root_captions_in_page_order_without_nested_or_hidden_frames() {
+        let mut document = Document::new("Captions");
+        let page = document.pages[0].id;
+        let frame = |x| Node::new(NodeKind::Frame, "Frame", x, 25.0, 60.0, 40.0);
+        let first = document.insert_node(page, frame(15.0)).unwrap();
+        let second = document.insert_node(page, frame(15.0)).unwrap();
+        document.insert_node(first, frame(0.0)).unwrap();
+        let mut hidden = frame(15.0);
+        hidden.visible = false;
+        document.insert_node(page, hidden).unwrap();
+        document.pages[0].children.swap(0, 1);
+
+        let area = Rect::new(0.0, 0.0, 30.0, 50.0);
+        let mut scene = SceneIndex::default();
+        scene.rebuild(&document, page);
+        assert_eq!(scene.root_container_origins_in(area).map(|(id, _)| id).collect::<Vec<_>>(), [second, first]);
+
+        document.nodes.get_mut(&second).unwrap().x = 500.0;
+        scene.update_nodes(&document, page, &[second]);
+        assert_eq!(scene.root_container_origins_in(area).collect::<Vec<_>>(), [(first, Point::new(15.0, 25.0))]);
+        assert_eq!(scene.root_container_origins_in(Rect::new(500.0, 25.0, 1.0, 1.0)).count(), 1);
     }
 }
