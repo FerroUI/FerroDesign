@@ -1856,7 +1856,7 @@ impl EditorShell {
             return true;
         }
         match command {
-            "rename-layer" => return self.rename_selected_layer(),
+            "reveal-layer" | "rename-layer" => return self.reveal_selected_layer(command == "rename-layer"),
             "select-matching" => { self.select_matching_dialog(); return true; }
             "select-same-properties" => return self.select_same(core::SelectionMatch::Appearance),
             "select-same-fill" => return self.select_same(core::SelectionMatch::Fill),
@@ -3218,6 +3218,7 @@ const FILE_ACTIONS: &[(&str, &str)] = &[
 ];
 const LAYER_ACTIONS: &[(&str, &str)] = &[
     ("Rename layer  F2", "rename-layer"),
+    ("Reveal in Layers", "reveal-layer"),
     ("Select layer under pointer…", "select-layer"),
     ("Select same properties…", "select-matching"),
     ("Select inverse  Ctrl+Shift+A", "select-inverse"),
@@ -3271,6 +3272,7 @@ const LAYER_ACTIONS: &[(&str, &str)] = &[
 const ACTIONS: &[(&str, &str)] = &[
     ("Move / Select  V", "select"),
     ("Rename layer  F2", "rename-layer"),
+    ("Reveal in Layers", "reveal-layer"),
     ("Scale  K", "scale"),
     ("Select groups · toggle", "toggle-select-groups"),
     ("Select layer under pointer…", "select-layer"),

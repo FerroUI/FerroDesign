@@ -58,7 +58,7 @@ impl EditorShell {
                 shell.layer_projection.borrow().select_row(&mut shell.editor.borrow_mut(), id, modifiers.get());
                 shell.refresh_selection();
                 shell.canvas.invalidate_visual();
-                if rename && shell.rename_selected_layer() { return; }
+                if rename && shell.reveal_selected_layer(true) { return; }
             }
             shell.canvas.focus();
         });

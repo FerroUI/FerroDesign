@@ -3,14 +3,21 @@ use super::*;
 use ferroui_controls::automation::AutomationProperties;
 
 impl EditorShell {
-    pub(super) fn rename_selected_layer(self: &Rc<Self>) -> bool {
+    pub(super) fn reveal_selected_layer(self: &Rc<Self>, edit_name: bool) -> bool {
         if !self.flush_inspector_drafts() { return false; }
         self.canvas.cancel_active_edit();
         let (id, ancestors) = {
             let editor = self.editor.borrow();
-            let &[id] = editor.selection.as_slice() else { return false; };
+            let &[id] = editor.selection.as_slice() else {
+                self.toast("Select one layer first.");
+                return false;
+            };
             if editor.document.page_of(id) != Some(editor.active_page)
-                || editor.document.effective_locked(id) || editor.has_active_transaction() {
+                || editor.has_active_transaction() {
+                return false;
+            }
+            if edit_name && editor.document.effective_locked(id) {
+                self.toast("Unlock the layer to rename it.");
                 return false;
             }
             let mut ancestors = Vec::new();
@@ -41,6 +48,7 @@ impl EditorShell {
         let Some(button) = self.layer_buttons.borrow().get(&id).and_then(WeakRef::upgrade) else {
             return false;
         };
+        if !edit_name { return true; }
         let Some(row) = button.parent().and_then(|parent| parent.cast::<Grid>()) else { return false; };
         self.open_layer_name_field(id, &row)
     }
@@ -73,7 +81,9 @@ impl EditorShell {
                 let mut editor = shell.editor.borrow_mut();
                 // A row may be recycled after import, deletion, undo or page
                 // changes. A stale draft must never rename a replacement ID.
-                editor.render_change_token() == version && editor.selection.as_slice() == [id]
+                !matches!(editor.render_changes_since(&version), core::EditorRenderChanges::Full)
+                    && editor.selection.as_slice() == [id]
+                    && editor.document.nodes.get(&id).is_some_and(|node| node.name == original)
                     && !editor.has_active_transaction() && !editor.document.effective_locked(id)
                     && editor.update_node(id, "Rename layer", |n| n.name = value).is_some()
             } else { false };

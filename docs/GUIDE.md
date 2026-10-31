@@ -39,7 +39,7 @@ Press **K** to scale selected layers proportionally. Drag an edge or corner hand
 
 Press **S** or choose **Slice** from the region tools to drag an export viewport. Select its edge or its Layers row to rename, move, rotate, or resize it. Export PNG or SVG for a transparent crop of the visible artwork, including overlapping layers. A multi-slice export produces one ZIP containing named files; any selected artwork outside the slice list is exported together as an additional file. Slice outlines and labels appear only in the editor.
 
-In **Layers**, hold **Shift** to select a range of displayed rows, or **Cmd/Ctrl** to toggle individual layers. The lock and eye buttons control locking and visibility independently. Hover over a row to locate its layer on the canvas without changing the selection.
+In **Layers**, hold **Shift** to select a range of displayed rows, or **Cmd/Ctrl** to toggle individual layers. The lock and eye buttons control locking and visibility independently. Hover over a row to locate its layer on the canvas without changing the selection. Double-click a layer name, or press **F2** or **Cmd/Ctrl+R** with one unlocked layer selected, to rename it in place. Press **Enter** to commit or **Esc** to discard. **Reveal in Layers** in Quick Actions opens the selected row, including nested and offscreen rows. A search that hides the chosen row is cleared.
 
 Select an auto-layout frame or one of its children, then choose **Layout and grid placement…** in the inspector. Native controls edit child sizing, min/max limits, growth, absolute positioning, one-based grid cells and row/column spans. **Move before/after** follows the visual flow, including reversed layouts; pinned grid children keep their cells.
 
