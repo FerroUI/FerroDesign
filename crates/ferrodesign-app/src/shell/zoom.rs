@@ -17,8 +17,9 @@ impl EditorShell {
         let owner = self.button("ZoomValueButton");
         let flyout = owner.flyout().expect("ZoomValueButton flyout");
         let weak = Rc::downgrade(self);
+        let popup = flyout.downgrade();
         owner.click(move |_, _| {
-            if let Some(shell) = weak.upgrade() {
+            if let Some(shell) = weak.upgrade().filter(|_| popup.upgrade().is_some_and(|f| f.is_open())) {
                 let field = shell.field("ZoomPercentField");
                 let percent = number(shell.canvas.viewport.get().zoom * 100.0);
                 field.set_text(Some(&percent));
@@ -73,7 +74,8 @@ impl EditorShell {
 }
 
 fn parse_zoom(input: &str) -> Option<f64> {
-    let percent = input.trim().trim_end_matches('%').trim_end().parse::<f64>().ok()?;
+    let input = input.trim();
+    let percent = input.strip_suffix('%').unwrap_or(input).trim_end().parse::<f64>().ok()?;
     let scale = percent / 100.0;
     (core::Viewport::MIN_ZOOM..=core::Viewport::MAX_ZOOM).contains(&scale).then_some(scale)
 }
@@ -87,7 +89,7 @@ mod tests {
         assert_eq!(parse_zoom(" 37.5 % "), Some(0.375));
         assert_eq!(parse_zoom("2"), Some(core::Viewport::MIN_ZOOM));
         assert_eq!(parse_zoom("6400"), Some(core::Viewport::MAX_ZOOM));
-        for invalid in ["", "0", "1.99%", "6401", "NaN", "inf", "12px"] {
+        for invalid in ["", "0", "1.99%", "6401", "NaN", "inf", "12px", "37%%"] {
             assert_eq!(parse_zoom(invalid), None);
         }
     }

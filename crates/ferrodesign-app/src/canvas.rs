@@ -317,6 +317,7 @@ impl DesignCanvas {
             self.leave_vector_edit();
         }
         self.tool.set(tool);
+        self.hover.set(None);
         self.focus();
         self.invalidate_visual();
         self.emit(CanvasEvent::Tool);
@@ -460,6 +461,10 @@ impl DesignCanvas {
     /// Undo during a live pointer edit cancels that transaction and its gesture.
     /// Later pointer events must never continue writing after history restored it.
     pub fn cancel_active_edit(&self) -> bool {
+        if matches!(*self.gesture.borrow(), Gesture::Pan { .. }) {
+            *self.gesture.borrow_mut() = Gesture::None;
+            return true;
+        }
         if self.cancel_linear_gradient_gesture() { return true; }
         if self.cancel_corner_radius_gesture() { return true; }
         if self.cancel_stroke_width_gesture() { return true; }
@@ -1055,6 +1060,8 @@ impl InputElementImpl for DesignCanvas {
             }
             if (this.space.get() || this.tool.get() == Tool::Hand)
                 && matches!(*this.gesture.borrow(), Gesture::None)
+                && this.layout_drag.borrow().is_none()
+                && this.image_crop_gesture.borrow().is_none()
             {
                 return;
             }
