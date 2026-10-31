@@ -799,7 +799,10 @@ impl Document {
             false,
         );
         if let Some(slice) = slice {
-            body = format!(r#"<g transform="{}">{}</g>"#, matrix(slice.world_to_local), body);
+            let _ = write!(defs, r#"<clipPath id="ferro-slice-viewport"><rect width="{}" height="{}"/></clipPath>"#,
+                number(slice.local.width), number(slice.local.height));
+            body = format!(r#"<g clip-path="url(#ferro-slice-viewport)"><g transform="{}">{}</g></g>"#,
+                matrix(slice.world_to_local), body);
         }
         let (width, height) = if slice.is_some() { (bounds.width, bounds.height) }
             else { (bounds.width.max(1.0), bounds.height.max(1.0)) };

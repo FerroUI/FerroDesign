@@ -48,6 +48,7 @@ mod tests {
         let svg = doc.export_svg(page, &[id]);
         assert!(svg.contains(r#"width="40" height="24" viewBox="0 0 40 24""#), "{svg}");
         assert!(svg.contains("crossing"));
+        assert!(svg.contains(r#"clip-path="url(#ferro-slice-viewport)""#));
         assert!(!svg.contains("Marker") && !svg.contains("private distant object"));
         let restored = Document::from_json(&doc.to_json().unwrap()).unwrap();
         assert_eq!(restored.export_svg(page, &[id]), svg);

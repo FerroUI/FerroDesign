@@ -1324,6 +1324,7 @@ impl EditorShell {
         let slices_only = !editor.selection.is_empty() && editor.selection.iter()
             .all(|id| editor.document.nodes.get(id).is_some_and(|node| node.kind == NodeKind::Slice));
         self.visible("SliceHint", slices_only);
+        self.button("ExportXamlButton").set_is_enabled(!slices_only);
         self.visible("ArtworkOptions", !slices_only);
         self.visible("AddLayoutButton", !slices_only);
         self.text("DimensionsTitle", if slices_only { "Export bounds" } else { "Layout" });
@@ -2292,6 +2293,13 @@ impl EditorShell {
             }
             "export-xaml" => {
                 let editor = self.editor.borrow();
+                if !editor.selection.is_empty() && editor.selection.iter()
+                    .all(|id| editor.document.nodes.get(id).is_some_and(|n| n.kind == NodeKind::Slice))
+                {
+                    drop(editor);
+                    self.toast("Export slice regions using SVG or PNG.");
+                    return false;
+                }
                 let roots = if editor.selection.is_empty() {
                     editor
                         .document
