@@ -54,6 +54,17 @@ fn draw_slice_with_keyboard_and_pointer_and_export_composited_pixels() {
     assert_eq!(pixel(15, 15), [0, 0, 0, 255]);
     assert_eq!(pixel(25, 15), [255, 255, 255, 255], "overlap follows document stacking order");
     assert_eq!(shell.editor.borrow().history_len(), 1);
+    // Rotating the viewport keeps the requested output dimensions and samples
+    // the page through its inverse transform. This pixel was transparent above.
+    assert_eq!(pixel(25, 35)[3], 0);
+    shell.editor.borrow_mut().update_node(id, "Rotate slice", |slice| slice.rotation = 90.0);
+    let bytes = shell.canvas.export_png_for(&[id]).unwrap();
+    let rotated = Bitmap::from_stream(&mut std::io::Cursor::new(bytes)).unwrap();
+    assert_eq!(rotated.pixel_size(), PixelSize::new(60, 40));
+    let mut sample = [0u8; 4];
+    rotated.copy_pixels(PixelRect::new(25, 35, 1, 1), &mut sample, 4);
+    assert_eq!(sample, [0, 0, 0, 255]);
+    shell.command("undo");
     shell.command("undo");
     assert!(!shell.editor.borrow().document.nodes.contains_key(&id));
 }
