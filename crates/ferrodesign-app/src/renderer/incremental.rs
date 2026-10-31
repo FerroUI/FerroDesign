@@ -77,6 +77,7 @@ impl ScenePainter {
             // Hidden nodes, external ancestors of exported roots, and unusual
             // overlapping root lists deliberately retain full preparation.
             let Some(&index) = self.prepared_indices.get(id) else {
+                if node.kind == NodeKind::Slice { continue; }
                 // Entering/leaving inline editing invalidates the scene. With
                 // that state and the editor ledger still continuous, this
                 // exact leaf remains absent from preparation because the

@@ -541,7 +541,7 @@ impl ScenePainter {
             self.prepare_invalid_nodes += 1;
             return None;
         };
-        if !node.visible || (node.opacity <= 0.0 && !node.is_mask) || self.editing_text == Some(id)
+        if node.kind == NodeKind::Slice || !node.visible || (node.opacity <= 0.0 && !node.is_mask) || self.editing_text == Some(id)
         {
             return None;
         }

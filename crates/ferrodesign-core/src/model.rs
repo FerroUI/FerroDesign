@@ -272,6 +272,7 @@ pub enum NodeKind {
     Component,
     Instance,
     Section,
+    Slice,
     Boolean,
 }
 impl NodeKind {
@@ -300,6 +301,7 @@ impl NodeKind {
             Self::Component => "Component",
             Self::Instance => "Instance",
             Self::Section => "Section",
+            Self::Slice => "Slice",
             Self::Boolean => "Boolean group",
         }
     }
@@ -884,7 +886,7 @@ impl Node {
         };
         if matches!(
             kind,
-            NodeKind::Group | NodeKind::Vector | NodeKind::Line | NodeKind::Boolean
+            NodeKind::Group | NodeKind::Vector | NodeKind::Line | NodeKind::Boolean | NodeKind::Slice
         ) {
             n.fills.clear()
         }

@@ -698,6 +698,10 @@ impl Document {
         self.export_svg_report(page, selection).source
     }
     pub fn export_svg_report(&self, page: NodeId, selection: &[NodeId]) -> SvgExport {
+        let slice = self.export_slice(page, selection);
+        // The slice viewport includes every visible overlapping layer on the
+        // page, including those outside the slice's own parent or z position.
+        let selection = if slice.is_some() { &[] } else { selection };
         let selection_set: BTreeSet<_> = selection.iter().copied().collect();
         let mut roots: Vec<_> = if selection.is_empty() {
             self.page(page)
@@ -735,12 +739,13 @@ impl Document {
             order
         });
         roots.dedup();
-        let bounds = roots
+        roots.retain(|id| self.nodes.get(id).is_some_and(|node| node.kind != NodeKind::Slice));
+        let bounds = slice.map(|slice| slice.local).unwrap_or_else(|| roots
             .iter()
             .filter_map(|id| self.world_transform(*id)
                 .map(|transform| transform.transform_rect(self.svg_export_bounds(*id, 0))))
             .reduce(|a, b| a.union(b))
-            .unwrap_or(Rect::new(0.0, 0.0, 1.0, 1.0));
+            .unwrap_or(Rect::new(0.0, 0.0, 1.0, 1.0)));
         let mut defs = String::new();
         let mut body = String::new();
         let mut warnings = Vec::new();
@@ -783,6 +788,9 @@ impl Document {
             0,
             false,
         );
+        if let Some(slice) = slice {
+            body = format!(r#"<g transform="{}">{}</g>"#, matrix(slice.world_to_local), body);
+        }
         let source = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{}" height="{}" viewBox="{} {} {} {}" role="img" aria-label="{}"><title>{}</title><defs>{}</defs>{}</svg>"#,
@@ -810,7 +818,7 @@ impl Document {
         if depth >= MAX_DOCUMENT_DEPTH { return bounds; }
         if let Some(band) = variable_stroke_bounds(node) { bounds = bounds.union(band); }
         for child in &node.children {
-            if let Some(child_node) = self.nodes.get(child).filter(|node| node.visible) {
+            if let Some(child_node) = self.nodes.get(child).filter(|node| node.visible && node.kind != NodeKind::Slice) {
                 let child = child_node.local_transform()
                     .transform_rect(self.svg_export_bounds(*child, depth + 1));
                 let child = if node.clip_content { child.intersection(node.local_bounds()) } else { Some(child) };
@@ -844,7 +852,7 @@ impl Document {
         let mut bounds = node.local_bounds().inflate(stroke);
         if let Some(band) = variable_stroke_bounds(node) { bounds = bounds.union(band); }
         for child in &node.children {
-            if let Some(child_node) = self.nodes.get(child).filter(|n| n.visible) {
+            if let Some(child_node) = self.nodes.get(child).filter(|n| n.visible && n.kind != NodeKind::Slice) {
                 let child = child_node.local_transform()
                     .transform_rect(self.svg_ink_bounds(*child, depth + 1));
                 let child = if node.clip_content { child.intersection(node.local_bounds()) } else { Some(child) };
@@ -855,7 +863,7 @@ impl Document {
     }
 
     fn svg_blends_with_parent(&self, id: NodeId, depth: usize) -> bool {
-        let Some(node) = self.nodes.get(&id).filter(|n| n.visible) else {
+        let Some(node) = self.nodes.get(&id).filter(|n| n.visible && n.kind != NodeKind::Slice) else {
             return false;
         };
         if depth >= MAX_DOCUMENT_DEPTH {
@@ -872,7 +880,7 @@ impl Document {
     }
 
     fn svg_has_region_paint_overrides(&self, id: NodeId, depth: usize) -> bool {
-        let Some(node) = self.nodes.get(&id).filter(|node| node.visible) else { return false; };
+        let Some(node) = self.nodes.get(&id).filter(|node| node.visible && node.kind != NodeKind::Slice) else { return false; };
         if depth >= MAX_DOCUMENT_DEPTH { return true; }
         node.vector_network.as_ref().is_some_and(|network| network.regions.values().any(|region| region.fills.is_some()))
             || node.children.iter().any(|child| self.svg_has_region_paint_overrides(*child, depth + 1))
@@ -892,10 +900,10 @@ impl Document {
         // In particular, do not retessellate every descendant's variable-width
         // bands at each ordinary frame level just to discard the bounds.
         let region = if children.iter().any(|id| self.nodes.get(id)
-            .is_some_and(|node| node.visible && node.is_mask))
+            .is_some_and(|node| node.kind != NodeKind::Slice && node.visible && node.is_mask))
         {
             children.iter().filter_map(|id| {
-                self.nodes.get(id).filter(|n| n.visible).map(|n| {
+                self.nodes.get(id).filter(|n| n.visible && n.kind != NodeKind::Slice).map(|n| {
                     let transform = if root {
                         self.world_transform(*id).unwrap_or_default()
                     } else {
@@ -910,7 +918,7 @@ impl Document {
         };
         let mut opened = 0;
         for id in children {
-            let Some(node) = self.nodes.get(id).filter(|n| n.visible) else {
+            let Some(node) = self.nodes.get(id).filter(|n| n.visible && n.kind != NodeKind::Slice) else {
                 continue;
             };
             if node.is_mask {

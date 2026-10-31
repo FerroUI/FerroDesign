@@ -3191,6 +3191,7 @@ fn xaml_paint(
 
 fn xaml_node(doc: &core::Document, id: NodeId, depth: usize, result: &mut String) -> Result<(), String> {
     let Some(n) = doc.nodes.get(&id) else { return Ok(()) };
+    if n.kind == NodeKind::Slice { return Ok(()); }
     if n.kind == NodeKind::Text { return text_export::write_node(n, depth, result); }
     let unsupported = |detail: &str| format!("Layer ‘{}’: XAML export cannot preserve {detail}. Use native PNG for this artwork or keep the editable design.", n.name);
     if n.is_mask || n.effects.iter().any(|effect| effect.visible)

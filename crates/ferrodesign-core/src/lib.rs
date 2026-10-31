@@ -58,6 +58,8 @@ pub use polygon_corners::*;
 pub use seed::*;
 pub use selection::*;
 pub use spatial::*;
+mod slice;
+pub use slice::ExportSlice;
 pub use style_edit::*;
 pub use stroke_profile::*;
 pub use svg::*;
