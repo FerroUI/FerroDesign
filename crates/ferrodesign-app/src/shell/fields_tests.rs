@@ -1,13 +1,13 @@
 //! Exercise the compiled native inspector's routed Enter/Escape and real
 //! focus-loss handlers. Core setters alone cannot expose these two regressions.
 use super::*;
-use ferroui_base::input::KeyEventArgs;
+use ferroui_base::input::{KeyEventArgs, MouseButton, RawInputModifiers};
 use ferroui_base::threading::{Dispatcher, UnitTestDispatcherScope};
 use ferroui_base::FerroLocator;
 use ferroui_controls::{AppBuilder, Application, Window};
 use ferroui_fonts_inter::AppBuilderExtension;
 use ferroui_harfbuzz::HarfBuzzApplicationExtensions;
-use ferroui_headless::{FerroHeadlessPlatformExtensions, FerroHeadlessPlatformOptions};
+use ferroui_headless::{FerroHeadlessPlatformExtensions, FerroHeadlessPlatformOptions, HeadlessWindowExtensions};
 use ferroui_themes_fluent::FluentTheme;
 use ferroui_vello::{VelloApplicationExtensions, VelloOptions, VelloRenderingMode};
 
@@ -95,6 +95,15 @@ impl Fixture {
         }
         self.shell.pending_save.set(false);
         platform::set_document_serialization_pending(false);
+    }
+
+    fn click_button(&self, button: &Button, modifiers: RawInputModifiers) {
+        let bounds = button.bounds();
+        let center = ferroui_base::Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let point = button.translate_point(center, &self.window).unwrap();
+        self.window.mouse_move(point, RawInputModifiers::NONE);
+        self.window.mouse_down(point, MouseButton::Left, modifiers);
+        self.window.mouse_up(point, MouseButton::Left, modifiers);
     }
 
     fn key(&self, field: &Ref<TextBox>, key: Key) {
@@ -258,9 +267,6 @@ fn native_explicit_equal_radius_enter_detaches_binding_once_while_blur_and_flush
 
 #[test]
 fn native_layer_rows_route_click_range_and_toggle_modifiers() {
-    use ferroui_base::input::{MouseButton, RawInputModifiers};
-    use ferroui_headless::HeadlessWindowExtensions;
-
     let fixture = Fixture::new(false);
     let shell = &fixture.shell;
     let (back, middle, front) = {
@@ -287,14 +293,7 @@ fn native_layer_rows_route_click_range_and_toggle_modifiers() {
         let button = shell.layer_buttons.borrow()[&id]
             .upgrade()
             .expect("realized layer button");
-        let bounds = button.bounds();
-        let center = ferroui_base::Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        let point = button.translate_point(center, &fixture.window).unwrap();
-        fixture.window.mouse_move(point, RawInputModifiers::NONE);
-        fixture
-            .window
-            .mouse_down(point, MouseButton::Left, modifiers);
-        fixture.window.mouse_up(point, MouseButton::Left, modifiers);
+        fixture.click_button(&button, modifiers);
     };
 
     click(front, RawInputModifiers::NONE);
@@ -309,4 +308,58 @@ fn native_layer_rows_route_click_range_and_toggle_modifiers() {
     assert_eq!(shell.editor.borrow().selection, [back]);
     assert_eq!(fixture.json(), before);
     assert_eq!(shell.editor.borrow().history_len(), 0);
+}
+
+#[test]
+fn native_compact_workspace_overlays_drawers_without_moving_the_artboard() {
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let canvas = shell.control::<Grid>("CanvasHost");
+    let present = |name| shell.control::<Control>(name).is_effectively_visible();
+    let render = || {
+        fixture.window.capture_rendered_frame().expect("rendered native workspace");
+    };
+    render();
+    let desktop = canvas.bounds();
+    let before = fixture.json();
+    let history = shell.editor.borrow().history_len();
+    let selection = shell.editor.borrow().selection.clone();
+
+    fixture.window.set_width(390.0);
+    fixture.window.set_height(844.0);
+    render();
+    assert_eq!(shell.root.bounds().width, 390.0);
+    assert!(present("CompactHeader") && present("Toolbar"));
+    assert!(!present("LeftPanel") && !present("RightPanel"));
+    let compact = canvas.bounds();
+    assert_eq!((compact.x, compact.width), (0.0, 390.0));
+    let camera = shell.canvas.viewport.get();
+
+    for (button, layers, properties) in [
+        ("CompactLayers", true, false),
+        ("CompactLayers", false, false),
+        ("CompactProperties", false, true),
+        ("CompactLayers", true, false),
+        ("CompactProperties", false, true),
+        ("CompactProperties", false, false),
+    ] {
+        fixture.click_button(&shell.button(button), RawInputModifiers::NONE);
+        render();
+        assert_eq!(present("LeftPanel"), layers);
+        assert_eq!(present("NavigationRail"), layers);
+        assert_eq!(present("RightPanel"), properties);
+        assert_eq!(present("Toolbar"), !layers && !properties);
+        assert_eq!(canvas.bounds(), compact);
+        assert_eq!(shell.canvas.viewport.get(), camera);
+        assert_eq!(shell.editor.borrow().selection, selection);
+        assert_eq!(shell.editor.borrow().history_len(), history);
+    }
+    fixture.window.set_width(1500.0);
+    fixture.window.set_height(960.0);
+    render();
+    assert!(!present("CompactHeader"));
+    assert!(present("LeftPanel") && present("RightPanel") && present("Toolbar"));
+    assert_eq!(canvas.bounds(), desktop);
+    assert_eq!(shell.editor.borrow().selection, selection);
+    assert_eq!(fixture.json(), before);
 }
