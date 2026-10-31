@@ -423,6 +423,11 @@ impl DesignCanvas {
     pub fn register_image_data(&self, href: &str) -> std::io::Result<(f64, f64)> {
         self.painter.borrow_mut().register_image_data(href)
     }
+    pub fn export_png(&self) -> Result<Vec<u8>, String> {
+        let selection = self.editor.borrow().selection.clone();
+        self.export_png_for(&selection)
+    }
+
     pub fn export_png_for(&self, selection: &[NodeId]) -> Result<Vec<u8>, String> {
         use ferroui_base::media::imaging::{
             BitmapEncoderOptions, PngBitmapEncoderOptions, RenderTargetBitmap,
@@ -801,7 +806,9 @@ impl DesignCanvas {
         }
         if tool == Tool::Slice {
             node.fills.clear();
-            node.name = format!("Slice {}", editor.document.next_id);
+            let last = editor.document.nodes.values().filter(|n| n.kind == NodeKind::Slice)
+                .filter_map(|n| n.name.strip_prefix("Slice ")?.parse::<u32>().ok()).max().unwrap_or(0);
+            node.name = format!("Slice {}", u64::from(last) + 1);
         }
         if tool == Tool::Section {
             node = node.with_fill(Color::rgba(216, 209, 255, 48));

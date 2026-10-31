@@ -48,6 +48,15 @@ impl EditorShell {
         let targets = targets(&self.editor.borrow());
         let mut warnings = Vec::new();
         for target in targets {
+            if let [id] = target.ids.as_slice() {
+                let editor = self.editor.borrow();
+                if editor.document.nodes.get(id).is_some_and(|node| node.kind == NodeKind::Slice)
+                    && editor.document.export_slice(editor.active_page, &target.ids).is_none()
+                {
+                    warnings.push(format!("{} has empty or singular bounds.", target.stem));
+                    continue;
+                }
+            }
             if svg {
                 let report = {
                     let editor = self.editor.borrow();

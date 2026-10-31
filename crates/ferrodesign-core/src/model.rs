@@ -890,6 +890,9 @@ impl Node {
         ) {
             n.fills.clear()
         }
+        if kind == NodeKind::Slice {
+            n.layout_child.absolute = true;
+        }
         if kind == NodeKind::Text {
             n.fills = vec![Fill::solid(Color::BLACK)];
             n.text = "Text".into()
