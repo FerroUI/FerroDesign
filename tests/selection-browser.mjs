@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 // history and gesture cancellation all use the actual native input surface.
 export async function selectionRegressions(page, reference, check, helpers, output, mode) {
     const { fixtureNode, isolatedDocument, importFixture, documentState, state,
-        clickWorld, clickNative, frames, waitForNativeFrame, waitForNativeScene, captureNativeScreenshot } = helpers;
+        clickWorld, clickNative, moveWorld, frames, waitForNativeFrame, waitForNativeScene, captureNativeScreenshot } = helpers;
     const fill = (r, g, b, a = 255) => ({ paint: { type: "solid", r, g, b, a }, opacity: 1, visible: true });
     const rectangle = (id, properties = {}) => fixtureNode(reference, id, {
         kind: "rectangle", x: 40, y: 40, width: 200, height: 200,
@@ -255,4 +255,64 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     await selected([3]);
     await unchanged(beforeHeld, "Selection navigation during a held native move");
     check("Tab during a held native move restores its preview before navigating siblings; late pointer motion/release cannot move the new selection or create history");
+
+    // A stable page extent keeps each input clear of both sidebars at any zoom.
+    await importFixture(page, isolatedDocument(reference, [
+        rectangle(2, { x: 0, y: 0, width: 400, height: 300, locked: true }),
+    ], "Native shape placement"));
+    await clickWorld(page, 180, 150);
+    const baseline = await snapshot();
+    const currentLayer = async () => {
+        const view = await state(page);
+        assert.equal(view.tool, "Select");
+        assert.equal(view.selection.length, 1);
+        return (await documentState(page)).nodes[view.selection[0]];
+    };
+    await page.keyboard.press("o");
+    await clickWorld(page, 180, 150);
+    let shape = await currentLayer();
+    assert.equal(shape.kind, "ellipse");
+    assert.deepEqual([shape.width, shape.height], [100, 100]);
+    assert.equal((await state(page)).historyLength, baseline.history + 1);
+
+    await page.keyboard.press("Shift+l");
+    assert.equal((await state(page)).tool, "Arrow");
+    await moveWorld(page, 200, 130);
+    await page.mouse.down();
+    await page.keyboard.down("Alt");
+    await page.keyboard.down("Shift");
+    try {
+        await moveWorld(page, 165, 135);
+        await page.mouse.up();
+    } finally {
+        await page.keyboard.up("Shift");
+        await page.keyboard.up("Alt");
+    }
+    shape = await currentLayer();
+    const tolerance = 1 + 2 / (await state(page)).zoom;
+    assert.equal(shape.kind, "line");
+    assert.equal(shape.strokes[0].cap, "arrow");
+    assert.equal(shape.flip_x, true, "Arrowhead follows the pointer on a leftward drag");
+    assert.equal(shape.height, 0, "Holding Shift near horizontal keeps the line exactly horizontal");
+    assert.ok(Math.abs(shape.x + shape.width / 2 - 200) < tolerance, "Alt anchors the midpoint");
+    assert.ok(Math.abs(shape.width - 70) < 2 * tolerance);
+    const arrow = await snapshot();
+    assert.equal(arrow.history, baseline.history + 2);
+    await page.keyboard.press("Control+z");
+    await frames(page);
+    assert.equal(Object.keys((await documentState(page)).nodes).length, 2);
+    await page.keyboard.press("Control+Shift+z");
+    await frames(page);
+    assert.deepEqual(await documentState(page), arrow.document);
+
+    await page.keyboard.press("r");
+    await moveWorld(page, 210, 170);
+    await page.mouse.down();
+    await moveWorld(page, 240, 185);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await frames(page);
+    await unchanged(arrow, "Canceling a captured shape drag");
+    check("Native shape shortcuts place a 100 × 100 ellipse, create a direction-preserving centered Shift-arrow, commit one undo record, and cancel a held drag atomically");
+
 }
