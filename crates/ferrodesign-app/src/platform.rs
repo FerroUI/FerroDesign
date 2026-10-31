@@ -103,7 +103,7 @@ export function ferroBytes(name, bytes, mime) {
 // Keep their sessions thread-local. Atomic filesystem writes have separate
 // coverage against disposable paths.
 #[cfg(all(test, not(target_os = "emscripten")))]
-thread_local! {
+ferroui_base::ferro_thread_local! {
     static TEST_SESSION: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
@@ -114,7 +114,7 @@ pub fn load_document() -> String {
     }
     #[cfg(all(test, not(target_os = "emscripten")))]
     {
-        TEST_SESSION.with_borrow(Clone::clone)
+        TEST_SESSION.with(|session| session.borrow().clone())
     }
     #[cfg(all(not(test), not(target_os = "emscripten")))]
     {
@@ -128,7 +128,7 @@ pub fn save_document(text: &str) -> bool {
     }
     #[cfg(all(test, not(target_os = "emscripten")))]
     {
-        TEST_SESSION.with_borrow_mut(|session| text.clone_into(session));
+        TEST_SESSION.with(|session| text.clone_into(&mut session.borrow_mut()));
         true
     }
     #[cfg(all(not(test), not(target_os = "emscripten")))]
