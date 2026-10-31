@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PNG } from "pngjs";
 
 export async function geometryAuthoringRegressions(page, reference, check, helpers, mode) {
     const { fixtureNode, isolatedDocument, importFixture, documentState, state,
@@ -138,4 +139,80 @@ export async function geometryAuthoringRegressions(page, reference, check, helpe
     assert.equal(Object.keys(presetDocument.nodes).length, Object.keys(beforePreset.nodes).length + 1);
     await history(beforePreset, presetDocument, presetDepth, "Native frame preset");
     check("The native frame preset picker creates a selected, clipped and editable frame on the active page, fits it in view, and supports complete undo/redo");
+
+    await scaleAndSliceRegressions(page, reference, check, helpers);
+}
+
+async function scaleAndSliceRegressions(page, reference, check, helpers) {
+    const { fixtureNode, isolatedDocument, importFixture, documentState, state, clickNative,
+        clickWorld, moveWorld, waitForNativeFrame, waitForNativeScene } = helpers;
+    const artwork = fixtureNode(reference, 2, {
+        kind: "rectangle", name: "Artwork", x: 20, y: 20, width: 120, height: 80,
+        corner_radius: 0, corner_radii: null,
+        fills: [{ visible: true, opacity: 1, paint: { type: "solid", r: 30, g: 110, b: 210, a: 255 } }],
+    });
+    await importFixture(page, isolatedDocument(reference, [artwork], "Scale and slice"));
+    await clickNative(page, "SelectTool");
+    await page.keyboard.press("v");
+    await clickWorld(page, 80, 60);
+    const before = await documentState(page), selected = await state(page);
+    assert.deepEqual(selected.selection, [2]);
+
+    await page.keyboard.press("k");
+    await page.waitForFunction(() => {
+        const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+        return view.tool === "Scale" && view.chrome.ScaleFactorField?.visible;
+    });
+    await waitForNativeScene(page, selected.sceneFrames, "Scale inspector");
+    await clickNative(page, "ScaleFactorField", "InspectorViewport");
+    await page.keyboard.press("Control+a");
+    await page.keyboard.insertText("150%");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => {
+        const node = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2];
+        return node.width === 180 && node.height === 120;
+    });
+    const scaled = (await documentState(page)).nodes[2];
+    assert.deepEqual([scaled.x, scaled.y, scaled.width, scaled.height], [-10, 0, 180, 120],
+        "150% scales the actual layer around the default center anchor");
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].width === 120);
+    assert.deepEqual(await documentState(page), before);
+    check("K opens the native Scale inspector; entering 150% preserves the center and one undo restores the document");
+
+    await page.keyboard.press("Shift+0");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).zoom === 1);
+    await page.keyboard.press("s");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).tool === "Slice");
+    const armed = await state(page);
+    await moveWorld(page, 10, 10);
+    await page.mouse.down();
+    try { await moveWorld(page, 70, 50); } finally { await page.mouse.up(); }
+    await page.waitForFunction(() => {
+        const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+        const doc = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return view.selection.length === 1 && doc.nodes[view.selection[0]]?.kind === "slice";
+    });
+    await waitForNativeFrame(page, armed.renderedFrames, "Slice selection");
+    await waitForNativeScene(page, armed.sceneFrames, "Slice export inspector");
+    const sliced = await documentState(page);
+    const slice = sliced.nodes[(await state(page)).selection[0]];
+    assert.deepEqual([slice.width, slice.height], [60, 40]);
+    const [download] = await Promise.all([
+        page.waitForEvent("download", { timeout: 60000 }),
+        clickNative(page, "ExportPngButton", "InspectorViewport"),
+    ]);
+    assert.equal(download.suggestedFilename(), slice.name + ".png");
+    const stream = await download.createReadStream();
+    assert.ok(stream, "A successful browser download must provide PNG bytes");
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    const png = PNG.sync.read(Buffer.concat(chunks));
+    assert.deepEqual([png.width, png.height], [60, 40]);
+    assert.equal(png.data[(2 * png.width + 2) * 4 + 3], 0, "Padding outside the artwork is transparent");
+    const inside = (20 * png.width + 20) * 4;
+    assert.deepEqual([...png.data.subarray(inside, inside + 4)], [30, 110, 210, 255]);
+    assert.deepEqual(await documentState(page), sliced);
+    check("S drags an export slice across artwork; the native export button downloads the named 60×40 PNG with transparent padding and clipped artwork");
 }
