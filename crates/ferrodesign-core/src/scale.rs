@@ -369,3 +369,7 @@ fn visit_lengths(n: &mut Node, mut visit: impl FnMut(&mut f64, f64)) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "scale_tests.rs"]
+mod tests;
