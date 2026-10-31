@@ -69,7 +69,9 @@ impl EditorShell {
         }
     }
 
-    pub(super) fn refresh_constraint_diagram(&self, horizontal: Option<Constraint>, vertical: Option<Constraint>) {
+    pub(super) fn refresh_constraint_diagram(&self, selection: &fields::InspectorSelection<'_>) {
+        let horizontal = selection.common(|n| n.constraints.horizontal);
+        let vertical = selection.common(|n| n.constraints.vertical);
         for (name, active) in [
             ("ConstraintLeft", matches!(horizontal, Some(Constraint::Start | Constraint::Stretch))),
             ("ConstraintRight", matches!(horizontal, Some(Constraint::End | Constraint::Stretch))),
@@ -79,7 +81,7 @@ impl EditorShell {
             ("ConstraintCenterY", vertical == Some(Constraint::Center)),
         ] {
             self.button(name).classes().set("active", active);
-            self.button(name).set_is_enabled(node.is_some());
+            self.button(name).set_is_enabled(selection.first.is_some());
         }
     }
 

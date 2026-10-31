@@ -1334,10 +1334,7 @@ impl EditorShell {
         self.visible("ArtworkOptions", !slices_only);
         self.visible("AddLayoutButton", !slices_only);
         self.text("DimensionsTitle", if slices_only { "Export bounds" } else { "Layout" });
-        self.refresh_constraint_diagram(
-            selection.common(|n| n.constraints.horizontal),
-            selection.common(|n| n.constraints.vertical),
-        );
+        self.refresh_constraint_diagram(&selection);
         let scaling = self.sync_scale_panel(&editor);
         self.visible("DesignInspector", !scaling && self.inspector_tab.get() == 0 && node.is_some());
         self.visible("PageInspector", self.inspector_tab.get() == 0 && node.is_none());
