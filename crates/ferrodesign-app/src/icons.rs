@@ -14,6 +14,7 @@ pub fn brush(hex: &str) -> Rc<dyn IBrush> {
 pub fn icon(name: &str, color: &str, size: f64) -> Ref<Path> {
     let data = match name {
         "logo" => "M4,2 H18 V6 H8 V10 H16 V14 H8 V22 H4 Z",
+        "search" => "M10,3 A7,7 0 1 1 9.99,3 Z M15,15 L21,21",
         "scale" => "M3,10 V21 H14 M4,20 L9,15 M12,4 H20 V12 M11,13 L20,4",
         "pointer" => "M5,2 L20,12 L13,14 L10,21 Z",
         "frame" => "M7,2 V22 M17,2 V22 M2,7 H22 M2,17 H22",

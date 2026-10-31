@@ -36,10 +36,12 @@
     </Style>
     <Style Selector="Button.constraint.active"><Setter Property="Background" Value="#0D99FF"/></Style>
     <Style Selector="Button.scale-anchor">
+      <Setter Property="Width" Value="18"/><Setter Property="Height" Value="18"/>
       <Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/>
-      <Setter Property="Margin" Value="1"/><Setter Property="Padding" Value="0"/>
-      <Setter Property="Background" Value="#ECECEC"/><Setter Property="CornerRadius" Value="3"/>
-      <Setter Property="Content" Value="·"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/><Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Padding" Value="0"/><Setter Property="CornerRadius" Value="4"/>
+      <Setter Property="Foreground" Value="#696969"/><Setter Property="FontSize" Value="11"/>
+      <Setter Property="Content" Value="•"/>
     </Style>
     <Style Selector="Button.scale-anchor.active">
       <Setter Property="Background" Value="#0C8CE9"/><Setter Property="Foreground" Value="White"/>
@@ -263,7 +265,8 @@
                     </Button>
                   </Grid>
                 </StackPanel>
-                <UniformGrid Grid.Column="2" Rows="3" Columns="3" Width="60" Height="60">
+                <Border Grid.Column="2" Width="62" Height="62" CornerRadius="5" Background="#F5F5F5" BorderBrush="#E6E6E6" BorderThickness="1">
+                  <UniformGrid Rows="3" Columns="3">
                     <Button Name="ScaleAnchor0" Classes="scale-anchor" AutomationProperties.Name="Top left anchor" ToolTip.Tip="Top left"/>
                     <Button Name="ScaleAnchor1" Classes="scale-anchor" AutomationProperties.Name="Top anchor" ToolTip.Tip="Top"/>
                     <Button Name="ScaleAnchor2" Classes="scale-anchor" AutomationProperties.Name="Top right anchor" ToolTip.Tip="Top right"/>
@@ -273,7 +276,8 @@
                     <Button Name="ScaleAnchor6" Classes="scale-anchor" AutomationProperties.Name="Bottom left anchor" ToolTip.Tip="Bottom left"/>
                     <Button Name="ScaleAnchor7" Classes="scale-anchor" AutomationProperties.Name="Bottom anchor" ToolTip.Tip="Bottom"/>
                     <Button Name="ScaleAnchor8" Classes="scale-anchor" AutomationProperties.Name="Bottom right anchor" ToolTip.Tip="Bottom right"/>
-                </UniformGrid>
+                  </UniformGrid>
+                </Border>
               </Grid>
               <Grid ColumnDefinitions="*,8,*">
                 <TextBox Name="ScaleWidthField" AutomationProperties.Name="Scaled width" ToolTip.Tip="Scale to width">

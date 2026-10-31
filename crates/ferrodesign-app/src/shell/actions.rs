@@ -83,7 +83,9 @@ impl EditorShell {
         let search = TextBox::new();
         search.set_name(Some("ActionSearch".into()));
         search.set_placeholder_text(Some("Search actions…"));
-        search.set_inner_left_content(Some(Control::boxed(icons::icon("search", "#666666", 14.0))));
+        let magnifier = icons::icon("search", "#666666", 14.0);
+        magnifier.set_margin(Thickness::new(8.0, 0.0, 2.0, 0.0));
+        search.set_inner_left_content(Some(Control::boxed(magnifier)));
         AutomationProperties::set_name(&search, Some("Search actions"));
         let header = self.control::<Border>("DialogSearchHost");
         header.set_child(Some(search.clone().upcast::<Control>()));
