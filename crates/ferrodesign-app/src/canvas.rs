@@ -9,6 +9,7 @@ mod layout_drag;
 mod selection;
 mod input_observations;
 mod vector_width;
+pub(crate) mod scale;
 mod corner_radius;
 mod slices;
 mod gradient_edit;
@@ -47,6 +48,7 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
     Select,
+    Scale,
     Frame,
     Rectangle,
     Ellipse,
@@ -66,6 +68,7 @@ impl Tool {
     pub fn name(self) -> &'static str {
         match self {
             Self::Select => "Select",
+            Self::Scale => "Scale",
             Self::Frame => "Frame",
             Self::Rectangle => "Rectangle",
             Self::Ellipse => "Ellipse",
@@ -129,6 +132,7 @@ enum Gesture {
         exclude: Vec<NodeId>,
         moved: bool,
     },
+    Scale(scale::ScaleDrag),
     Resize {
         node: Node,
         corner: usize,
@@ -172,6 +176,7 @@ pub struct DesignCanvas {
     pub viewport: Cell<Viewport>,
     pub tool: Cell<Tool>,
     gesture: RefCell<Gesture>,
+    scale_cursor: Cell<Option<ferroui_base::input::StandardCursorType>>,
     painter: RefCell<ScenePainter>,
     callback: RefCell<Option<Rc<dyn Fn(CanvasEvent)>>>,
     hover: Cell<Option<NodeId>>,
@@ -221,6 +226,7 @@ impl DesignCanvas {
             viewport: Cell::new(Viewport::default()),
             tool: Cell::new(Tool::Select),
             gesture: RefCell::new(Gesture::None),
+            scale_cursor: Cell::new(None),
             painter: RefCell::new(ScenePainter::default()),
             callback: RefCell::new(None),
             hover: Cell::new(None),
@@ -323,6 +329,7 @@ impl DesignCanvas {
         if tool != Tool::Select {
             self.leave_vector_edit();
         }
+        if self.scale_cursor.take().is_some() { self.set_cursor(None); }
         self.tool.set(tool);
         self.hover.set(None);
         self.focus();
@@ -486,6 +493,7 @@ impl DesignCanvas {
         active
     }
     pub fn cancel(&self) {
+        if self.cancel_scale_drag() { return; }
         self.layout_grids.borrow_mut().clear_snap();
         if self.cancel_linear_gradient_gesture() { return; }
         self.clear_gradient_hover();
@@ -827,6 +835,7 @@ impl InputElementImpl for DesignCanvas {
         let world = this.viewport.get().screen_to_world(screen);
         this.pointer_presses.borrow_mut().record(e, screen, world, this.viewport.get(),
             this.editor.borrow().selection.len(), this.frames.get());
+        if matches!(*this.gesture.borrow(), Gesture::Scale(_)) { return; }
         if e.properties().is_right_button_pressed {
             if this.presentation.get().is_none() {
                 this.emit(CanvasEvent::ContextMenu);
@@ -856,12 +865,14 @@ impl InputElementImpl for DesignCanvas {
         let additive = e.key_modifiers().contains(KeyModifiers::SHIFT);
         match this.tool.get() {
             Tool::Comment => this.emit(CanvasEvent::Comment(world)),
-            Tool::Select => {
+            Tool::Select | Tool::Scale => {
+                let scaling = this.tool.get() == Tool::Scale;
                 let deep = e.key_modifiers().intersects(KeyModifiers::CONTROL | KeyModifiers::META);
-                if this.corner_radius_press(world, e.key_modifiers()) { return; }
+                if scaling && !deep && this.press_scale_handle(world) { return; }
+                if !scaling && this.corner_radius_press(world, e.key_modifiers()) { return; }
                 this.clear_corner_radius_hover();
-                let handle = if deep { None } else { this.handle_at(world) };
-                if handle.is_none() && e.key_modifiers().contains(KeyModifiers::ALT) && !deep && this.vector_node.get().is_none() {
+                let handle = if scaling || deep { None } else { this.handle_at(world) };
+                if !scaling && handle.is_none() && e.key_modifiers().contains(KeyModifiers::ALT) && !deep && this.vector_node.get().is_none() {
                     this.cycle_selection_at(world, if additive { core::SelectionCycle::InFront } else { core::SelectionCycle::Behind });
                     return;
                 }
@@ -905,12 +916,12 @@ impl InputElementImpl for DesignCanvas {
                     } else if !editor.selection.contains(&id) {
                         editor.selection = vec![id];
                     }
-                    if e.click_count() == 2 && editor.document.nodes[&id].kind == NodeKind::Text {
+                    if !scaling && e.click_count() == 2 && editor.document.nodes[&id].kind == NodeKind::Text {
                         drop(editor);
                         this.emit(CanvasEvent::EditText(id));
                         return;
                     }
-                    if e.click_count() == 2 && editor.document.nodes[&id].kind == NodeKind::Vector {
+                    if !scaling && e.click_count() == 2 && editor.document.nodes[&id].kind == NodeKind::Vector {
                         drop(editor);
                         this.edit_vector();
                         return;
@@ -1105,7 +1116,10 @@ impl InputElementImpl for DesignCanvas {
         if this.network_bucket_move(world, e.key_modifiers().contains(KeyModifiers::SHIFT)) { return; }
         let shift = e.key_modifiers().contains(KeyModifiers::SHIFT);
         if this.layout_drag_move_constrained(world, Point::new(screen.x, screen.y), shift) { return; }
-        if this.corner_radius_hover(world, e.key_modifiers()) {
+        if this.tool.get() == Tool::Scale && matches!(*this.gesture.borrow(), Gesture::None) {
+            this.update_scale_cursor(world);
+        }
+        if this.tool.get() != Tool::Scale && this.corner_radius_hover(world, e.key_modifiers()) {
             if this.hover.take().is_some() { this.invalidate_visual(); }
             return;
         }
@@ -1193,6 +1207,7 @@ impl InputElementImpl for DesignCanvas {
                 }
                 *moved = true;
             }
+            Gesture::Scale(drag) => drag.update(&mut this.editor.borrow_mut(), world, e.key_modifiers().contains(KeyModifiers::ALT)),
             Gesture::Resize { node, corner } => {
                 let mut editor = this.editor.borrow_mut();
                 this.layout_grids.borrow_mut().clear_snap();
@@ -1452,6 +1467,7 @@ impl InputElementImpl for DesignCanvas {
         let mut gesture = std::mem::replace(&mut *this.gesture.borrow_mut(), Gesture::None);
         // Hosts may coalesce the last move into the release event.
         match &mut gesture {
+            Gesture::Scale(drag) => drag.update(&mut this.editor.borrow_mut(), this.world(release_screen), e.key_modifiers().contains(KeyModifiers::ALT)),
             Gesture::Draw(drag) => drag.update(this, this.world(release_screen), e.key_modifiers(), true),
             Gesture::LineEndpoint(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
             _ => {}
@@ -1470,6 +1486,10 @@ impl InputElementImpl for DesignCanvas {
                     .borrow_mut()
                     .select_rect(Rect::from_points(start, current), additive);
                 this.emit(CanvasEvent::Selection);
+            }
+            Gesture::Scale(drag) => {
+                let changed = drag.commit(&mut this.editor.borrow_mut());
+                this.emit(if changed { CanvasEvent::Document } else { CanvasEvent::Selection });
             }
             Gesture::Move { moved: false, .. } => {
                 this.editor.borrow_mut().cancel_transaction();
@@ -1499,7 +1519,7 @@ impl InputElementImpl for DesignCanvas {
             | Gesture::NetworkPoint { .. }
             | Gesture::NetworkBend { .. } => {
                 this.editor.borrow_mut().commit_transaction();
-                this.tool.set(Tool::Select);
+                if this.tool.get() != Tool::Scale { this.tool.set(Tool::Select); }
                 this.emit(CanvasEvent::Document);
             }
             _ => {}
@@ -1719,7 +1739,7 @@ impl InputElementImpl for DesignCanvas {
                 Key::D0 if shift && !alt => Some("actual-size"),
                 Key::D1 => Some("fit"),
                 Key::D2 => Some("fit-selection"),
-                Key::K => Some("actions"),
+                Key::K if !shift && !alt => Some("scale"),
                 _ => None,
             }
         };
@@ -2149,6 +2169,8 @@ impl VisualImpl for DesignCanvas {
             }
         }
         let white = brush("#FFFFFF");
+        let scale_mode = this.tool.get() == Tool::Scale;
+        if scale_mode { this.render_scale_handles(ctx, &editor, v); }
         for &id in &editor.selection {
             let Some(n) = doc.nodes.get(&id) else {
                 continue;
@@ -2186,6 +2208,10 @@ impl VisualImpl for DesignCanvas {
                 .local_bounds()
                 .corners()
                 .map(|p| v.world_to_screen(t.apply(p)));
+            if scale_mode {
+                for i in 0..4 { ctx.draw_line(&blue, ui(corners[i]), ui(corners[(i + 1) % 4])); }
+                continue;
+            }
             if n.kind == NodeKind::Line {
                 ctx.draw_line(&blue, ui(corners[0]), ui(corners[2]));
                 if editor.selection.len() == 1 && !doc.effective_locked(id) {
