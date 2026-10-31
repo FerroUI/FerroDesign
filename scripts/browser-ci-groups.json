@@ -19,7 +19,7 @@
     {
       "name": "layout-selection",
       "scenarios": [
-        "inspector-lifecycle", "floating-panels", "page-inspector", "auto-layout",
+        "inspector-lifecycle", "canvas-navigation", "floating-panels", "page-inspector", "auto-layout",
         "layout-padding", "layout-variables", "layout-drag", "layout-transfer",
         "selection", "matching"
       ]

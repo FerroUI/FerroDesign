@@ -1,3 +1,4 @@
+import { navigationRegressions } from "./navigation-browser.mjs";
 import { paragraphRegressions } from "./paragraphs-browser.mjs";
 import { widthProfileRegressions } from "./width-profiles-browser.mjs";
 import { widthHandleRegressions } from "./width-handles-browser.mjs";
@@ -1129,6 +1130,7 @@ try {
                 nativeHelpers, output, mode));
             await scenario("inspector-lifecycle", () => inspectorLifecycleRegressions(page, svgDocument, check,
                 { ...nativeHelpers, flushStorage, waitForReload }));
+            await scenario("canvas-navigation", () => navigationRegressions(page, svgDocument, check, nativeHelpers));
             await scenario("floating-panels", () => floatingPanelRegressions(page, svgDocument, check,
                 nativeHelpers, mode));
             await scenario("page-inspector", () => pageInspectorRegressions(page, svgDocument, check,

@@ -54,7 +54,9 @@ Select one or several layers and drag between layout frames, ordinary frames or 
 | Auto layout / component / place image | `Shift+A` / `Ctrl`/`Cmd+Alt+K` / `Ctrl`/`Cmd+Shift+K` |
 | Pan | Hold `Space` and drag, middle-button drag, or scroll |
 | Zoom around the pointer | `Ctrl`/`Cmd` + scroll |
-| Fit page / fit selection | `1` / `2` |
+| Zoom in / out / actual size | `+` / `-` / `Shift+0` |
+| Fit page / fit selection | `Shift+1` / `Shift+2` (also `1` / `2`) |
+| Exact zoom | Click the zoom percentage, enter 2–6400%, and press `Enter`, or choose a preset |
 | Undo / redo | `Ctrl`/`Cmd+Z` / `Ctrl`/`Cmd+Shift+Z` |
 | Copy / cut / paste / duplicate | `Ctrl`/`Cmd+C` / `X` / `V` / `D` |
 | Group / ungroup | `Ctrl`/`Cmd+G` / `Ctrl`/`Cmd+Shift+G` |
