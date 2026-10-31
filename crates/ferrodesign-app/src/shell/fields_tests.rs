@@ -490,3 +490,42 @@ fn hovering_a_layer_row_previews_it_without_changing_selection_or_history() {
     assert_eq!(shell.editor.borrow().history_len(), history);
     assert_eq!(fixture.json(), before);
 }
+
+#[test]
+fn native_phone_frame_caption_stays_within_its_artboard() {
+    use ferroui_base::PixelRect;
+
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let mut doc = core::Document::new("Adjacent phone captions");
+    let first = doc.insert_node(1, Node::new(NodeKind::Frame, "Dashboard with a deliberately long title", 0.0, 0.0, 200.0, 120.0)).unwrap();
+    doc.insert_node(1, Node::new(NodeKind::Frame, "Second artboard", 230.0, 0.0, 200.0, 120.0)).unwrap();
+    *shell.editor.borrow_mut() = Editor::new(doc);
+    shell.refresh();
+    fixture.window.set_width(390.0);
+    fixture.window.set_height(844.0);
+    fixture.window.capture_rendered_frame().unwrap();
+    let mut view = shell.canvas.viewport.get();
+    view.zoom = 0.25;
+    view.pan = Point::new(40.0, 180.0);
+    shell.canvas.viewport.set(view);
+    let origin = shell.canvas.translate_point(ferroui_base::Point::new(40.0, 160.0), &fixture.window).unwrap();
+    let band = || {
+        shell.canvas.invalidate_visual();
+        let bitmap = fixture.window.capture_rendered_frame().unwrap();
+        let mut bytes = vec![0; 180 * 18 * 4];
+        bitmap.copy_pixels(PixelRect::new(origin.x as i32, origin.y as i32, 180, 18), &mut bytes, 180 * 4);
+        bytes
+    };
+    let with_caption = band();
+    shell.editor.borrow_mut().update_node(first, "Clear title", |frame| frame.name.clear());
+    let without_caption = band();
+    let mut changed = 0;
+    for (i, (a, b)) in with_caption.chunks_exact(4).zip(without_caption.chunks_exact(4)).enumerate() {
+        if a != b {
+            assert!(i % 180 < 50, "caption painted past its 50-DIP frame into the neighboring title");
+            changed += 1;
+        }
+    }
+    assert!(changed > 5, "caption still renders at phone zoom");
+}
