@@ -109,9 +109,8 @@
       <Setter Property="CornerRadius" Value="6"/><Setter Property="BorderThickness" Value="0"/>
       <Setter Property="FontSize" Value="11"/><Setter Property="Background" Value="Transparent"/>
     </Style>
-    <Style Selector="ToggleButton.drawer-toggle:checked">
-      <Setter Property="Background" Value="#E5F4FF"/><Setter Property="Foreground" Value="#005F9E"/>
-    </Style>
+    <Style Selector="Path.drawer-icon"><Setter Property="Stroke" Value="#555555"/></Style>
+    <Style Selector="ToggleButton.drawer-toggle:checked Path.drawer-icon"><Setter Property="Stroke" Value="White"/></Style>
   </UserControl.Styles>
   <Grid Name="Workspace" ColumnDefinitions="48,248,*,288">
     <Grid Name="CanvasHost" Grid.Column="2" ClipToBounds="True">
@@ -503,7 +502,7 @@
         <ToggleButton Name="CompactLayers" Classes="drawer-toggle" AutomationProperties.Name="Layers panel"
                       ToolTip.Tip="Pages and layers">
           <StackPanel Orientation="Horizontal" Spacing="5">
-            <Path Data="M2,3 H18 V17 H2 Z M7,3 V17" Stroke="#555555" StrokeThickness="1.5"
+            <Path Data="M2,3 H18 V17 H2 Z M7,3 V17" Classes="drawer-icon" StrokeThickness="1.5"
                   Width="15" Height="15" Stretch="Uniform" VerticalAlignment="Center"/>
             <TextBlock Text="Layers" VerticalAlignment="Center"/>
           </StackPanel>
@@ -515,7 +514,7 @@
         <ToggleButton Name="CompactProperties" Grid.Column="2" Classes="drawer-toggle" AutomationProperties.Name="Properties panel"
                       ToolTip.Tip="Layer and page properties">
           <StackPanel Orientation="Horizontal" Spacing="5">
-            <Path Data="M2,3 H18 V17 H2 Z M13,3 V17" Stroke="#555555" StrokeThickness="1.5"
+            <Path Data="M2,3 H18 V17 H2 Z M13,3 V17" Classes="drawer-icon" StrokeThickness="1.5"
                   Width="15" Height="15" Stretch="Uniform" VerticalAlignment="Center"/>
             <TextBlock Text="Inspect" VerticalAlignment="Center"/>
           </StackPanel>
