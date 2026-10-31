@@ -1334,7 +1334,10 @@ impl EditorShell {
         self.visible("ArtworkOptions", !slices_only);
         self.visible("AddLayoutButton", !slices_only);
         self.text("DimensionsTitle", if slices_only { "Export bounds" } else { "Layout" });
-        self.refresh_constraint_diagram(node);
+        self.refresh_constraint_diagram(
+            selection.common(|n| n.constraints.horizontal),
+            selection.common(|n| n.constraints.vertical),
+        );
         let scaling = self.sync_scale_panel(&editor);
         self.visible("DesignInspector", !scaling && self.inspector_tab.get() == 0 && node.is_some());
         self.visible("PageInspector", self.inspector_tab.get() == 0 && node.is_none());
@@ -1469,93 +1472,43 @@ impl EditorShell {
             "active",
             node.is_some_and(|n| n.layout.as_ref().is_some_and(|l| l.reverse)),
         );
-        for (name, index) in [
-            ("BlendModeChoice", node.and_then(|node| BLEND_OPTIONS.iter()
-                .position(|(_, mode)| *mode == node.blend_mode).map(|index| index as i32))),
-            (
-                "HorizontalConstraint",
-                node.map(|n| constraint_index(n.constraints.horizontal)),
-            ),
-            (
-                "VerticalConstraint",
-                node.map(|n| constraint_index(n.constraints.vertical)),
-            ),
-            (
-                "WidthSizingChoice",
-                node.map(|n| {
-                    sizing_index(n.layout.as_ref().map_or(n.layout_child.width, |l| l.width))
-                }),
-            ),
-            (
-                "HeightSizingChoice",
-                node.map(|n| {
-                    sizing_index(
-                        n.layout
-                            .as_ref()
-                            .map_or(n.layout_child.height, |l| l.height),
-                    )
-                }),
-            ),
-            (
-                "LayoutMainChoice",
-                node.and_then(|n| n.layout.as_ref().map(|l| alignment_index(l.main_align))),
-            ),
-            (
-                "LayoutCrossChoice",
-                node.and_then(|n| n.layout.as_ref().map(|l| alignment_index(l.cross_align))),
-            ),
-            (
-                "StrokeAlignChoice",
-                node.and_then(|n| n.strokes.first()).map(|s| match s.align {
-                    core::StrokeAlign::Inside => 0,
-                    core::StrokeAlign::Center => 1,
-                    core::StrokeAlign::Outside => 2,
-                }),
-            ),
-            (
-                "StrokeCapChoice",
-                node.and_then(|n| n.strokes.first()).map(|s| match s.cap {
-                    core::StrokeCap::Butt => 0,
-                    core::StrokeCap::Round => 1,
-                    core::StrokeCap::Square => 2,
-                    core::StrokeCap::Arrow => 3,
-                }),
-            ),
-            (
-                "StrokeJoinChoice",
-                node.and_then(|n| n.strokes.first()).map(|s| match s.join {
-                    core::StrokeJoin::Miter => 0,
-                    core::StrokeJoin::Round => 1,
-                    core::StrokeJoin::Bevel => 2,
-                }),
-            ),
-            (
-                "TextVerticalChoice",
-                node.map(|n| match n.text_vertical_align {
-                    core::TextVerticalAlign::Top => 0,
-                    core::TextVerticalAlign::Center => 1,
-                    core::TextVerticalAlign::Bottom => 2,
-                }),
-            ),
-            (
-                "TextResizeChoice",
-                node.map(|n| match n.text_auto_resize {
-                    core::TextAutoResize::Fixed => 0,
-                    core::TextAutoResize::Height => 1,
-                    core::TextAutoResize::WidthAndHeight => 2,
-                }),
-            ),
-            (
-                "TextDecorationChoice",
-                node.map(|n| match n.text_decoration {
-                    core::TextDecoration::None => 0,
-                    core::TextDecoration::Underline => 1,
-                    core::TextDecoration::Strikethrough => 2,
-                }),
-            ),
-        ] {
-            self.control::<ComboBox>(name)
-                .set_selected_index(index.unwrap_or(-1));
+        type InspectorChoice = (&'static str, fn(&Node) -> Option<i32>);
+        const CHOICES: &[InspectorChoice] = &[
+            ("BlendModeChoice", |n| BLEND_OPTIONS.iter().position(|(_, mode)| *mode == n.blend_mode).map(|i| i as i32)),
+            ("HorizontalConstraint", |n| Some(constraint_index(n.constraints.horizontal))),
+            ("VerticalConstraint", |n| Some(constraint_index(n.constraints.vertical))),
+            ("WidthSizingChoice", |n| Some(sizing_index(n.layout.as_ref().map_or(n.layout_child.width, |l| l.width)))),
+            ("HeightSizingChoice", |n| Some(sizing_index(n.layout.as_ref().map_or(n.layout_child.height, |l| l.height)))),
+            ("LayoutMainChoice", |n| n.layout.as_ref().map(|l| alignment_index(l.main_align))),
+            ("LayoutCrossChoice", |n| n.layout.as_ref().map(|l| alignment_index(l.cross_align))),
+            ("StrokeAlignChoice", |n| n.strokes.first().map(|s| match s.align {
+                core::StrokeAlign::Inside => 0, core::StrokeAlign::Center => 1, core::StrokeAlign::Outside => 2,
+            })),
+            ("StrokeCapChoice", |n| n.strokes.first().map(|s| match s.cap {
+                core::StrokeCap::Butt => 0, core::StrokeCap::Round => 1,
+                core::StrokeCap::Square => 2, core::StrokeCap::Arrow => 3,
+            })),
+            ("StrokeJoinChoice", |n| n.strokes.first().map(|s| match s.join {
+                core::StrokeJoin::Miter => 0, core::StrokeJoin::Round => 1, core::StrokeJoin::Bevel => 2,
+            })),
+            ("TextVerticalChoice", |n| Some(match n.text_vertical_align {
+                core::TextVerticalAlign::Top => 0, core::TextVerticalAlign::Center => 1, core::TextVerticalAlign::Bottom => 2,
+            })),
+            ("TextResizeChoice", |n| Some(match n.text_auto_resize {
+                core::TextAutoResize::Fixed => 0, core::TextAutoResize::Height => 1, core::TextAutoResize::WidthAndHeight => 2,
+            })),
+            ("TextDecorationChoice", |n| Some(match n.text_decoration {
+                core::TextDecoration::None => 0, core::TextDecoration::Underline => 1, core::TextDecoration::Strikethrough => 2,
+            })),
+        ];
+        for &(name, property) in CHOICES {
+            let index = selection.common(property);
+            let choice = self.control::<ComboBox>(name);
+            let hint = (index.is_none() && node.is_some()).then_some("Mixed");
+            if choice.placeholder_text().as_deref() != hint {
+                choice.set_placeholder_text(hint.map(str::to_owned));
+            }
+            choice.set_selected_index(index.flatten().unwrap_or(-1));
         }
         selection.show(&self.field("TextField"), selection.common(|n| n.text.as_str()), None);
         selection.show(&self.field("FontFamilyField"), selection.common(|n| n.font_family.as_str()), None);

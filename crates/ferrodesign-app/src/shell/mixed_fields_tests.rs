@@ -12,6 +12,7 @@ fn mixed_inspector_fields_batch_edit_and_restore_shared_values_through_native_in
         other.width = 42.0;
         other.corner_radius = 5.0;
         other.opacity = 0.5;
+        other.constraints.horizontal = core::Constraint::End;
         other.clip_content = !other.clip_content;
         other.fills = vec![Fill::solid(Color::rgb(20, 30, 180))];
         let id = editor.document.insert_node(page, other).unwrap();
@@ -28,6 +29,11 @@ fn mixed_inspector_fields_batch_edit_and_restore_shared_values_through_native_in
     }
     assert_eq!(shell.field("HeightField").text().as_deref(), Some("120"));
     assert_eq!(shell.control::<CheckBox>("ClipCheck").is_checked(), None);
+    let horizontal = shell.control::<ComboBox>("HorizontalConstraint");
+    assert_eq!(horizontal.selected_index(), -1);
+    assert_eq!(horizontal.placeholder_text().as_deref(), Some("Mixed"));
+    assert!(!shell.button("ConstraintLeft").classes().contains("active"));
+    assert!(!shell.button("ConstraintRight").classes().contains("active"));
     let radius = shell.field("RadiusField");
     assert!(radius.focus());
     fixture.key(&radius, Key::Enter);
@@ -59,4 +65,7 @@ fn mixed_inspector_fields_batch_edit_and_restore_shared_values_through_native_in
     assert_eq!(shell.field("NameField").text().as_deref(), Some("Second"));
     assert_eq!(width.text().as_deref(), Some("42"));
     assert!(width.placeholder_text().is_none());
+    assert_eq!(horizontal.selected_index(), constraint_index(core::Constraint::End));
+    assert!(horizontal.placeholder_text().is_none());
+    assert!(shell.button("ConstraintRight").classes().contains("active"));
 }

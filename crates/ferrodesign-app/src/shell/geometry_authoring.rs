@@ -69,52 +69,14 @@ impl EditorShell {
         }
     }
 
-    pub(super) fn refresh_constraint_diagram(&self, node: Option<&Node>) {
+    pub(super) fn refresh_constraint_diagram(&self, horizontal: Option<Constraint>, vertical: Option<Constraint>) {
         for (name, active) in [
-            (
-                "ConstraintLeft",
-                node.is_some_and(|n| {
-                    matches!(
-                        n.constraints.horizontal,
-                        Constraint::Start | Constraint::Stretch
-                    )
-                }),
-            ),
-            (
-                "ConstraintRight",
-                node.is_some_and(|n| {
-                    matches!(
-                        n.constraints.horizontal,
-                        Constraint::End | Constraint::Stretch
-                    )
-                }),
-            ),
-            (
-                "ConstraintTop",
-                node.is_some_and(|n| {
-                    matches!(
-                        n.constraints.vertical,
-                        Constraint::Start | Constraint::Stretch
-                    )
-                }),
-            ),
-            (
-                "ConstraintBottom",
-                node.is_some_and(|n| {
-                    matches!(
-                        n.constraints.vertical,
-                        Constraint::End | Constraint::Stretch
-                    )
-                }),
-            ),
-            (
-                "ConstraintCenterX",
-                node.is_some_and(|n| n.constraints.horizontal == Constraint::Center),
-            ),
-            (
-                "ConstraintCenterY",
-                node.is_some_and(|n| n.constraints.vertical == Constraint::Center),
-            ),
+            ("ConstraintLeft", matches!(horizontal, Some(Constraint::Start | Constraint::Stretch))),
+            ("ConstraintRight", matches!(horizontal, Some(Constraint::End | Constraint::Stretch))),
+            ("ConstraintTop", matches!(vertical, Some(Constraint::Start | Constraint::Stretch))),
+            ("ConstraintBottom", matches!(vertical, Some(Constraint::End | Constraint::Stretch))),
+            ("ConstraintCenterX", horizontal == Some(Constraint::Center)),
+            ("ConstraintCenterY", vertical == Some(Constraint::Center)),
         ] {
             self.button(name).classes().set("active", active);
             self.button(name).set_is_enabled(node.is_some());
