@@ -535,3 +535,6 @@ fn native_phone_frame_caption_stays_within_its_artboard() {
 
 #[path = "toolbar_input_tests.rs"]
 mod toolbar_input_tests;
+
+#[path = "layer_rename_tests.rs"]
+mod layer_rename_tests;

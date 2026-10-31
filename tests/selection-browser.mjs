@@ -78,6 +78,28 @@ export async function selectionRegressions(page, reference, check, helpers, outp
         assert.equal(view.canRedo, before.redo, label + " preserves redo");
     };
 
+    await importFixture(page, isolatedDocument(reference, [rectangle(2, { name: "Rename target" })], "Layer name editing"));
+    await clickNative(page, "SelectTool");
+    await page.keyboard.press("v");
+    await click({ x: 100, y: 100 }, [], [2]);
+    const renameBase = await snapshot();
+    await page.keyboard.press("F2");
+    await page.keyboard.insertText("Card header");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() =>
+        JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].name === "Card header");
+    assert.equal((await state(page)).historyLength, renameBase.history + 1);
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() =>
+        JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].name === "Rename target");
+    const undone = await snapshot();
+    await page.keyboard.press("F2");
+    await page.keyboard.insertText("Canceled name");
+    await page.keyboard.press("Escape");
+    await unchanged(undone, "Cancel inline rename");
+    assert.deepEqual((await state(page)).selection, [2]);
+    check("F2 selects the native layer name, Enter creates one rename, and Escape preserves undo and selection");
+
     await importFixture(page, isolatedDocument(reference, [
         rectangle(2, { name: "Back overlap", fills: [fill(255, 180, 50)] }),
         rectangle(3, { name: "Middle overlap", fills: [fill(40, 180, 100)] }),
