@@ -17,6 +17,7 @@ fn draw_slice_with_keyboard_and_pointer_and_export_composited_pixels() {
     *shell.editor.borrow_mut() = Editor::new(doc);
     shell.refresh();
     shell.command("fit");
+    fixture.window.capture_rendered_frame().unwrap();
     shell.command("actual-size");
     fixture.window.capture_rendered_frame().unwrap();
     shell.canvas.focus();
@@ -31,6 +32,7 @@ fn draw_slice_with_keyboard_and_pointer_and_export_composited_pixels() {
     let start = window_point(Point::new(10.0, 10.0));
     let end = window_point(Point::new(70.0, 50.0));
     fixture.window.mouse_move(start, RawInputModifiers::NONE);
+    assert!(shell.canvas.is_pointer_over(), "slice press {start:?} to {end:?}, viewport {vp:?}, canvas {:?}", shell.canvas.bounds());
     fixture.window.mouse_down(start, MouseButton::Left, RawInputModifiers::NONE);
     fixture.window.mouse_move(end, RawInputModifiers::LEFT_MOUSE_BUTTON);
     fixture.window.mouse_up(end, MouseButton::Left, RawInputModifiers::NONE);
