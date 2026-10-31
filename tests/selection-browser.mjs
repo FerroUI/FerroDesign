@@ -30,7 +30,7 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     };
     const action = async (search, command) => {
         await clickNative(page, "ActionsButton");
-        await clickNative(page, "ActionSearch", "ModalViewport");
+        await clickNative(page, "ActionSearch");
         await page.keyboard.press("Control+a");
         await page.keyboard.insertText(search);
         // TextChanged filtering is dispatched after TextBox.Text changes. A
