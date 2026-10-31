@@ -1,6 +1,7 @@
 //! A cached row projection over the editor's complete, bounded change feed.
 //! Native controls consume these rows only when their displayed metadata changes.
 use ferrodesign_core::{Editor, EditorRenderChanges, EditorRenderToken, Node, NodeId, NodeKind};
+use ferroui_base::input::KeyModifiers;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -52,6 +53,24 @@ pub(super) struct LayerProjection {
 impl LayerProjection {
     pub(super) fn rows(&self) -> &[LayerRow] {
         &self.rows
+    }
+
+    /// A range follows displayed rows, including expanded children and the current
+    /// filter. Its first selected row stays the anchor when the range reverses.
+    pub(super) fn select_row(&self, editor: &mut Editor, id: NodeId, modifiers: KeyModifiers) {
+        let Some(&end) = self.indices.get(&id) else { return; };
+        if modifiers.contains(KeyModifiers::SHIFT) {
+            if let Some(&start) = editor.selection.first().and_then(|anchor| self.indices.get(anchor)) {
+                editor.selection.clear();
+                if start <= end {
+                    editor.selection.extend(self.rows[start..=end].iter().map(|row| row.id));
+                } else {
+                    editor.selection.extend(self.rows[end..=start].iter().rev().map(|row| row.id));
+                }
+                return;
+            }
+        }
+        editor.select(id, modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META));
     }
 
     pub(super) fn stats(&self) -> LayerProjectionStats {
@@ -223,6 +242,26 @@ mod tests {
 
     fn ids(projection: &LayerProjection) -> Vec<NodeId> {
         projection.rows().iter().map(|row| row.id).collect()
+    }
+
+    #[test]
+    fn range_and_toggle_follow_projected_order_and_keep_the_anchor() {
+        let (mut editor, parent, child, sibling) = tree_editor();
+        let mut projection = LayerProjection::default();
+        projection.refresh(&editor, false, "", &BTreeSet::from([parent]));
+        assert_eq!(ids(&projection), vec![sibling, parent, child]);
+        projection.select_row(&mut editor, child, KeyModifiers::empty());
+        projection.select_row(&mut editor, sibling, KeyModifiers::SHIFT);
+        assert_eq!(editor.selection, vec![child, parent, sibling]);
+        projection.select_row(&mut editor, parent, KeyModifiers::SHIFT);
+        assert_eq!(editor.selection, vec![child, parent]);
+        projection.select_row(&mut editor, parent, KeyModifiers::META);
+        projection.select_row(&mut editor, sibling, KeyModifiers::CONTROL);
+        assert_eq!(editor.selection, vec![child, sibling]);
+
+        projection.refresh(&editor, false, "", &BTreeSet::new());
+        projection.select_row(&mut editor, parent, KeyModifiers::SHIFT);
+        assert_eq!(editor.selection, vec![parent], "collapsed anchor starts a new selection");
     }
 
     #[test]

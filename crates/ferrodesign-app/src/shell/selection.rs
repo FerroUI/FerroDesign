@@ -2,8 +2,42 @@
 //! query used by canvas selection. Choosing a row only changes editor focus.
 use super::*;
 use super::styles::style_label;
+use ferroui_base::input::KeyModifiers;
+use ferroui_base::interactivity::RoutingStrategies;
 
 impl EditorShell {
+    pub(super) fn wire_layer_activation(self: &Rc<Self>, button: &Ref<Button>, id: NodeId, asset: bool) {
+        // Button raises Click during the bubble phase of a successful release.
+        // Keep that hit testing and keyboard/automation activation in the control.
+        let modifiers = Rc::new(Cell::new(KeyModifiers::empty()));
+        if !asset {
+            let before = modifiers.clone();
+            button.add_handler_with(InputElement::pointer_released_event(), move |_, event| {
+                before.set(event.key_modifiers());
+            }, RoutingStrategies::TUNNEL, true);
+            let after = modifiers.clone();
+            button.add_handler_with(InputElement::pointer_released_event(), move |_, _| {
+                after.set(KeyModifiers::empty());
+            }, RoutingStrategies::BUBBLE, true);
+        }
+        let weak = Rc::downgrade(self);
+        button.click(move |_, _| {
+            let Some(shell) = weak.upgrade() else { return; };
+            if !shell.flush_inspector_drafts() { return; }
+            shell.canvas.cancel_active_edit();
+            if asset {
+                let point = shell.canvas.viewport.get().screen_to_world(Point::new(100.0, 100.0));
+                shell.editor.borrow_mut().create_instance(id, point.x, point.y);
+                shell.changed();
+            } else {
+                shell.layer_projection.borrow().select_row(&mut shell.editor.borrow_mut(), id, modifiers.get());
+                shell.refresh_selection();
+                shell.canvas.invalidate_visual();
+            }
+            shell.canvas.focus();
+        });
+    }
+
     pub(super) fn select_matching_dialog(self: &Rc<Self>) {
         if !self.flush_inspector_drafts() { return; }
         self.canvas.cancel_active_edit();

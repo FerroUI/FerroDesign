@@ -1265,26 +1265,7 @@ impl EditorShell {
         content.children().add(name);
         button.set_content(Some(Control::boxed(content)));
         Grid::set_column(&button, 1);
-        let weak = Rc::downgrade(self);
-        let assets = row.assets;
-        button.click(move |_, _| {
-            if let Some(s) = weak.upgrade() {
-                if assets {
-                    let point = s
-                        .canvas
-                        .viewport
-                        .get()
-                        .screen_to_world(Point::new(100.0, 100.0));
-                    s.editor.borrow_mut().create_instance(id, point.x, point.y);
-                    s.changed();
-                } else {
-                    s.editor.borrow_mut().selection = vec![id];
-                    s.refresh_selection();
-                    s.canvas.invalidate_visual();
-                }
-                s.canvas.focus();
-            }
-        });
+        self.wire_layer_activation(&button, id, row.assets);
         // Weak handles must not keep scrolled-out item controls alive.
         self.layer_buttons
             .borrow_mut()
