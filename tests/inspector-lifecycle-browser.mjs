@@ -121,4 +121,45 @@ export async function inspectorLifecycleRegressions(page, reference, check, help
     await waitForReload(page);
     assert.deepEqual(await documentState(page), renamed, "Reload restores confirmed Unicode, never a preedit deletion or unconfirmed characters");
     check("Pagehide during native inspector composition saves the confirmed Unicode draft once and survives a real reload without persisting IME preedit");
+
+    await mixedSelectionAndDock(page, reference, check, helpers);
+}
+
+export async function mixedSelectionAndDock(page, reference, check, helpers) {
+    const { fixtureNode, isolatedDocument, importFixture, documentState, state, clickWorld, clickNative } = helpers;
+    const box = (id, x, width) => fixtureNode(reference, id, {
+        kind: "rectangle", name: "Box " + id, x, y: 40, width, height: 60,
+        fills: [{ visible: true, opacity: 1, paint: { type: "solid", r: 30, g: 110, b: 210, a: 255 } }],
+    });
+    await importFixture(page, isolatedDocument(reference, [box(2, 20, 64), box(3, 140, 96)], "Inspector selection"));
+    await clickNative(page, "SelectTool");
+    await page.keyboard.press("v");
+    await clickWorld(page, 50, 70);
+    await page.keyboard.down("Shift");
+    try { await clickWorld(page, 175, 70); } finally { await page.keyboard.up("Shift"); }
+    const selected = await state(page);
+    assert.deepEqual(selected.selection, [2, 3]);
+    assert.equal(selected.chrome.WidthField.text, "");
+    assert.equal(selected.chrome.HeightField.text, "60");
+    const before = await documentState(page);
+    await clickNative(page, "WidthField", "InspectorViewport");
+    await page.keyboard.insertText("64");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 64);
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 96);
+    assert.deepEqual(await documentState(page), before);
+    check("Mixed widths accept the first layer's existing value as a batch edit, while a common height remains visible and undo restores both layers");
+
+    await page.keyboard.press("F6");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.SelectTool.focused === true);
+    await page.keyboard.press("End");
+    assert.equal((await state(page)).chrome.ActionsButton.focused, true);
+    await page.keyboard.press("Home");
+    assert.equal((await state(page)).chrome.SelectTool.focused, true);
+    await page.keyboard.press("Escape");
+    assert.equal((await state(page)).chrome.CanvasHost.focusWithin, true);
+    assert.deepEqual(await documentState(page), before);
+    check("F6 enters the tool dock; Home, End and Escape navigate and restore native canvas focus without editing the document");
 }
