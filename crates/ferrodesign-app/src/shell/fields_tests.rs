@@ -387,6 +387,10 @@ fn native_scale_inspector_and_handle_share_undo_and_cancel() {
     fixture.window.capture_rendered_frame().unwrap();
     assert_eq!(canvas.tool.get(), Tool::Scale);
     assert!(shell.control::<StackPanel>("ScaleInspector").is_effectively_visible());
+    for index in 0..9 {
+        let anchor = shell.button(&format!("ScaleAnchor{index}")).bounds();
+        assert!(anchor.width >= 18.0 && anchor.height >= 18.0, "anchor {index}: {anchor:?}");
+    }
     let original = bounds();
     fixture.click_button(&shell.button("ScaleAnchor0"), RawInputModifiers::NONE);
     let field = shell.field("ScaleFactorField");
