@@ -53,6 +53,13 @@ use std::{
     rc::Rc,
 };
 
+#[derive(Default)]
+struct PageList {
+    rows: Vec<(NodeId, String)>,
+    active: Option<NodeId>,
+    title: String,
+}
+
 pub struct EditorShell {
     pub root: Ref<UserControl>,
     pub canvas: Ref<DesignCanvas>,
@@ -68,7 +75,7 @@ pub struct EditorShell {
     expanded: RefCell<BTreeSet<NodeId>>,
     layer_buttons: RefCell<BTreeMap<NodeId, WeakRef<Button>>>,
     layer_projection: RefCell<LayerProjection>,
-    page_rows: RefCell<Vec<(NodeId, String)>>,
+    page_list: RefCell<PageList>,
     assets: Cell<bool>,
     inspector_tab: Cell<u8>,
     displayed_zoom: Cell<Option<i32>>,
@@ -130,7 +137,7 @@ impl EditorShell {
             expanded: RefCell::new(expanded),
             layer_buttons: RefCell::new(BTreeMap::new()),
             layer_projection: RefCell::new(LayerProjection::default()),
-            page_rows: RefCell::new(Vec::new()),
+            page_list: RefCell::default(),
             assets: Cell::new(false),
             inspector_tab: Cell::new(0),
             displayed_zoom: Cell::new(None),
@@ -1055,50 +1062,60 @@ impl EditorShell {
     fn refresh_pages(self: &Rc<Self>) {
         let host = self.control::<StackPanel>("PagesHost");
         let editor = self.editor.borrow();
-        self.text("FileTitle", &editor.document.name);
-        let page = editor.document.page(editor.active_page).map(|page| page.name.as_str()).unwrap_or("");
+        let active = editor.active_page;
+        let pages = &editor.document.pages;
+        let mut cache = self.page_list.borrow_mut();
+        let same_rows = cache.rows.iter().map(|(id, name)| (*id, name))
+            .eq(pages.iter().map(|page| (page.id, &page.name)));
+        let previous = cache.active.replace(active);
+        let title_changed = previous.is_none() || cache.title != editor.document.name;
+        if same_rows && previous == Some(active) && !title_changed {
+            return;
+        }
+        if title_changed {
+            cache.title.clone_from(&editor.document.name);
+        }
+        if !same_rows {
+            cache.rows = pages.iter().map(|page| (page.id, page.name.clone())).collect();
+        }
+        drop(cache);
+
+        if title_changed {
+            self.text("FileTitle", &editor.document.name);
+        }
+        let page = editor.document.page(active).map(|page| page.name.as_str()).unwrap_or("");
         self.text("CanvasCaption", &format!("{} / {page}", editor.document.name));
-        let rows: Vec<_> = editor
-            .document
-            .pages
-            .iter()
-            .map(|p| (p.id, p.name.clone()))
-            .collect();
-        if *self.page_rows.borrow() == rows {
-            for (index, (id, name)) in rows.iter().enumerate() {
-                let button = host
-                    .children()
-                    .get(index)
-                    .cast::<Button>()
-                    .expect("page button");
-                button.classes().set("active", *id == editor.active_page);
-                button.set_content(Some(Rc::new(format!(
-                    "{}  {}",
-                    if *id == editor.active_page {
-                        "✓"
-                    } else {
-                        " "
-                    },
-                    name
-                ))));
+        let update_button = |button: &Button, name: &str, selected: bool| {
+            button.classes().set("active", selected);
+            button.set_content(Some(Rc::new(format!("{}  {name}", if selected { "✓" } else { " " }))));
+            if selected { button.bring_into_view(); }
+        };
+        if same_rows {
+            if previous != Some(active) {
+                for (index, page) in pages.iter().enumerate() {
+                    if Some(page.id) == previous || page.id == active {
+                        let button = host.children().get(index).cast::<Button>().expect("page button");
+                        update_button(&button, &page.name, page.id == active);
+                    }
+                }
             }
             return;
         }
-        *self.page_rows.borrow_mut() = rows;
         host.children().clear();
-        for page in &editor.document.pages {
+        for page in pages {
             let id = page.id;
             let button = Button::new();
             button.classes().add("layer");
-            button.classes().set("active", id == editor.active_page);
-            button.set_content(Some(Rc::new(format!(
-                "{}  {}",
-                if id == editor.active_page { "✓" } else { " " },
-                page.name
-            ))));
             let weak = Rc::downgrade(self);
             button.click(move |_, _| {
                 if let Some(s) = weak.upgrade() {
+                    if s.editor.borrow().active_page == id {
+                        s.canvas.focus();
+                        return;
+                    }
+                    if !s.flush_inspector_drafts() { return; }
+                    s.finish_inline_text(true);
+                    s.canvas.cancel_active_edit();
                     {
                         let mut editor = s.editor.borrow_mut();
                         editor.active_page = id;
@@ -1111,9 +1128,7 @@ impl EditorShell {
                 }
             });
             host.children().add(button.clone());
-            if id == editor.active_page {
-                button.bring_into_view();
-            }
+            update_button(&button, &page.name, id == active);
         }
     }
     fn refresh_layers(self: &Rc<Self>) {
