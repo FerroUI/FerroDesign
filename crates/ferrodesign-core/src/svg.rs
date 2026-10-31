@@ -708,7 +708,7 @@ impl Document {
                 .map(|p| p.children.clone())
                 .unwrap_or_default()
         } else {
-            selection
+            let mut selected_roots: Vec<_> = selection
                 .iter()
                 .filter(|id| {
                     self.nodes.contains_key(id)
@@ -717,28 +717,29 @@ impl Document {
                             .any(|other| other != *id && self.is_ancestor(*other, **id))
                 })
                 .copied()
-                .collect()
+                .collect();
+            selected_roots.sort_by_cached_key(|id| {
+                let mut order = Vec::new();
+                let mut current = *id;
+                for _ in 0..MAX_DOCUMENT_DEPTH {
+                    let Some(parent) = self.nodes.get(&current).and_then(|n| n.parent) else {
+                        break;
+                    };
+                    order.push(
+                        self.children(parent)
+                            .unwrap_or_default()
+                            .iter()
+                            .position(|id| *id == current)
+                            .unwrap_or(0),
+                    );
+                    current = parent;
+                }
+                order.reverse();
+                order
+            });
+            selected_roots.dedup();
+            selected_roots
         };
-        roots.sort_by_key(|id| {
-            let mut order = Vec::new();
-            let mut current = *id;
-            for _ in 0..MAX_DOCUMENT_DEPTH {
-                let Some(parent) = self.nodes.get(&current).and_then(|n| n.parent) else {
-                    break;
-                };
-                order.push(
-                    self.children(parent)
-                        .unwrap_or_default()
-                        .iter()
-                        .position(|id| *id == current)
-                        .unwrap_or(0),
-                );
-                current = parent;
-            }
-            order.reverse();
-            order
-        });
-        roots.dedup();
         roots.retain(|id| self.nodes.get(id).is_some_and(|node| node.kind != NodeKind::Slice));
         if let Some(slice) = slice {
             // Preserve mask scopes in painter order; a disjoint mask can still
@@ -759,7 +760,10 @@ impl Document {
         let mut defs = String::new();
         let mut body = String::new();
         let mut warnings = Vec::new();
-        let needs_mask_context = roots.iter().any(|id| {
+        // Page roots already have painter order and carry every sibling mask.
+        // Slices also render page roots. Only isolated selected subtrees need
+        // a search for masks inherited from siblings outside the selection.
+        let needs_mask_context = !selection.is_empty() && roots.iter().any(|id| {
             let mut current = *id;
             for _ in 0..MAX_DOCUMENT_DEPTH {
                 let Some(parent) = self.nodes.get(&current).and_then(|n| n.parent) else {
