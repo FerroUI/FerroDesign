@@ -6,7 +6,7 @@ browser (WebAssembly): the same editor, controls, document model and scene rende
 
 **Open it in the browser:** https://ferroui.github.io/FerroDesign/
 
-![FerroDesign scaling a selected banking screen with the nine-point anchor inspector](docs/images/ferrodesign-editor.png)
+![FerroDesign inspecting two selected banking screens with shared and mixed property values](docs/images/ferrodesign-editor.png)
 
 The editor has pages and layers, an infinite canvas, layout guides, editable vector networks, rich text
 with paragraph formatting, image cropping, effects and masks, continuous corners, variable-width
