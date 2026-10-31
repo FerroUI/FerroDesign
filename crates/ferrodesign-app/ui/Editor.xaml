@@ -81,6 +81,7 @@
     <Style Selector="Button.layer-action:focus-visible"><Setter Property="Opacity" Value="1"/></Style>
     <Style Selector="Button.layer-action.persistent"><Setter Property="Opacity" Value="1"/></Style>
     <Style Selector="TextBox">
+      <Setter Property="PlaceholderForeground" Value="#616161"/>
       <Setter Property="MinHeight" Value="28"/><Setter Property="FontSize" Value="11"/>
       <Setter Property="Padding" Value="8,4"/><Setter Property="CornerRadius" Value="5"/>
       <Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="#F5F5F5"/>
@@ -94,6 +95,7 @@
     <Style Selector="TextBlock.heading"><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="FontSize" Value="12"/></Style>
     <Style Selector="Border.rule"><Setter Property="Background" Value="#EEEEEE"/><Setter Property="Height" Value="1"/><Setter Property="Margin" Value="-16,8"/></Style>
     <Style Selector="ComboBox">
+      <Setter Property="PlaceholderForeground" Value="#616161"/>
       <Setter Property="MinHeight" Value="28"/><Setter Property="FontSize" Value="11"/>
       <Setter Property="Padding" Value="8,4"/><Setter Property="Background" Value="#F5F5F5"/>
       <Setter Property="BorderThickness" Value="0"/><Setter Property="CornerRadius" Value="5"/>
