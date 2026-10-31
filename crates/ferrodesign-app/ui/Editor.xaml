@@ -457,7 +457,7 @@
         <Button Name="HandTool" Classes="dock-tool" ToolTip.Tip="Hand (H) · Hold Space to pan"/>
         <Button Name="CommentTool" Classes="dock-tool" ToolTip.Tip="Comment (C)"/>
         <Border Width="1" Background="#E6E6E6" Margin="4,6"/>
-        <Button Name="ActionsButton" Classes="dock-tool" ToolTip.Tip="Actions (Ctrl+K)"/>
+        <Button Name="ActionsButton" Classes="dock-tool" ToolTip.Tip="Quick actions (Ctrl/Cmd+/)"/>
       </StackPanel>
       </ScrollViewer>
     </Border>
@@ -466,14 +466,15 @@
     </Border>
     <Border Name="ModalBackdrop" Grid.ColumnSpan="4" Background="#55000000" IsVisible="False">
       <Border Name="ModalPanel" Width="620" MaxHeight="660" Background="White" CornerRadius="12" Padding="24" HorizontalAlignment="Center" VerticalAlignment="Center" BoxShadow="0 12 48 0 #30000000">
-        <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
           <Grid Name="ModalHeader" ColumnDefinitions="*,32" Background="Transparent" ToolTip.Tip="Drag to move the editor">
             <TextBlock Name="ModalTitle" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
             <Button Name="CloseModalButton" Grid.Column="1" Content="×" FontSize="18"/>
           </Grid>
           <TextBlock Name="ModalDescription" Grid.Row="1" Margin="0,8,0,16" TextWrapping="Wrap" Foreground="#777777"/>
-          <ScrollViewer Name="ModalViewport" Grid.Row="2" MaxHeight="470"><StackPanel Name="ModalContent" Spacing="8"/></ScrollViewer>
-          <StackPanel Name="ModalActions" Grid.Row="3" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,18,0,0"/>
+          <Border Name="DialogSearchHost" Grid.Row="2" Margin="0,0,0,8" IsVisible="False"/>
+          <ScrollViewer Name="ModalViewport" Grid.Row="3" MaxHeight="470"><StackPanel Name="ModalContent" Spacing="8"/></ScrollViewer>
+          <StackPanel Name="ModalActions" Grid.Row="4" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,18,0,0"/>
         </Grid>
       </Border>
     </Border>

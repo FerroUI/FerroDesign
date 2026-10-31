@@ -1681,6 +1681,7 @@ impl InputElementImpl for DesignCanvas {
                 }),
                 Key::S => Some("save"),
                 Key::O => Some("open"),
+                Key::OemQuestion if !alt && !shift => Some("actions"),
                 Key::K => Some(if shift {
                     "place-image"
                 } else if alt {

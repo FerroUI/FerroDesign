@@ -1,4 +1,5 @@
 //! The XAML shell binds real FerroUI controls to the document command layer.
+mod actions;
 mod paints;
 mod fields;
 mod diagnostics;
@@ -2579,11 +2580,13 @@ impl EditorShell {
         if !self.updating.get() && !self.flush_inspector_drafts() { return; }
         self.release_panel_drag();
         self.visible("ModalBackdrop", false);
+        self.reset_action_search();
         self.paint_region.set(None);
         self.canvas.focus();
         self.sync_document_draft_dirty();
     }
     fn modal(&self, title: &str, description: &str) {
+        self.reset_action_search();
         self.configure_panel(title);
         self.text("ModalTitle", title);
         self.text("ModalDescription", description);
@@ -2608,53 +2611,6 @@ impl EditorShell {
         self.control::<StackPanel>("ModalActions")
             .children()
             .add(button);
-    }
-    fn action_dialog(
-        self: &Rc<Self>,
-        title: &str,
-        description: &str,
-        actions: &[(&str, &'static str)],
-    ) {
-        // Every action menu replaces the current panel. Retain an invalid
-        // inspector draft until it is corrected or explicitly discarded.
-        if !self.flush_inspector_drafts() {
-            return;
-        }
-        self.modal(title, description);
-        let host = self.control::<StackPanel>("ModalContent");
-        let search = TextBox::new();
-        search.set_name(Some("ActionSearch".into()));
-        search.set_placeholder_text(Some("Search actions…"));
-        host.children().add(search.clone());
-        let rows = StackPanel::new();
-        rows.set_spacing(3.0);
-        host.children().add(rows.clone());
-        let mut buttons = Vec::new();
-        for &(caption, command) in actions {
-            let button = Button::new();
-            button.set_name(Some(format!("Action-{command}")));
-            button.classes().add("layer");
-            button.set_height(34.0);
-            button.set_content(Some(Rc::new(caption.to_string())));
-            let weak = Rc::downgrade(self);
-            button.click(move |_, _| {
-                if let Some(s) = weak.upgrade() {
-                    s.command(command);
-                }
-            });
-            rows.children().add(button.clone());
-            buttons.push((caption.to_lowercase(), button));
-        }
-        let weak = search.downgrade();
-        search.text_changed(move |_, _| {
-            if let Some(search) = weak.upgrade() {
-                let value = search.text().unwrap_or_default().to_lowercase();
-                for (name, button) in &buttons {
-                    button.set_is_visible(name.contains(&value));
-                }
-            }
-        });
-        search.focus();
     }
     fn import_dialog(self: &Rc<Self>) {
         self.modal(
