@@ -5,6 +5,7 @@ mod fields;
 mod diagnostics;
 mod panels;
 mod geometry_authoring;
+mod geometry_fields;
 mod selection;
 mod styles;
 mod effects;
@@ -1609,6 +1610,16 @@ impl EditorShell {
             }
             return false;
         }
+        if let Some(field) = geometry_fields::GeometryField::named(name) {
+            let result = field.apply(&mut self.editor.borrow_mut(), &text);
+            let changed = match result {
+                Ok(changed) => changed,
+                Err(error) => return self.reject_inspector_field(name, &error),
+            };
+            self.field(name).set_border_brush(Some(icons::brush("#E5E5E5")));
+            if changed { self.changed(); } else { self.refresh_selection(); }
+            return true;
+        }
         let number = text
             .trim()
             .trim_end_matches('%')
@@ -1700,68 +1711,49 @@ impl EditorShell {
                 let Some(value) = number else {
                     return self.reject_inspector_field(name, "Enter a finite number between −10,000,000 and 10,000,000.");
                 };
-                if matches!(name, "WidthField" | "HeightField") {
-                    let mut editor = self.editor.borrow_mut();
-                    editor.begin_transaction("Resize layers");
-                    for id in editor.selection.clone() {
-                        if let Some(n) = editor.document.nodes.get(&id) {
-                            let (width, height) = if name == "WidthField" {
-                                (value.max(1.0), n.height)
-                            } else {
-                                (n.width, value.max(1.0))
-                            };
-                            editor.resize_node(id, width, height);
+                self.modify("Edit property", |n| match name {
+                    "OpacityField" => n.opacity = (value / 100.0).clamp(0.0, 1.0),
+                    "FontSizeField" => n.font_size = value.clamp(1.0, 4096.0),
+                    "FontWeightField" => {
+                        n.font_weight = value.round().clamp(1.0, 1000.0) as u16
+                    }
+                    "LineHeightField" => n.line_height = (value / 100.0).clamp(0.1, 100.0),
+                    "LetterSpacingField" => n.letter_spacing = value.clamp(-4096.0, 4096.0),
+                    "CornerTLField" | "CornerTRField" | "CornerBRField" | "CornerBLField" => {
+                        let index = match name {
+                            "CornerTLField" => 0,
+                            "CornerTRField" => 1,
+                            "CornerBRField" => 2,
+                            _ => 3,
+                        };
+                        n.corner_radii.get_or_insert([n.corner_radius; 4])[index] =
+                            value.max(0.0);
+                    }
+                    "CrossGapField" => {
+                        if let Some(layout) = &mut n.layout {
+                            layout.cross_gap = value.max(0.0);
                         }
                     }
-                    editor.commit_transaction();
-                } else {
-                    self.modify("Edit property", |n| match name {
-                        "XField" => n.x = value,
-                        "YField" => n.y = value,
-                        "RotationField" => n.rotation = value,
-                        "OpacityField" => n.opacity = (value / 100.0).clamp(0.0, 1.0),
-                        "FontSizeField" => n.font_size = value.clamp(1.0, 4096.0),
-                        "FontWeightField" => {
-                            n.font_weight = value.round().clamp(1.0, 1000.0) as u16
-                        }
-                        "LineHeightField" => n.line_height = (value / 100.0).clamp(0.1, 100.0),
-                        "LetterSpacingField" => n.letter_spacing = value.clamp(-4096.0, 4096.0),
-                        "CornerTLField" | "CornerTRField" | "CornerBRField" | "CornerBLField" => {
-                            let index = match name {
-                                "CornerTLField" => 0,
-                                "CornerTRField" => 1,
-                                "CornerBRField" => 2,
-                                _ => 3,
-                            };
-                            n.corner_radii.get_or_insert([n.corner_radius; 4])[index] =
-                                value.max(0.0);
-                        }
-                        "CrossGapField" => {
-                            if let Some(layout) = &mut n.layout {
-                                layout.cross_gap = value.max(0.0);
+                    "LayoutColumnsField" => {
+                        if let Some(layout) = &mut n.layout {
+                            layout.columns = value.round().clamp(1.0, 1000.0) as usize;
+                            if !layout.column_tracks.is_empty() {
+                                layout.column_tracks.resize(layout.columns, core::GridTrack::Fraction(1.0));
                             }
                         }
-                        "LayoutColumnsField" => {
-                            if let Some(layout) = &mut n.layout {
-                                layout.columns = value.round().clamp(1.0, 1000.0) as usize;
-                                if !layout.column_tracks.is_empty() {
-                                    layout.column_tracks.resize(layout.columns, core::GridTrack::Fraction(1.0));
-                                }
-                            }
+                    }
+                    "GapField" => {
+                        if let Some(layout) = &mut n.layout {
+                            layout.gap = value.max(0.0);
                         }
-                        "GapField" => {
-                            if let Some(layout) = &mut n.layout {
-                                layout.gap = value.max(0.0);
-                            }
+                    }
+                    "PaddingField" => {
+                        if let Some(layout) = &mut n.layout {
+                            layout.padding = Padding::all(value.max(0.0));
                         }
-                        "PaddingField" => {
-                            if let Some(layout) = &mut n.layout {
-                                layout.padding = Padding::all(value.max(0.0));
-                            }
-                        }
-                        _ => {}
-                    });
-                }
+                    }
+                    _ => {}
+                });
             }
         }
         self.field(name).set_border_brush(Some(icons::brush("#E5E5E5")));

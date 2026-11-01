@@ -380,15 +380,15 @@
               <Border Classes="rule"/>
               <TextBlock Text="Position" Classes="heading"/>
               <Grid ColumnDefinitions="*,12,*">
-                <TextBox Name="XField" Text="0" AutomationProperties.Name="X position" ToolTip.Tip="X position">
+                <TextBox Name="XField" Text="0" AutomationProperties.Name="X position" ToolTip.Tip="X position · Enter a value, 320/2, or x+10 for each selected layer.">
                   <TextBox.InnerLeftContent><TextBlock Text="X" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
-                <TextBox Name="YField" Grid.Column="2" Text="0" AutomationProperties.Name="Y position" ToolTip.Tip="Y position">
+                <TextBox Name="YField" Grid.Column="2" Text="0" AutomationProperties.Name="Y position" ToolTip.Tip="Y position · Enter a value, 320/2, or x+10 for each selected layer.">
                   <TextBox.InnerLeftContent><TextBlock Text="Y" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
               </Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <TextBox Name="RotationField" Text="0" AutomationProperties.Name="Rotation in degrees" ToolTip.Tip="Rotation in degrees">
+                <TextBox Name="RotationField" Text="0" AutomationProperties.Name="Rotation in degrees" ToolTip.Tip="Rotation in degrees · Enter a value, 320/2, or x+10 for each selected layer.">
                   <TextBox.InnerLeftContent><TextBlock Text="∠" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
                 <Button Name="FlipButton" Grid.Column="2" Content="Flip horizontal" VerticalAlignment="Bottom"/>
@@ -397,10 +397,10 @@
               <Border Classes="rule"/>
               <Grid ColumnDefinitions="*,28"><TextBlock Name="DimensionsTitle" Text="Layout" Classes="heading" VerticalAlignment="Center"/><Button Name="AddLayoutButton" Grid.Column="1" Content="+" ToolTip.Tip="Add auto layout"/></Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <TextBox Name="WidthField" Text="0" AutomationProperties.Name="Width" ToolTip.Tip="Width">
+                <TextBox Name="WidthField" Text="0" AutomationProperties.Name="Width" ToolTip.Tip="Width · Enter a value, 320/2, or x+10 for each selected layer.">
                   <TextBox.InnerLeftContent><TextBlock Text="W" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
-                <TextBox Name="HeightField" Grid.Column="2" Text="0" AutomationProperties.Name="Height" ToolTip.Tip="Height">
+                <TextBox Name="HeightField" Grid.Column="2" Text="0" AutomationProperties.Name="Height" ToolTip.Tip="Height · Enter a value, 320/2, or x+10 for each selected layer.">
                   <TextBox.InnerLeftContent><TextBlock Text="H" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
               </Grid>
