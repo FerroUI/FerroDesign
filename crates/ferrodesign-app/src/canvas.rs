@@ -308,6 +308,7 @@ impl DesignCanvas {
     }
     /// Activation changes cannot reuse a press or hover from an earlier frame.
     pub fn reset_presentation_input(&self) {
+        self.set_resize_hover(None);
         self.leave_linear_gradient_edit();
         self.cancel_corner_radius_gesture();
         self.clear_corner_radius_hover();
@@ -380,6 +381,7 @@ impl DesignCanvas {
     }
     fn update_camera(&self, viewport: Viewport) {
         if self.viewport.replace(viewport) != viewport {
+            self.set_resize_hover(None);
             self.invalidate_visual();
             self.emit(CanvasEvent::Camera);
         }
@@ -854,6 +856,7 @@ impl InputElementImpl for DesignCanvas {
             || this.tool.get() == Tool::Hand
             || e.properties().is_middle_button_pressed
         {
+            this.set_resize_hover(None);
             *this.gesture.borrow_mut() = Gesture::Pan { previous: screen };
             if this.hover.take().is_some() { this.invalidate_visual(); }
             return;
@@ -1575,6 +1578,7 @@ impl InputElementImpl for DesignCanvas {
                 e.set_handled(true);
                 return;
             }
+            this.set_resize_hover(None);
             if this.hover.take().is_some() { this.invalidate_visual(); }
             this.cancel_linear_gradient_gesture();
             this.clear_gradient_hover();
@@ -2190,9 +2194,12 @@ impl VisualImpl for DesignCanvas {
                 for i in 0..4 { ctx.draw_line(&blue, ui(corners[i]), ui(corners[(i + 1) % 4])); }
                 continue;
             }
+            let show_grips = editor.selection.len() == 1 && this.tool.get() == Tool::Select
+                && !this.space.get() && !doc.effective_locked(id) && doc.effective_visible(id)
+                && t.inverse().is_some();
             if n.kind == NodeKind::Line {
                 ctx.draw_line(&blue, ui(corners[0]), ui(corners[2]));
-                if editor.selection.len() == 1 && !doc.effective_locked(id) {
+                if show_grips {
                     for point in [corners[0], corners[2]] {
                         ctx.draw_ellipse_at(Some(&white), Some(&blue), ui(point), 3.5, 3.5);
                     }
@@ -2202,12 +2209,10 @@ impl VisualImpl for DesignCanvas {
             for i in 0..4 {
                 ctx.draw_line(&blue, ui(corners[i]), ui(corners[(i + 1) % 4]));
             }
-            if let Some((target, edge)) = this.hovered_resize_edge.get() {
-                if target == id {
+            if show_grips {
+                if let Some((_, edge)) = this.hovered_resize_edge.get().filter(|(target, _)| *target == id) {
                     ctx.draw_line(&pen(0xFF0D99FF, 2.0), ui(corners[edge]), ui(corners[(edge + 1) % 4]));
                 }
-            }
-            if editor.selection.len() == 1 {
                 for p in corners {
                     ctx.draw_rectangle(
                         Some(&white),
@@ -2225,6 +2230,8 @@ impl VisualImpl for DesignCanvas {
                 let rotate = top + direction * (24.0 / length);
                 ctx.draw_line(&blue, ui(top), ui(rotate));
                 ctx.draw_ellipse_at(Some(&white), Some(&blue), ui(rotate), 3.0, 3.0);
+            }
+            if editor.selection.len() == 1 {
                 let bounds = Rect::from_points(corners[0], corners[2])
                     .union(Rect::from_points(corners[1], corners[3]));
                 let value = resize::dimensions(n.width, n.height);
