@@ -20,6 +20,10 @@
       <Setter Property="Background" Value="#E5F4FF"/>
       <Setter Property="Foreground" Value="#007BE5"/>
     </Style>
+    <Style Selector="Button.mixed-text-format">
+      <Setter Property="BorderThickness" Value="0,0,0,1"/>
+      <Setter Property="BorderBrush" Value="#087AC4"/>
+    </Style>
     <Style Selector="Button.primary">
       <Setter Property="Background" Value="#0D99FF"/>
       <Setter Property="Foreground" Value="White"/>
@@ -513,7 +517,7 @@
                 <TextBox Name="TextField" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64"/>
                 <Button Name="RichTextButton" Content="Style selected characters…" HorizontalAlignment="Stretch"/>
                 <TextBox Name="FontFamilyField" Text="Inter"/>
-                <Grid ColumnDefinitions="*,8,*,8,28,28"><TextBox Name="FontSizeField" Text="16" ToolTip.Tip="Font size"/><TextBox Name="FontWeightField" Grid.Column="2" Text="400" ToolTip.Tip="Font weight (1–1000)"/><Button Name="BoldButton" Grid.Column="4" Content="B" FontWeight="Bold"/><Button Name="ItalicButton" Grid.Column="5" Content="I" FontStyle="Italic"/></Grid>
+                <Grid ColumnDefinitions="*,8,*,8,28,28"><TextBox Name="FontSizeField" Text="16" ToolTip.Tip="Font size"/><TextBox Name="FontWeightField" Grid.Column="2" Text="400" ToolTip.Tip="Font weight (1–1000)"/><Button Name="BoldButton" AutomationProperties.Name="Bold" ToolTip.Tip="Bold" Grid.Column="4" Content="B" FontWeight="Bold"/><Button Name="ItalicButton" AutomationProperties.Name="Italic" ToolTip.Tip="Italic" Grid.Column="5" Content="I" FontStyle="Italic"/></Grid>
                 <Grid ColumnDefinitions="*,12,*">
                   <StackPanel Spacing="4"><TextBlock Text="Line height %" Classes="label"/><TextBox Name="LineHeightField"/></StackPanel>
                   <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="Letter spacing" Classes="label"/><TextBox Name="LetterSpacingField"/></StackPanel>

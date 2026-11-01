@@ -6,6 +6,23 @@ use ferroui_base::media::MatrixTransform;
 use ferroui_base::{Matrix, RelativePoint};
 use crate::renderer::typography;
 
+#[derive(Clone, Copy)]
+pub(super) enum TextFormat {
+    Bold,
+    Italic,
+    Align(TextAlign),
+}
+
+impl TextFormat {
+    fn active(self, node: &Node) -> bool {
+        match self {
+            Self::Bold => node.font_weight >= 600,
+            Self::Italic => node.italic,
+            Self::Align(alignment) => node.text_align == alignment,
+        }
+    }
+}
+
 pub(super) struct InlineLayout {
     id: NodeId,
     revision: u64,
@@ -43,6 +60,54 @@ impl InlineTextSnapshot {
 }
 
 impl EditorShell {
+    pub(super) fn sync_text_formats(&self, selection: &fields::InspectorSelection<'_>, editable: bool) {
+        use ferroui_controls::automation::AutomationProperties;
+        for (name, format) in [
+            ("BoldButton", TextFormat::Bold), ("ItalicButton", TextFormat::Italic),
+            ("TextLeftButton", TextFormat::Align(TextAlign::Left)),
+            ("TextCenterButton", TextFormat::Align(TextAlign::Center)),
+            ("TextRightButton", TextFormat::Align(TextAlign::Right)),
+            ("TextJustifyButton", TextFormat::Align(TextAlign::Justify)),
+        ] {
+            let common = selection.common(|n| format.active(n));
+            let status = match common { Some(true) => "On", Some(false) => "Off", None => "Mixed" };
+            let button = self.button(name);
+            button.set_is_enabled(editable);
+            button.classes().set("active", common == Some(true));
+            button.classes().set("mixed-text-format", common.is_none());
+            if AutomationProperties::get_item_status(&button).as_deref() != Some(status) {
+                AutomationProperties::set_item_status(&button, Some(status));
+            }
+        }
+    }
+
+    pub(super) fn apply_text_format(self: &Rc<Self>, format: TextFormat) -> bool {
+        let mut editor = self.editor.borrow_mut();
+        let mut ids: Vec<_> = editor.selection.iter().copied().filter(|id|
+            editor.document.nodes.get(id).is_some_and(|node| node.kind == NodeKind::Text)
+                && !editor.document.effective_locked(*id)
+        ).collect();
+        if ids.is_empty() { return false; }
+        let enable = matches!(format, TextFormat::Align(_))
+            || ids.iter().any(|id| !format.active(&editor.document.nodes[id]));
+        ids.retain(|id| format.active(&editor.document.nodes[id]) != enable);
+        let changed = !ids.is_empty();
+        if changed {
+            editor.update_nodes_with_layout(&ids, "Format text", |node| {
+                let property = match format {
+                    TextFormat::Bold => { node.font_weight = if enable { 700 } else { 400 }; "font_weight" }
+                    TextFormat::Italic => { node.italic = enable; "italic" }
+                    TextFormat::Align(alignment) => { node.text_align = alignment; "text_align" }
+                };
+                if node.component_source.is_some() { node.overridden_properties.insert(property.into()); }
+            });
+        }
+        drop(editor);
+        if changed { self.changed(); }
+        self.canvas.focus();
+        true
+    }
+
     pub(super) fn wire_inline_text(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         self.field("InlineTextBox").text_changing(move |_, event| {

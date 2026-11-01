@@ -277,3 +277,67 @@ fn geometry_field_step_rejects_invalid_drafts_and_skips_no_op_limits() {
     assert!(shell.command("undo"));
     assert_eq!(fixture.json(), before);
 }
+
+#[test]
+fn native_mixed_text_formats_converge_preserve_existing_weights_and_report_alignment() {
+    use ferroui_controls::automation::AutomationProperties;
+    let f = Fixture::new(false);
+    let shell = &f.shell;
+    let (regular, locked) = {
+        let mut editor = shell.editor.borrow_mut();
+        let first = editor.document.nodes.get_mut(&f.id).unwrap();
+        first.kind = NodeKind::Text;
+        first.font_weight = 800;
+        first.italic = true;
+        first.text_align = TextAlign::Right;
+        let mut regular = Node::new(NodeKind::Text, "Regular", 160.0, 20.0, 120.0, 60.0);
+        regular.font_weight = 450;
+        regular.italic = false;
+        let mut pinned = regular.clone();
+        pinned.locked = true;
+        let second = editor.document.insert_node(1, regular).unwrap();
+        let locked = editor.document.insert_node(1, pinned).unwrap();
+        editor.selection = vec![f.id, second];
+        editor.refresh();
+        (second, locked)
+    };
+    shell.refresh();
+    let before = f.json();
+    let status = |name| AutomationProperties::get_item_status(&shell.button(name)).unwrap();
+    let click = |name| {
+        let button = shell.button(name);
+        button.bring_into_view();
+        f.window.capture_rendered_frame().unwrap();
+        f.click_button(&button, RawInputModifiers::NONE);
+        f.stop_save_timer();
+    };
+    assert_eq!(status("BoldButton"), "Mixed");
+    assert_eq!(status("ItalicButton"), "Mixed");
+    assert_eq!(status("TextLeftButton"), "Mixed");
+    assert_eq!(status("TextCenterButton"), "Off");
+    click("BoldButton");
+    assert_eq!(status("BoldButton"), "On");
+    assert_eq!(shell.editor.borrow().document.nodes[&f.id].font_weight, 800);
+    assert_eq!(shell.editor.borrow().document.nodes[&regular].font_weight, 700);
+    click("ItalicButton");
+    assert_eq!(status("ItalicButton"), "On");
+    click("TextCenterButton");
+    assert_eq!(status("TextCenterButton"), "On");
+    assert!(!shell.button("TextLeftButton").classes().contains("active"));
+    click("TextCenterButton");
+    assert_eq!(shell.editor.borrow().history_len(), 3, "Selecting the current alignment is a no-op");
+    for _ in 0..3 { assert!(shell.command("undo")); }
+    assert_eq!(f.json(), before);
+    shell.editor.borrow_mut().selection = vec![f.id, regular, locked];
+    shell.refresh_selection();
+    click("ItalicButton");
+    assert!(!shell.editor.borrow().document.nodes[&locked].italic);
+    assert_eq!(status("ItalicButton"), "Mixed");
+    assert!(shell.command("undo"));
+    assert_eq!(f.json(), before);
+    shell.editor.borrow_mut().selection = vec![locked];
+    shell.refresh_selection();
+    assert!(!shell.button("ItalicButton").is_enabled());
+    assert!(!shell.command("bold"));
+    assert_eq!(f.json(), before);
+}

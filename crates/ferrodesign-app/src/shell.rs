@@ -1440,9 +1440,6 @@ impl EditorShell {
         self.button("IndependentCornersButton")
             .classes()
             .set("active", node.is_some_and(|n| n.corner_radii.is_some()));
-        self.button("ItalicButton")
-            .classes()
-            .set("active", node.is_some_and(|n| n.italic));
         self.button("LayoutWrapButton").classes().set(
             "active",
             node.is_some_and(|n| n.layout.as_ref().is_some_and(|l| l.wrap)),
@@ -1497,10 +1494,9 @@ impl EditorShell {
         self.visible("EditLayoutButton", node.is_some_and(|node| node.layout.is_some()
             || node.parent.and_then(|parent| editor.document.nodes.get(&parent))
                 .is_some_and(|parent| parent.layout.is_some())));
-        self.visible(
-            "TextOptions",
-            selection.common(|n| n.kind) == Some(NodeKind::Text),
-        );
+        let text_selected = selection.common(|n| n.kind) == Some(NodeKind::Text);
+        self.visible("TextOptions", text_selected);
+        if text_selected { self.sync_text_formats(&selection, can_edit_geometry); }
         if node.is_some() {
             let visible = selection.common(|n| n.visible);
             self.sync_state_button("VisibleButton", if visible == Some(false) { "eye-off" } else { "eye" },
@@ -1514,9 +1510,6 @@ impl EditorShell {
                     Some(true) => "Unlock selection", Some(false) => "Lock selection", None => "Lock all selected layers",
                 });
         }
-        self.button("BoldButton")
-            .classes()
-            .set("active", node.is_some_and(|n| n.font_weight >= 600));
         self.button("EffectButton").set_content(Some(Rc::new(
             node.map(|n| {
                 format!(
@@ -2370,20 +2363,12 @@ impl EditorShell {
                 self.add_effect();
                 return true;
             }
-            "bold" => self.modify("Text weight", |n| {
-                n.font_weight = if n.font_weight >= 600 { 400 } else { 700 }
-            }),
-            "italic" => self.modify("Text italic", |n| n.italic = !n.italic),
-            "text-left" | "text-center" | "text-right" | "text-justify" => {
-                self.modify("Text alignment", |n| {
-                    n.text_align = match command {
-                        "text-center" => TextAlign::Center,
-                        "text-justify" => TextAlign::Justify,
-                        "text-right" => TextAlign::Right,
-                        _ => TextAlign::Left,
-                    }
-                })
-            }
+            "bold" => return self.apply_text_format(text::TextFormat::Bold),
+            "italic" => return self.apply_text_format(text::TextFormat::Italic),
+            "text-left" => return self.apply_text_format(text::TextFormat::Align(TextAlign::Left)),
+            "text-center" => return self.apply_text_format(text::TextFormat::Align(TextAlign::Center)),
+            "text-right" => return self.apply_text_format(text::TextFormat::Align(TextAlign::Right)),
+            "text-justify" => return self.apply_text_format(text::TextFormat::Align(TextAlign::Justify)),
             "component" => {
                 self.editor.borrow_mut().create_component();
             }
