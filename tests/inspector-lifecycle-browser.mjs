@@ -165,6 +165,28 @@ export async function mixedSelectionAndDock(page, reference, check, helpers) {
     assert.deepEqual(await documentState(page), before);
     check("A mixed width equation evaluates each original size, commits once and restores both layers on undo");
 
+    await clickNative(page, "WidthField", "InspectorViewport");
+    await page.keyboard.press("Shift+ArrowDown");
+    await page.waitForFunction(() => {
+        const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return nodes[2].width === 54 && nodes[3].width === 86;
+    });
+    assert.equal((await state(page)).chrome.WidthField.focused, true);
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.insertText("Mixed/2");
+    await page.keyboard.press("ArrowUp");
+    await page.waitForFunction(() => {
+        const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return nodes[2].width === 28 && nodes[3].width === 44;
+    });
+    await page.keyboard.press("Enter");
+    assert.equal((await state(page)).historyLength, selected.historyLength + 2);
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 96);
+    assert.deepEqual(await documentState(page), before);
+    check("Native width arrows step mixed selections and typed formulas once per key, keep field focus, and undo exactly");
+
     await page.keyboard.press("F6");
     await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.SelectTool.focused === true);
     await page.keyboard.press("End");

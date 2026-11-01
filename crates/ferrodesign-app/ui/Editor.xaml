@@ -384,15 +384,15 @@
               <Border Classes="rule"/>
               <TextBlock Text="Position" Classes="heading"/>
               <Grid ColumnDefinitions="*,12,*">
-                <TextBox Name="XField" Text="0" AutomationProperties.Name="X position" ToolTip.Tip="X position · Enter a value, 320/2, or x+10 for each selected layer.">
+                <TextBox Name="XField" Text="0" AutomationProperties.Name="X position" ToolTip.Tip="X position · Type a value or expression (320/2, x+10). ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1.">
                   <TextBox.InnerLeftContent><TextBlock Text="X" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
-                <TextBox Name="YField" Grid.Column="2" Text="0" AutomationProperties.Name="Y position" ToolTip.Tip="Y position · Enter a value, 320/2, or x+10 for each selected layer.">
+                <TextBox Name="YField" Grid.Column="2" Text="0" AutomationProperties.Name="Y position" ToolTip.Tip="Y position · Type a value or expression (320/2, x+10). ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1.">
                   <TextBox.InnerLeftContent><TextBlock Text="Y" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
               </Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <TextBox Name="RotationField" Text="0" AutomationProperties.Name="Rotation in degrees" ToolTip.Tip="Rotation in degrees · Enter a value, 320/2, or x+10 for each selected layer.">
+                <TextBox Name="RotationField" Text="0" AutomationProperties.Name="Rotation in degrees" ToolTip.Tip="Rotation in degrees · Type a value or expression (320/2, x+10). ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1.">
                   <TextBox.InnerLeftContent><TextBlock Text="∠" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
                 <Button Name="FlipButton" Grid.Column="2" Content="Flip horizontal" VerticalAlignment="Bottom"/>
@@ -401,10 +401,10 @@
               <Border Classes="rule"/>
               <Grid ColumnDefinitions="*,28"><TextBlock Name="DimensionsTitle" Text="Layout" Classes="heading" VerticalAlignment="Center"/><Button Name="AddLayoutButton" Grid.Column="1" Content="+" ToolTip.Tip="Add auto layout"/></Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <TextBox Name="WidthField" Text="0" AutomationProperties.Name="Width" ToolTip.Tip="Width · Enter a value, 320/2, or x+10 for each selected layer.">
+                <TextBox Name="WidthField" Text="0" AutomationProperties.Name="Width" ToolTip.Tip="Width · Type a value or expression (320/2, x+10). ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1.">
                   <TextBox.InnerLeftContent><TextBlock Text="W" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
-                <TextBox Name="HeightField" Grid.Column="2" Text="0" AutomationProperties.Name="Height" ToolTip.Tip="Height · Enter a value, 320/2, or x+10 for each selected layer.">
+                <TextBox Name="HeightField" Grid.Column="2" Text="0" AutomationProperties.Name="Height" ToolTip.Tip="Height · Type a value or expression (320/2, x+10). ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1.">
                   <TextBox.InnerLeftContent><TextBlock Text="H" Classes="field-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
               </Grid>
@@ -651,23 +651,28 @@
       <Border.Resources>
         <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent"/>
       </Border.Resources>
-      <Grid ColumnDefinitions="44,*,44,Auto">
+      <Grid ColumnDefinitions="44,44,*,44,Auto">
         <Button Name="PreviewBack" Classes="playback" Width="44" Height="44" Padding="10"
-                AutomationProperties.Name="Go back in prototype" ToolTip.Tip="Go back in prototype">
+                AutomationProperties.Name="Previous screen" ToolTip.Tip="Previous screen (←)">
           <Path Width="16" Height="16" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.6"
                 Data="M12,3 L4,11 L12,19 M4,11 H21"/>
         </Button>
-        <StackPanel Grid.Column="1" Margin="6,0" VerticalAlignment="Center" IsHitTestVisible="False">
+        <Button Name="PreviewNext" Classes="playback" Grid.Column="1" Width="44" Height="44" Padding="10"
+                AutomationProperties.Name="Next screen" ToolTip.Tip="Next screen (→)">
+          <Path Width="16" Height="16" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.6"
+                Data="M10,3 L18,11 L10,19 M18,11 H1"/>
+        </Button>
+        <StackPanel Grid.Column="2" Margin="6,0" VerticalAlignment="Center" IsHitTestVisible="False">
           <TextBlock Text="Prototype preview" FontSize="10" Foreground="#626262"/>
           <TextBlock Name="PreviewFrameTitle" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
         </StackPanel>
-        <Button Name="PreviewRestart" Classes="playback" Grid.Column="2" Width="44" Height="44" Padding="10"
-                AutomationProperties.Name="Restart prototype" ToolTip.Tip="Restart prototype">
+        <Button Name="PreviewRestart" Classes="playback" Grid.Column="3" Width="44" Height="44" Padding="10"
+                AutomationProperties.Name="Restart prototype" ToolTip.Tip="Restart prototype (R)">
           <Path Width="16" Height="16" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.6"
                 Data="M4,11 A8,8 0 1 1 5,16 M4,4 V11 H11"/>
         </Button>
-        <Button Name="PreviewExit" Classes="playback" Grid.Column="3" Height="44" MinWidth="56" Padding="10,4" Content="Done"
-                FontWeight="SemiBold" AutomationProperties.Name="Return to editor" ToolTip.Tip="Return to editor"/>
+        <Button Name="PreviewExit" Classes="playback" Grid.Column="4" Height="44" MinWidth="56" Padding="10,4" Content="Done"
+                FontWeight="SemiBold" AutomationProperties.Name="Return to editor" ToolTip.Tip="Return to editor (Esc)"/>
       </Grid>
     </Border>
     <Border Name="ModalBackdrop" Grid.ColumnSpan="4" Background="#55000000" IsVisible="False">

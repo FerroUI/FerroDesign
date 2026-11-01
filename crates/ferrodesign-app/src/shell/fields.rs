@@ -202,6 +202,9 @@ impl EditorShell {
         let committed = Rc::new(RefCell::new(field.text().unwrap_or_default()));
         let weak_shell = Rc::downgrade(self);
         let weak_field = field.downgrade();
+        if let Some(property) = super::geometry_fields::GeometryField::named(name) {
+            self.wire_geometry_steps(name, property, committed.clone());
+        }
         let value = committed.clone();
         let submit: Rc<dyn Fn(bool) -> bool> = Rc::new(move |explicit| {
             let (Some(shell), Some(field)) = (weak_shell.upgrade(), weak_field.upgrade()) else {

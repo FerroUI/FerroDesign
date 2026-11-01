@@ -1,6 +1,8 @@
 //! Native inspector calculations use the same bounded evaluator as FerroUI NumberBox.
 use super::*;
 use ferroui_controls::utils::number_expression::evaluate_number_expression;
+use ferroui_base::input::KeyModifiers;
+use ferroui_base::interactivity::RoutingStrategies;
 use std::borrow::Cow;
 
 #[derive(Clone, Copy)]
@@ -22,13 +24,18 @@ impl GeometryField {
         }
     }
 
-    pub(super) fn apply(self, editor: &mut Editor, input: &str) -> Result<bool, String> {
-        let expression = GeometryInput::parse(input)?;
+    fn apply(self, editor: &mut Editor, input: Option<&str>, step: f64) -> Result<bool, String> {
+        let expression = input.map(GeometryInput::parse).transpose()?;
         let mut values = BTreeMap::new();
         for &id in &editor.selection {
             if let Some(node) = editor.document.nodes.get(&id) {
                 if !editor.document.effective_locked(id) {
-                    let value = expression.value(self.read(node))?;
+                    let current = self.read(node);
+                    let baseline = match &expression {
+                        Some(expression) => expression.value(current)?,
+                        None => current,
+                    };
+                    let value = checked_value(baseline + step)?;
                     let value = if matches!(self, Self::Width | Self::Height) { value.max(1.0) } else { value };
                     values.insert(id, value);
                 }
@@ -100,8 +107,64 @@ impl<'a> GeometryInput<'a> {
             Self::Absolute(value) => *value,
             Self::Relative(input) => Self::calculate(input, current)?,
         };
-        if value.is_finite() && value.abs() <= 1.0e7 { Ok(value) } else {
-            Err("Each result must be a finite number between −10,000,000 and 10,000,000.".into())
-        }
+        checked_value(value)
+    }
+}
+
+fn checked_value(value: f64) -> Result<f64, String> {
+    if value.is_finite() && value.abs() <= 1.0e7 {
+        Ok(value)
+    } else {
+        Err("Each result must be a finite number between −10,000,000 and 10,000,000.".into())
+    }
+}
+
+impl EditorShell {
+    pub(super) fn apply_geometry_field(
+        self: &Rc<Self>, name: &str, field: GeometryField, input: Option<&str>, step: f64,
+    ) -> bool {
+        let result = field.apply(&mut self.editor.borrow_mut(), input, step);
+        let changed = match result {
+            Ok(changed) => changed,
+            Err(error) => return self.reject_inspector_field(name, &error),
+        };
+        self.field(name).set_border_brush(Some(icons::brush("#E5E5E5")));
+        if changed { self.changed(); } else { self.refresh_selection(); }
+        true
+    }
+
+    pub(super) fn wire_geometry_steps(
+        self: &Rc<Self>, name: &'static str, property: GeometryField, committed: Rc<RefCell<String>>,
+    ) {
+        let field = self.field(name);
+        let weak_field = field.downgrade();
+        let weak_shell = Rc::downgrade(self);
+        field.add_handler_with(InputElement::key_down_event(), move |_, event| {
+            let sign = match event.key {
+                Key::Up => 1.0,
+                Key::Down => -1.0,
+                _ => return,
+            };
+            let step = match event.key_modifiers {
+                value if value.is_empty() => 1.0,
+                KeyModifiers::SHIFT => 10.0,
+                KeyModifiers::ALT => 0.1,
+                _ => return,
+            };
+            let (Some(shell), Some(field)) = (weak_shell.upgrade(), weak_field.upgrade()) else { return; };
+            if shell.updating.get() || field.is_composing_text() || !field.is_enabled() { return; }
+            event.set_handled(true);
+            let text = field.text().unwrap_or_default();
+            // The native inspector rounds its text for display. Start a clean step
+            // from each stored number, even when there is no common displayed value.
+            let draft = (text != *committed.borrow()).then_some(text.as_str());
+            shell.finish_canvas_edits_for_inspector();
+            if shell.apply_geometry_field(name, property, draft, sign * step) {
+                // A no-op at the minimum can normalize a draft without changing history.
+                *committed.borrow_mut() = field.text().unwrap_or_default();
+                field.select_all();
+                shell.sync_document_draft_dirty();
+            }
+        }, RoutingStrategies::TUNNEL, false);
     }
 }

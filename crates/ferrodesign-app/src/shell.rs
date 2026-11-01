@@ -16,6 +16,7 @@ mod layer_projection;
 mod layer_rename;
 mod pages;
 mod prototyping;
+mod playback;
 mod rich_text;
 mod text;
 mod variables;
@@ -429,6 +430,7 @@ impl EditorShell {
             self.icon(name, icon);
         }
         self.wire_toolbar();
+        self.wire_playback_focus();
         self.wire_scale();
         self.wire_workspace();
         self.wire_page_menu();
@@ -444,6 +446,7 @@ impl EditorShell {
             ("ThemeButton", "theme"),
             ("PresentButton", "present"),
             ("PreviewBack", "prototype-back"),
+            ("PreviewNext", "prototype-next"),
             ("PreviewRestart", "prototype-restart"),
             ("PreviewExit", "prototype-exit"),
             ("ShareButton", "share"),
@@ -674,9 +677,7 @@ impl EditorShell {
             CanvasEvent::PrototypePointerMoved(point) => { self.prototype.pointer_moved(point); }
             CanvasEvent::PrototypePointerExited => { self.prototype.pointer_exited(); }
             CanvasEvent::PrototypeKey(key) => {
-                if !self.prototype.key(&key) && key == "Escape" {
-                    self.prototype.stop();
-                }
+                self.preview_canvas_key(&key);
             }
             CanvasEvent::ExitPresentation => self.set_presentation(None),
             CanvasEvent::Action(command) => {
@@ -752,7 +753,7 @@ impl EditorShell {
             "RegionToolMenu", "ShapeToolMenu", "DrawingToolMenu",
             "PenTool",
             "TextTool",
-            "PreviewControls", "PreviewBack", "PreviewRestart", "PreviewExit", "PreviewFrameTitle",
+            "PreviewControls", "PreviewBack", "PreviewNext", "PreviewRestart", "PreviewExit", "PreviewFrameTitle",
             "MoveToolMenu", "ScaleFactorField", "ScaleWidthField", "ScaleHeightField",
             "CommentTool",
             "ActionsButton",
@@ -1567,12 +1568,15 @@ impl EditorShell {
             );
         }
     }
-    fn modify(self: &Rc<Self>, label: &str, mut operation: impl FnMut(&mut Node)) {
+    fn finish_canvas_edits_for_inspector(&self) {
         self.canvas.finish_linear_gradient_edit();
         self.canvas.finish_corner_radius_edit();
         self.canvas.finish_network_bucket();
         self.canvas.finish_stroke_width_edit();
         self.canvas.finish_image_crop();
+    }
+    fn modify(self: &Rc<Self>, label: &str, mut operation: impl FnMut(&mut Node)) {
+        self.finish_canvas_edits_for_inspector();
         let ids = self.editor.borrow().selection.clone();
         self.editor.borrow_mut().update_nodes_with_layout(&ids, label, |node| operation(node));
     }
@@ -1584,12 +1588,11 @@ impl EditorShell {
         if matches!(name, "ScaleFactorField" | "ScaleWidthField" | "ScaleHeightField") {
             return self.commit_scale_field(name, &text);
         }
+        self.finish_canvas_edits_for_inspector();
+        if let Some(field) = geometry_fields::GeometryField::named(name) {
+            return self.apply_geometry_field(name, field, Some(&text), 0.0);
+        }
         let id = self.editor.borrow().selection.first().copied();
-        self.canvas.finish_linear_gradient_edit();
-        self.canvas.finish_corner_radius_edit();
-        self.canvas.finish_network_bucket();
-        self.canvas.finish_stroke_width_edit();
-        self.canvas.finish_image_crop();
         if id.is_none() {
             if name == "NameField" || name == "FillField" || name == "PageBackgroundField" {
                 if name != "NameField" && Color::from_hex(&text).is_none() {
@@ -1612,16 +1615,6 @@ impl EditorShell {
                 return true;
             }
             return false;
-        }
-        if let Some(field) = geometry_fields::GeometryField::named(name) {
-            let result = field.apply(&mut self.editor.borrow_mut(), &text);
-            let changed = match result {
-                Ok(changed) => changed,
-                Err(error) => return self.reject_inspector_field(name, &error),
-            };
-            self.field(name).set_border_brush(Some(icons::brush("#E5E5E5")));
-            if changed { self.changed(); } else { self.refresh_selection(); }
-            return true;
         }
         let number = text
             .trim()
@@ -1802,7 +1795,7 @@ impl EditorShell {
         if self.prototype.is_active()
             && !matches!(
                 command,
-                "present" | "prototype-back" | "prototype-restart" | "prototype-exit" | "save" | "export-json"
+                "present" | "prototype-back" | "prototype-next" | "prototype-restart" | "prototype-exit" | "save" | "export-json"
             )
         {
             self.prototype.stop();
@@ -2140,8 +2133,8 @@ impl EditorShell {
                 self.set_presentation(root);
                 return root.is_some();
             }
-            "prototype-back" => {
-                let changed = self.prototype.back();
+            "prototype-back" | "prototype-next" => {
+                let changed = self.prototype.step(command == "prototype-next");
                 if changed { self.canvas.focus(); }
                 return changed;
             }
@@ -2782,7 +2775,8 @@ impl EditorShell {
         let name = self.prototype.visible_frame().and_then(|id| editor.document.nodes.get(&id))
             .map(|node| node.name.as_str()).unwrap_or_default();
         self.text("PreviewFrameTitle", name);
-        self.button("PreviewBack").set_is_enabled(self.prototype.can_go_back());
+        self.button("PreviewBack").set_is_enabled(self.prototype.can_step(false));
+        self.button("PreviewNext").set_is_enabled(self.prototype.can_step(true));
     }
 
     fn prototype_event(self: &Rc<Self>, event: PrototypeRuntimeEvent) {

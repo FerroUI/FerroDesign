@@ -195,3 +195,85 @@ fn geometry_equations_support_absolute_signed_values_and_one_relative_blur() {
     for _ in 0..3 { assert!(shell.command("undo")); }
     assert_eq!(fixture.json(), before);
 }
+
+#[test]
+fn geometry_field_steps_preserve_authored_precision_mixed_values_and_exact_history() {
+    use ferroui_base::input::PhysicalKey;
+    let fixture = Fixture::with_kind(false, NodeKind::Rectangle);
+    let shell = &fixture.shell;
+    let second = {
+        let mut editor = shell.editor.borrow_mut();
+        editor.document.nodes.get_mut(&fixture.id).unwrap().width = 120.125;
+        let second = editor.document.insert_node(1,
+            Node::new(NodeKind::Rectangle, "Other", 160.0, 20.0, 48.625, 24.0)).unwrap();
+        editor.refresh();
+        second
+    };
+    shell.refresh();
+    let before = fixture.json();
+    let field = shell.field("WidthField");
+    let press = |key, physical, modifiers| {
+        assert!(field.is_focused());
+        fixture.window.key_press(key, modifiers, physical, None);
+        fixture.window.key_release(key, modifiers, physical, None);
+        fixture.stop_save_timer();
+    };
+    assert!(field.focus());
+    // The display rounds the stored fraction to two places.
+    assert_ne!(field.text().as_deref(), Some("120.125"));
+    press(Key::Up, PhysicalKey::ArrowUp, RawInputModifiers::NONE);
+    assert_eq!(shell.editor.borrow().document.nodes[&fixture.id].width, 121.125);
+    assert!(field.is_focused());
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+
+    shell.editor.borrow_mut().selection = vec![fixture.id, second];
+    shell.refresh_selection();
+    assert!(field.focus());
+    assert_eq!(field.placeholder_text().as_deref(), Some("Mixed"));
+    press(Key::Down, PhysicalKey::ArrowDown, RawInputModifiers::SHIFT);
+    let widths = || {
+        let editor = shell.editor.borrow();
+        [editor.document.nodes[&fixture.id].width, editor.document.nodes[&second].width]
+    };
+    assert_eq!(widths(), [110.125, 38.625]);
+    assert_eq!(field.placeholder_text().as_deref(), Some("Mixed"));
+    assert!(field.is_focused());
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    field.set_text(Some("Mixed / 2"));
+    press(Key::Up, PhysicalKey::ArrowUp, RawInputModifiers::ALT);
+    assert_eq!(widths(), [110.125 / 2.0 + 0.1, 38.625 / 2.0 + 0.1]);
+    assert_eq!(shell.editor.borrow().history_len(), 2);
+    assert!(shell.flush_inspector_drafts());
+    assert_eq!(shell.editor.borrow().history_len(), 2);
+    assert!(shell.command("undo"));
+    assert_eq!(widths(), [110.125, 38.625]);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+}
+
+#[test]
+fn geometry_field_step_rejects_invalid_drafts_and_skips_no_op_limits() {
+    let fixture = Fixture::with_kind(false, NodeKind::Rectangle);
+    let shell = &fixture.shell;
+    let field = shell.field("WidthField");
+    assert!(field.focus());
+    let before = fixture.json();
+    field.set_text(Some("1/0"));
+    fixture.key(&field, Key::Up);
+    assert_eq!(field.text().as_deref(), Some("1/0"));
+    assert_eq!(fixture.json(), before);
+    assert_eq!(shell.editor.borrow().history_len(), 0);
+    fixture.key(&field, Key::Escape);
+    field.set_text(Some("2"));
+    fixture.key(&field, Key::Down);
+    assert_eq!(field.text().as_deref(), Some("1"));
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    fixture.key(&field, Key::Down);
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    fixture.key(&field, Key::Enter);
+    assert!(shell.canvas.is_focused());
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+}
