@@ -30,6 +30,12 @@ pub enum PrototypeRuntimeEvent {
     ScrollTo(NodeId),
 }
 
+/// Keep the same framing policy for initial, instant and animated navigation.
+pub(crate) fn fit_preview_frame(viewport: &mut Viewport, bounds: ferrodesign_core::Rect) {
+    let gutter = (viewport.width.min(viewport.height) * 0.03).clamp(4.0, 32.0);
+    viewport.fit(bounds, gutter);
+}
+
 struct PresentationBefore {
     frame: Option<PrototypeFrame>,
     current: Option<NodeId>,
@@ -530,7 +536,7 @@ impl PrototypeRuntime {
         from_viewport.pan = from_viewport.pan + from.origin * from_viewport.zoom;
         let mut to_viewport = from_viewport;
         if fit_destination {
-            to_viewport.fit(to.bounds(), 65.0);
+            fit_preview_frame(&mut to_viewport, to.bounds());
         }
         let mut final_viewport = to_viewport;
         final_viewport.pan = final_viewport.pan - to.origin * final_viewport.zoom;

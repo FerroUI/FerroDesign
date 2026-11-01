@@ -1944,6 +1944,7 @@ impl VisualImpl for DesignCanvas {
     fn render(this: &Self, ctx: &mut DrawingContext) {
         let bounds = this.bounds();
         let mut v = this.viewport.get();
+        let resized = v.width != bounds.width || v.height != bounds.height;
         v.width = bounds.width;
         v.height = bounds.height;
         // The browser surface reports 1×1 until its first real resize. A
@@ -1959,15 +1960,17 @@ impl VisualImpl for DesignCanvas {
             Some(root) => std::slice::from_ref(root),
             None => doc.page(editor.active_page).map_or(&[][..], |page| page.children.as_slice()),
         };
-        let fitted = prototype_scene.is_none() && !this.initialized.replace(true);
+        let fitted = prototype_scene.is_none() && (!this.initialized.replace(true) || (resized && presentation_root.is_some()));
         if fitted {
             if let Some(bounds) = roots
                 .iter()
                 .filter_map(|&id| doc.world_bounds(id))
                 .reduce(|a, b| a.union(b))
             {
-                v.fit(bounds, 65.0);
-                if this.presentation.get().is_none() {
+                if presentation_root.is_some() {
+                    crate::prototype::fit_preview_frame(&mut v, bounds);
+                } else {
+                    v.fit(bounds, 65.0);
                     v.pan.y -= 22.0;
                 }
             }
@@ -2082,13 +2085,7 @@ impl VisualImpl for DesignCanvas {
                     ctx.pop(transform);
                 }
             }
-            label(
-                ctx,
-                "Esc to return to editor",
-                Point::new(20.0, v.height - 30.0),
-                11.0,
-                "#AAAAAA",
-            );
+
             return;
         }
         let blue = pen(0xFF0D99FF, 1.0);

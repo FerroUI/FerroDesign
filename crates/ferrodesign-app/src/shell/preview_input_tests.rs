@@ -46,6 +46,17 @@ fn phone_preview_controls_follow_navigation_overlays_and_restore_the_editing_ses
     assert_eq!(title.text().as_deref(), Some("Home"));
     let bar_y = bar.translate_point(ferroui_base::Point::default(), &fixture.window).unwrap().y;
     assert_eq!(canvas.bounds().height, bar_y);
+    let fit = shell.canvas.viewport.get();
+    assert!(fit.zoom * 180.0 >= fit.width - 24.0 && fit.zoom * 300.0 <= bar_y);
+    fixture.window.set_width(650.0);
+    fixture.window.set_height(320.0);
+    render();
+    let landscape = shell.canvas.viewport.get();
+    assert!(landscape.zoom * 300.0 < landscape.height && landscape.zoom * 300.0 >= landscape.height - 24.0);
+    fixture.window.set_width(320.0);
+    fixture.window.set_height(650.0);
+    render();
+    assert_eq!(shell.canvas.viewport.get(), fit);
     for button in [&back, &restart, &done] {
         assert!(button.bounds().width >= 44.0 && button.bounds().height >= 44.0);
     }

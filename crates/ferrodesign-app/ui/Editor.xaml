@@ -49,6 +49,10 @@
     <Style Selector="Button.scale-anchor.active">
       <Setter Property="Background" Value="#0C8CE9"/><Setter Property="Foreground" Value="White"/>
     </Style>
+    <Style Selector="Button.playback">
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.playback:disabled"><Setter Property="Opacity" Value="0.4"/></Style>
     <Style Selector="Button.tool">
       <Setter Property="Width" Value="38"/><Setter Property="Height" Value="38"/>
       <Setter Property="Padding" Value="9"/><Setter Property="CornerRadius" Value="8"/>
@@ -644,8 +648,11 @@
     </Border>
     <Border Name="PreviewControls" Grid.Row="1" Grid.ColumnSpan="4" IsVisible="False"
             Background="White" BorderBrush="#DADADA" BorderThickness="0,1,0,0" Padding="6,2">
+      <Border.Resources>
+        <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent"/>
+      </Border.Resources>
       <Grid ColumnDefinitions="44,*,44,Auto">
-        <Button Name="PreviewBack" Width="44" Height="44" Padding="10"
+        <Button Name="PreviewBack" Classes="playback" Width="44" Height="44" Padding="10"
                 AutomationProperties.Name="Go back in prototype" ToolTip.Tip="Go back in prototype">
           <Path Width="16" Height="16" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.6"
                 Data="M12,3 L4,11 L12,19 M4,11 H21"/>
@@ -654,12 +661,12 @@
           <TextBlock Text="Prototype preview" FontSize="10" Foreground="#626262"/>
           <TextBlock Name="PreviewFrameTitle" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
         </StackPanel>
-        <Button Name="PreviewRestart" Grid.Column="2" Width="44" Height="44" Padding="10"
+        <Button Name="PreviewRestart" Classes="playback" Grid.Column="2" Width="44" Height="44" Padding="10"
                 AutomationProperties.Name="Restart prototype" ToolTip.Tip="Restart prototype">
           <Path Width="16" Height="16" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.6"
                 Data="M4,11 A8,8 0 1 1 5,16 M4,4 V11 H11"/>
         </Button>
-        <Button Name="PreviewExit" Grid.Column="3" Height="44" MinWidth="56" Padding="10,4" Content="Done"
+        <Button Name="PreviewExit" Classes="playback" Grid.Column="3" Height="44" MinWidth="56" Padding="10,4" Content="Done"
                 FontWeight="SemiBold" AutomationProperties.Name="Return to editor" ToolTip.Tip="Return to editor"/>
       </Grid>
     </Border>
