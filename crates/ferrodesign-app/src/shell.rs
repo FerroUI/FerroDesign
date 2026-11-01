@@ -2034,7 +2034,7 @@ impl EditorShell {
                 return true;
             }
             "actions" => {
-                self.action_dialog("Actions", "Choose a tool or run a command.", ACTIONS);
+                self.quick_actions();
                 return true;
             }
             "close-modal" => {

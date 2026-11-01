@@ -69,6 +69,17 @@
       <Setter Property="Height" Value="29"/>
       <Setter Property="CornerRadius" Value="4"/>
     </Style>
+    <Style Selector="ScrollViewer.action-palette"><Setter Property="Height" Value="470"/></Style>
+    <Style Selector="Button.action-result">
+      <Setter Property="Height" Value="32"/><Setter Property="Padding" Value="5,3,10,3"/>
+    </Style>
+    <Style Selector="Border.action-marker">
+      <Setter Property="Width" Value="3"/><Setter Property="Height" Value="16"/>
+      <Setter Property="HorizontalAlignment" Value="Left"/><Setter Property="CornerRadius" Value="2"/>
+      <Setter Property="Background" Value="#087AC4"/><Setter Property="Opacity" Value="0"/>
+    </Style>
+    <Style Selector="Button.action-result.active Border.action-marker"><Setter Property="Opacity" Value="1"/></Style>
+    <Style Selector="Button.action-result.active TextBlock.action-caption"><Setter Property="Foreground" Value="#07558C"/></Style>
     <Style Selector="TextBox.layer-rename">
       <Setter Property="FontSize" Value="11"/><Setter Property="Padding" Value="5,0"/>
       <Setter Property="MinHeight" Value="0"/><Setter Property="Height" Value="26"/>
