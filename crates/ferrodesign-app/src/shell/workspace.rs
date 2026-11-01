@@ -83,6 +83,7 @@ impl EditorShell {
 
     pub(super) fn layout_workspace(&self) {
         let present = self.prototype.is_active();
+        self.visible("PreviewControls", present);
         let compact = self.compact.get();
         let panel = self.compact_panel.get();
         let layers = !present && (!compact || panel == CompactPanel::Layers);

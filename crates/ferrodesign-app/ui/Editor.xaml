@@ -133,7 +133,7 @@
     <Style Selector="Path.drawer-icon"><Setter Property="Stroke" Value="#555555"/></Style>
     <Style Selector="ToggleButton.drawer-toggle:checked Path.drawer-icon"><Setter Property="Stroke" Value="White"/></Style>
   </UserControl.Styles>
-  <Grid Name="Workspace" ColumnDefinitions="48,248,*,288">
+  <Grid Name="Workspace" RowDefinitions="*,Auto" ColumnDefinitions="48,248,*,288">
     <Grid Name="CanvasHost" Grid.Column="2" ClipToBounds="True">
       <Canvas Name="InlineTextHost" IsVisible="False">
         <TextBox Name="InlineTextBox" AcceptsReturn="True" TextWrapping="Wrap"
@@ -617,6 +617,27 @@
     </Border>
     <Border Name="Toast" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="16" Padding="16,10" Background="#252525" CornerRadius="8" IsVisible="False">
       <TextBlock Name="ToastText" Foreground="White"/>
+    </Border>
+    <Border Name="PreviewControls" Grid.Row="1" Grid.ColumnSpan="4" IsVisible="False"
+            Background="White" BorderBrush="#DADADA" BorderThickness="0,1,0,0" Padding="6,2">
+      <Grid ColumnDefinitions="44,*,44,Auto">
+        <Button Name="PreviewBack" Width="44" Height="44" Padding="10"
+                AutomationProperties.Name="Go back in prototype" ToolTip.Tip="Go back in prototype">
+          <Path Width="16" Height="16" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.6"
+                Data="M12,3 L4,11 L12,19 M4,11 H21"/>
+        </Button>
+        <StackPanel Grid.Column="1" Margin="6,0" VerticalAlignment="Center" IsHitTestVisible="False">
+          <TextBlock Text="Prototype preview" FontSize="10" Foreground="#626262"/>
+          <TextBlock Name="PreviewFrameTitle" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+        <Button Name="PreviewRestart" Grid.Column="2" Width="44" Height="44" Padding="10"
+                AutomationProperties.Name="Restart prototype" ToolTip.Tip="Restart prototype">
+          <Path Width="16" Height="16" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.6"
+                Data="M4,11 A8,8 0 1 1 5,16 M4,4 V11 H11"/>
+        </Button>
+        <Button Name="PreviewExit" Grid.Column="3" Height="44" MinWidth="56" Padding="10,4" Content="Done"
+                FontWeight="SemiBold" AutomationProperties.Name="Return to editor" ToolTip.Tip="Return to editor"/>
+      </Grid>
     </Border>
     <Border Name="ModalBackdrop" Grid.ColumnSpan="4" Background="#55000000" IsVisible="False">
       <Border Name="ModalPanel" Width="620" MaxHeight="660" Background="White" CornerRadius="12" Padding="24" HorizontalAlignment="Center" VerticalAlignment="Center" BoxShadow="0 12 48 0 #30000000">

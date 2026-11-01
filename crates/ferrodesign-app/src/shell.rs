@@ -446,6 +446,9 @@ impl EditorShell {
             ("HistoryRailButton", "history"),
             ("ThemeButton", "theme"),
             ("PresentButton", "present"),
+            ("PreviewBack", "prototype-back"),
+            ("PreviewRestart", "prototype-restart"),
+            ("PreviewExit", "prototype-exit"),
             ("ShareButton", "share"),
             ("TextTool", "text"),
             ("CommentTool", "comment"),
@@ -752,6 +755,7 @@ impl EditorShell {
             "RegionToolMenu", "ShapeToolMenu", "DrawingToolMenu",
             "PenTool",
             "TextTool",
+            "PreviewControls", "PreviewBack", "PreviewRestart", "PreviewExit", "PreviewFrameTitle",
             "MoveToolMenu", "ScaleFactorField", "ScaleWidthField", "ScaleHeightField",
             "CommentTool",
             "ActionsButton",
@@ -1872,7 +1876,7 @@ impl EditorShell {
         if self.prototype.is_active()
             && !matches!(
                 command,
-                "present" | "prototype-back" | "save" | "export-json"
+                "present" | "prototype-back" | "prototype-restart" | "prototype-exit" | "save" | "export-json"
             )
         {
             self.prototype.stop();
@@ -2211,8 +2215,12 @@ impl EditorShell {
                 return root.is_some();
             }
             "prototype-back" => {
-                return self.prototype.back();
+                let changed = self.prototype.back();
+                if changed { self.canvas.focus(); }
+                return changed;
             }
+            "prototype-restart" => return self.prototype.restart(),
+            "prototype-exit" => return self.prototype.stop(),
             "connect" => {
                 return self.connect_prototype();
             }
@@ -2843,17 +2851,30 @@ impl EditorShell {
             self.prototype.stop();
         }
     }
+    fn sync_preview_controls(&self) {
+        let editor = self.editor.borrow();
+        let name = self.prototype.visible_frame().and_then(|id| editor.document.nodes.get(&id))
+            .map(|node| node.name.as_str()).unwrap_or_default();
+        self.text("PreviewFrameTitle", name);
+        self.button("PreviewBack").set_is_enabled(self.prototype.can_go_back());
+    }
+
     fn prototype_event(self: &Rc<Self>, event: PrototypeRuntimeEvent) {
         match event {
             PrototypeRuntimeEvent::Started(_) | PrototypeRuntimeEvent::Stopped => {
                 let present = self.prototype.is_active();
                 self.layout_workspace();
-                if !present {
+                if present {
+                    self.sync_preview_controls();
+                } else {
                     self.refresh();
                 }
                 self.canvas.focus();
             }
-            PrototypeRuntimeEvent::Changed => self.canvas.invalidate_visual(),
+            PrototypeRuntimeEvent::Changed => {
+                self.sync_preview_controls();
+                self.canvas.invalidate_visual();
+            }
             PrototypeRuntimeEvent::OpenUrl(url) => {
                 if !platform::open_url(&url) {
                     self.toast("The link could not be opened by this host.");
