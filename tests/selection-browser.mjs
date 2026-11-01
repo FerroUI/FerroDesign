@@ -408,6 +408,8 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     check("Native shape shortcuts place a 100 × 100 ellipse, create a direction-preserving centered Shift-arrow, commit one undo record, and cancel a held drag atomically");
 
     await importFixture(page, isolatedDocument(reference, hierarchy, "Drag to duplicate"));
+    // Escape cancelled the preceding rectangle draft but kept its drawing tool active.
+    await clickNative(page, "SelectTool");
     await click({ x: 51, y: 155 }, [], [2]);
     const copyBase = await snapshot();
     await page.keyboard.down("Alt");

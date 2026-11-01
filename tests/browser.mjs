@@ -842,7 +842,17 @@ async function prototypeInputRegressions(page, reference, check) {
     await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.CompactProperties.visible);
     await clickNative(page, "CompactProperties");
     await clickNative(page, "PresentButton");
-    const showing = async id => page.waitForFunction(id => JSON.parse(globalThis.ferroDesign.ferroDesignState()).presentation === id, id);
+    // Restart and navigation publish the model before Vello paints the fitted
+    // camera. Coordinates derived from the outgoing frame can miss the canvas.
+    const showing = id => page.waitForFunction(({ id, frame }) => {
+        const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+        if (view.presentation !== id) return false;
+        if (!frame) return true;
+        const centerX = view.pan.x + (frame.x + frame.width / 2) * view.zoom;
+        const centerY = view.pan.y + (frame.y + frame.height / 2) * view.zoom;
+        return Math.abs(centerX - view.canvas.width / 2) < 1 &&
+            Math.abs(centerY - view.canvas.height / 2) < 1;
+    }, { id, frame: id === null ? null : fixture.nodes[id] });
     await showing(10);
     await frames(page);
     const playing = (await state(page)).chrome;
