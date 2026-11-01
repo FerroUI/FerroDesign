@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
+/// The authored layer dimension changed by a batch resize.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayerDimension { Width, Height }
+
 const RENDER_CHANGE_HISTORY: usize = 128;
 const RENDER_CHANGE_NODE_LIMIT: usize = 4096;
 const RENDER_CHANGE_RETAINED_IDS: usize = 16384;
@@ -1103,33 +1107,7 @@ impl Editor {
         {
             return;
         }
-        let resize = |e: &mut Self| {
-            if let Some(n) = e.document.nodes.get(&id) {
-                let (ow, oh) = (n.width, n.height);
-                let original_transform = n.local_transform();
-                if !e.document.nodes.get_mut(&id).unwrap().resize_vector_geometry(w.max(0.0), h.max(0.0)) {
-                    return;
-                }
-                e.document
-                    .apply_constraints(id, ow, oh, w.max(0.0), h.max(0.0));
-                if let Some(n) = e.document.nodes.get_mut(&id) {
-                    n.width = w.max(0.0);
-                    n.height = h.max(0.0);
-                    // Resizing preserves the transformed local origin, including
-                    // imported affine layers; dimensions change in local space.
-                    let resized_transform = n.local_transform();
-                    n.x += original_transform.e - resized_transform.e;
-                    n.y += original_transform.f - resized_transform.f;
-                }
-                e.document.layout_node(id);
-                if let Some(position) = position {
-                    if let Some(n) = e.document.nodes.get_mut(&id) {
-                        n.x = position.x;
-                        n.y = position.y;
-                    }
-                }
-            }
-        };
+        let resize = |editor: &mut Self| { editor.apply_resize(id, w.max(0.0), h.max(0.0), position); };
         // Only containers can propagate constraints to children. Keep ordinary leaf drags
         // on the node-scoped render journal, including their previews and undo records.
         if self.layout_node_count == 0 && self.document.nodes.get(&id).is_some_and(|n| n.children.is_empty()) {
@@ -1138,6 +1116,73 @@ impl Editor {
             self.edit("Resize layer", resize);
         }
     }
+    fn apply_resize(&mut self, id: NodeId, width: f64, height: f64, position: Option<Point>) -> bool {
+        let Some(node) = self.document.nodes.get_mut(&id) else { return false; };
+        let old_size = (node.width, node.height);
+        let original = node.local_transform();
+        if !node.resize_vector_geometry(width, height) { return false; }
+        self.document.apply_constraints(id, old_size.0, old_size.1, width, height);
+        let node = self.document.nodes.get_mut(&id).unwrap();
+        node.width = width;
+        node.height = height;
+        // Preserve the transformed local origin, including imported affine geometry.
+        let resized = node.local_transform();
+        node.x += original.e - resized.e;
+        node.y += original.f - resized.f;
+        self.document.layout_node(id);
+        if let Some(position) = position {
+            let node = self.document.nodes.get_mut(&id).unwrap();
+            node.x = position.x;
+            node.y = position.y;
+        }
+        true
+    }
+
+    /// Apply evaluated inspector dimensions in one undo step. Resize parents first
+    /// so a selected child's explicit result wins over inherited constraints.
+    pub fn set_layer_dimensions(
+        &mut self, dimension: LayerDimension, values: &BTreeMap<NodeId, f64>,
+    ) -> Result<(), DocumentError> {
+        if self.has_active_transaction() {
+            return Err(DocumentError::Invalid("Finish the active edit before resizing layers.".into()));
+        }
+        let mut ids = Vec::with_capacity(values.len());
+        for (&id, &value) in values {
+            if !(1.0..=1.0e7).contains(&value) {
+                return Err(DocumentError::Invalid("Layer dimensions must be between 1 and 10,000,000.".into()));
+            }
+            if !self.document.nodes.contains_key(&id) { return Err(DocumentError::MissingNode(id)); }
+            if !self.document.effective_locked(id) { ids.push(id); }
+        }
+        if ids.is_empty() { return Ok(()); }
+        if ids.iter().any(|id| !self.document.nodes[id].children.is_empty()) {
+            ids.sort_by_cached_key(|id| {
+                std::iter::successors(self.document.nodes.get(id), |node| {
+                    node.parent.and_then(|parent| self.document.nodes.get(&parent))
+                }).take(MAX_DOCUMENT_DEPTH).count()
+            });
+            self.begin_transaction("Resize layers");
+        } else {
+            self.begin_node_transaction(&ids, "Resize layers");
+        }
+        for id in ids {
+            let node = &self.document.nodes[&id];
+            let value = values[&id];
+            let (width, height, binding) = match dimension {
+                LayerDimension::Width => (value, node.height, "width"),
+                LayerDimension::Height => (node.width, value, "height"),
+            };
+            if width == node.width && height == node.height { continue; }
+            if !self.apply_resize(id, width, height, None) {
+                self.cancel_transaction();
+                return Err(DocumentError::Invalid("The new size would exceed the limits of the vector geometry.".into()));
+            }
+            self.document.nodes.get_mut(&id).unwrap().variable_bindings.remove(binding);
+        }
+        self.commit_transaction();
+        Ok(())
+    }
+
     pub fn rotate_selection(&mut self, degrees: f64) {
         if !degrees.is_finite() {
             return;
