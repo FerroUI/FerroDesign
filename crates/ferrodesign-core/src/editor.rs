@@ -1147,7 +1147,7 @@ impl Editor {
             return Err(DocumentError::Invalid("Finish the active edit before resizing layers.".into()));
         }
         let binding = match dimension { LayerDimension::Width => "width", LayerDimension::Height => "height" };
-        let mut bound_overrides = Vec::new();
+        let mut overrides = Vec::new();
         let mut ids = Vec::with_capacity(values.len());
         for (&id, &value) in values {
             if !(1.0..=1.0e7).contains(&value) {
@@ -1156,7 +1156,9 @@ impl Editor {
             let node = self.document.nodes.get(&id).ok_or(DocumentError::MissingNode(id))?;
             if self.document.effective_locked(id) { continue; }
             let original = match dimension { LayerDimension::Width => node.width, LayerDimension::Height => node.height };
-            if original != value && node.variable_bindings.contains_key(binding) { bound_overrides.push(id); }
+            if original != value && (node.variable_bindings.contains_key(binding) || node.component_source.is_some()) {
+                overrides.push(id);
+            }
             ids.push(id);
         }
         if ids.is_empty() { return Ok(()); }
@@ -1183,7 +1185,11 @@ impl Editor {
                 return Err(DocumentError::Invalid("The new size would exceed the limits of the vector geometry.".into()));
             }
         }
-        for id in bound_overrides { self.document.nodes.get_mut(&id).unwrap().variable_bindings.remove(binding); }
+        for id in overrides {
+            let node = self.document.nodes.get_mut(&id).unwrap();
+            node.variable_bindings.remove(binding);
+            if node.component_source.is_some() { node.overridden_properties.insert(binding.into()); }
+        }
         self.commit_transaction();
         Ok(())
     }
@@ -2445,6 +2451,35 @@ mod render_change_tests {
         assert_eq!(editor.history_len(), 1);
         assert!(editor.undo());
         assert_eq!(editor.document.to_json().unwrap(), before);
+    }
+
+    #[test]
+    fn batch_layer_dimensions_follow_component_path_edits_at_the_overridden_size() {
+        let mut doc = Document::new("Instance width");
+        let master = doc.insert_node(1, Node::new(NodeKind::Component, "Icon", 0.0, 0.0, 100.0, 60.0)).unwrap();
+        let mut part = Node::new(NodeKind::Vector, "Mark", 4.0, 5.0, 100.0, 20.0);
+        part.rotation = 30.0;
+        part.path.segments = vec![PathSegment::MoveTo { point: Point::default() },
+            PathSegment::LineTo { point: Point::new(100.0, 20.0) }];
+        doc.variables.insert(900, Variable { id: 900, name: "Width".into(), collection: "Sizing".into(),
+            values: BTreeMap::from([("Default".into(), VariableValue::Number(100.0))]) });
+        doc.next_id = 901;
+        part.variable_bindings.insert("width".into(), 900);
+        let source = doc.insert_node(master, part).unwrap();
+        let mut editor = Editor::new(doc);
+        let instance = editor.create_instance(master, 140.0, 50.0).unwrap();
+        let child = editor.document.nodes[&instance].children[0];
+        let origin = editor.document.nodes[&child].local_transform().apply(Point::default());
+        editor.set_layer_dimensions(LayerDimension::Width, &BTreeMap::from([(child, 200.0)])).unwrap();
+        editor.update_node(source, "Revise source path", |n| {
+            n.path.segments[1] = PathSegment::LineTo { point: Point::new(40.0, 15.0) };
+        });
+        editor.sync_instances(master);
+        let child = &editor.document.nodes[&child];
+        assert_eq!(child.width, 200.0);
+        assert!(!child.variable_bindings.contains_key("width"));
+        assert_eq!(child.path.segments[1], PathSegment::LineTo { point: Point::new(80.0, 15.0) });
+        assert!(child.local_transform().apply(Point::default()).distance(origin) < 1e-8);
     }
 
     #[test]

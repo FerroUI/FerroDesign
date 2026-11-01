@@ -350,7 +350,7 @@ fn preserve_variable_binding(node: &mut Node, old: &Node, property: &str) {
     }
 }
 
-fn preserve_overrides(node: &mut Node, old: &Node) {
+fn preserve_overrides(node: &mut Node, old: &Node) -> Result<(), DocumentError> {
     node.overridden_properties = old.overridden_properties.clone();
     for property in &old.overridden_properties {
         match property.as_str() {
@@ -390,8 +390,7 @@ fn preserve_overrides(node: &mut Node, old: &Node) {
             "blend_mode" => node.blend_mode = old.blend_mode,
             "is_mask" => node.is_mask = old.is_mask,
             "mask_type" => node.mask_type = old.mask_type,
-            "width" => node.width = old.width,
-            "height" => node.height = old.height,
+            "width" | "height" => preserve_variable_binding(node, old, property),
             "position" => { node.x = old.x; node.y = old.y; }
             "rotation" => node.rotation = old.rotation,
             "flip_x" => node.flip_x = old.flip_x,
@@ -427,6 +426,30 @@ fn preserve_overrides(node: &mut Node, old: &Node) {
             _ => {}
         }
     }
+    let width_override = old.overridden_properties.contains("width");
+    let height_override = old.overridden_properties.contains("height");
+    if width_override || height_override {
+        let original = node.local_transform();
+        let width = if width_override { old.width } else { node.width };
+        let height = if height_override { old.height } else { node.height };
+        // An explicitly overridden path was copied from the old instance.
+        // Otherwise resize the new master geometry, retaining later source edits.
+        if old.overridden_properties.contains("path") {
+            node.width = old.width;
+            node.height = old.height;
+        }
+        if !node.resize_vector_geometry(width, height) {
+            return Err(invalid("The instance size override would exceed the limits of its vector geometry."));
+        }
+        node.width = width;
+        node.height = height;
+        if !old.overridden_properties.contains("position") {
+            let resized = node.local_transform();
+            node.x += original.e - resized.e;
+            node.y += original.f - resized.f;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -567,7 +590,7 @@ impl<'a> InstancePlan<'a> {
             node.component_id = if let Some(swapped) = swapped { Some(swapped.id) } else { Some(source) };
         }
         if let Some(old) = old {
-            preserve_overrides(&mut node, old);
+            preserve_overrides(&mut node, old)?;
             if root {
                 node.kind = NodeKind::Instance;
                 node.component_id = Some(source);

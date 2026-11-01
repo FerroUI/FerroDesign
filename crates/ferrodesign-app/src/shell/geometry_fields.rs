@@ -49,7 +49,16 @@ impl GeometryField {
             }
         };
         let ids: Vec<_> = values.keys().copied().collect();
-        editor.update_nodes_with_layout(&ids, "Edit geometry", |node| set(node, values[&node.id]));
+        editor.update_nodes_with_layout(&ids, "Edit geometry", |node| {
+            let value = values[&node.id];
+            if value != self.read(node) {
+                set(node, value);
+                if node.component_source.is_some() {
+                    let key = if matches!(self, Self::Rotation) { "rotation" } else { "position" };
+                    node.overridden_properties.insert(key.into());
+                }
+            }
+        });
         Ok(true)
     }
 }
