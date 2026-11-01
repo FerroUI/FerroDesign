@@ -128,9 +128,12 @@ impl EditorShell {
 
     pub(super) fn wire_action_dialog(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
-        self.button("CloseModalButton").add_handler(InputElement::key_down_event(), move |_, event| {
+        self.control::<Border>("ModalPanel").add_handler(InputElement::key_down_event(), move |_, event| {
             if event.key != Key::Escape || !event.key_modifiers.is_empty() { return; }
-            if let Some(shell) = weak.upgrade().filter(|s| s.control::<Border>("DialogSearchHost").is_visible()) {
+            if let Some(shell) = weak.upgrade() {
+                let panel = shell.control::<Border>("ModalPanel");
+                if !panel.classes().contains("keyboard-dialog") || panel.get_visual_descendants()
+                    .filter_map(|v| v.cast::<TextBox>()).any(|f| f.is_focused() && f.is_composing_text()) { return; }
                 shell.close_modal();
                 event.set_handled(true);
             }
@@ -142,8 +145,8 @@ impl EditorShell {
         if host.is_visible() {
             host.set_is_visible(false);
             host.set_child(None);
-            self.control::<Border>("ModalPanel").classes().remove("action-dialog");
         }
+        self.control::<Border>("ModalPanel").classes().remove("keyboard-dialog");
     }
 
     pub(super) fn action_dialog(
@@ -154,7 +157,7 @@ impl EditorShell {
     ) {
         if !self.flush_inspector_drafts() { return; }
         self.modal(title, description);
-        self.control::<Border>("ModalPanel").classes().add("action-dialog");
+        self.control::<Border>("ModalPanel").classes().add("keyboard-dialog");
         let host = self.control::<StackPanel>("ModalContent");
         let search = TextBox::new();
         search.set_name(Some("ActionSearch".into()));

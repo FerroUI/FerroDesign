@@ -14,6 +14,7 @@ mod components;
 mod layout;
 mod layer_projection;
 mod layer_rename;
+mod bulk_rename;
 mod pages;
 mod prototyping;
 mod playback;
@@ -1834,6 +1835,7 @@ impl EditorShell {
                 search.select_all();
                 return true;
             }
+            "rename-layer" if self.editor.borrow().selection.len() > 1 => return self.bulk_rename_dialog(),
             "reveal-layer" | "rename-layer" => return self.reveal_selected_layer(command == "rename-layer"),
             "select-matching" => { self.select_matching_dialog(); return true; }
             "select-same-properties" => return self.select_same(core::SelectionMatch::Appearance),

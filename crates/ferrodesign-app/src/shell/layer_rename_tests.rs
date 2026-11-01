@@ -119,3 +119,160 @@ fn layer_rename_preserves_an_unrelated_edit_and_ignores_a_replacement_document()
     assert_eq!(shell.editor.borrow().document.nodes[&fixture.id].name, "Approved name");
     assert_eq!(shell.editor.borrow().history_len(), 0);
 }
+
+struct BatchFixture {
+    ui: Fixture,
+    bottom: NodeId,
+    frame: NodeId,
+    child: NodeId,
+    locked_child: NodeId,
+}
+
+impl BatchFixture {
+    fn new() -> Self {
+        let ui = Fixture::new(false);
+        let bottom = ui.id;
+        let (frame, child, locked_child) = {
+            let mut e = ui.shell.editor.borrow_mut();
+            let page = e.active_page;
+            e.document.nodes.get_mut(&bottom).unwrap().name = "Å12–底".into();
+            let node = |kind, name| Node::new(kind, name, 0.0, 0.0, 100.0, 80.0);
+            let frame = e.document.insert_node(page, node(NodeKind::Frame, "Frame–Ω9✨")).unwrap();
+            let child = e.document.insert_node(frame, node(NodeKind::Rectangle, "Button–λ2")).unwrap();
+            let mut locked = node(NodeKind::Frame, "Locked");
+            locked.locked = true;
+            let locked = e.document.insert_node(page, locked).unwrap();
+            let locked_child = e.document.insert_node(locked, node(NodeKind::Rectangle, "Child–Z8")).unwrap();
+            // Selection order deliberately differs from tree order. The parent lock
+            // must protect the child, even when the parent itself is not selected.
+            e.selection = vec![child, locked_child, bottom, frame];
+            e.refresh();
+            (frame, child, locked_child)
+        };
+        ui.shell.refresh();
+        Self { ui, bottom, frame, child, locked_child }
+    }
+
+    fn control<T: ObjectType>(&self, name: &str) -> Ref<T> {
+        self.ui.shell.root.get_visual_descendants().find_map(|v| {
+            v.cast::<Control>().filter(|c| c.name().as_deref() == Some(name))?.cast::<T>()
+        }).unwrap_or_else(|| panic!("Missing native rename control {name}"))
+    }
+
+    fn open(&self) -> Ref<TextBox> {
+        use ferroui_base::input::PhysicalKey;
+        assert!(self.ui.shell.canvas.focus());
+        self.ui.window.key_press(Key::F2, RawInputModifiers::NONE, PhysicalKey::F2, None);
+        self.ui.window.key_release(Key::F2, RawInputModifiers::NONE, PhysicalKey::F2, None);
+        let replace = self.control::<TextBox>("RenameReplacement");
+        assert!(replace.is_focused());
+        assert_eq!(replace.selected_text(), "$&");
+        replace
+    }
+}
+
+#[test]
+fn bulk_rename_native_f2_previews_unicode_captures_and_numbers_layers_in_tree_order() {
+    let f = BatchFixture::new();
+    let shell = &f.ui.shell;
+    let before = f.ui.json();
+    let selection = shell.editor.borrow().selection.clone();
+    let replace = f.open();
+    f.control::<TextBox>("RenameMatch").set_text(Some(r"(\p{L})([0-9]+)"));
+    f.control::<TextBox>("RenameStart").set_text(Some("9"));
+    replace.set_text(Some("$2-$1-$$-$nn-$NN-$&"));
+    Dispatcher::ui_thread().run_jobs(None);
+    let preview = f.control::<TextBlock>("RenamePreview").text().unwrap();
+    assert_eq!(preview, "3 of 3 names will change\nFrame–Ω9✨  →  Frame–9-Ω-$-09-11-Ω9✨\nButton–λ2  →  Button–2-λ-$-10-10-λ2\nÅ12–底  →  12-Å-$-11-09-Å12–底");
+    assert_eq!(f.ui.json(), before);
+    assert!(f.control::<Button>("RenameApply").is_enabled());
+    // Replace the plan and immediately press Enter, before deferred TextChanged.
+    replace.set_text(Some("$2.$1.$nn/$NN"));
+    f.ui.key(&replace, Key::Enter);
+    let after = f.ui.json();
+    {
+        let e = shell.editor.borrow();
+        assert_eq!(e.document.nodes[&f.frame].name, "Frame–9.Ω.09/11✨");
+        assert_eq!(e.document.nodes[&f.child].name, "Button–2.λ.10/10");
+        assert_eq!(e.document.nodes[&f.bottom].name, "12.Å.11/09–底");
+        assert_eq!(e.document.nodes[&f.locked_child].name, "Child–Z8");
+        assert_eq!(e.selection, selection);
+        assert_eq!(e.history_len(), 1);
+    }
+    assert!(shell.canvas.is_focused());
+    assert!(shell.command("undo"));
+    assert_eq!(f.ui.json(), before);
+    assert!(shell.command("redo"));
+    assert_eq!(f.ui.json(), after);
+}
+
+#[test]
+fn bulk_rename_native_no_op_invalid_and_escape_preserve_the_document_and_redo() {
+    let f = BatchFixture::new();
+    let shell = &f.ui.shell;
+    let before = f.ui.json();
+    let replace = f.open();
+    replace.set_text(Some("Temp $n"));
+    f.ui.key(&replace, Key::Enter);
+    let after = f.ui.json();
+    assert!(shell.command("undo"));
+    let replace = f.open();
+    let preview = f.control::<TextBlock>("RenamePreview");
+    let apply = f.control::<Button>("RenameApply");
+    let find = f.control::<TextBox>("RenameMatch");
+    let start = f.control::<TextBox>("RenameStart");
+    for (pattern, template, base, message) in [
+        ("", "$&", "1", "No names would change."),
+        ("^absent$", "Title", "1", "No names would change."),
+        ("[", "Title", "1", "Invalid match."),
+        ("", "Title", "-1", "nonnegative starting number"),
+        ("", "  ", "1", "empty name"),
+    ] {
+        find.set_text(Some(pattern));
+        replace.set_text(Some(template));
+        start.set_text(Some(base));
+        f.ui.key(&replace, Key::Enter);
+        Dispatcher::ui_thread().run_jobs(None);
+        assert!(!apply.is_enabled());
+        assert!(preview.text().unwrap().contains(message));
+        assert!(shell.control::<Border>("ModalBackdrop").is_visible());
+        assert_eq!(shell.editor.borrow().history_len(), 0);
+        assert_eq!(f.ui.json(), before);
+    }
+    replace.set_text(Some("Do not apply $n"));
+    f.ui.key(&replace, Key::Escape);
+    assert!(shell.canvas.is_focused());
+    assert_eq!(f.ui.json(), before);
+    assert!(shell.command("redo"));
+    assert_eq!(f.ui.json(), after);
+}
+
+#[test]
+fn bulk_rename_stale_targets_never_replace_new_names_selection_or_documents() {
+    let f = BatchFixture::new();
+    let shell = &f.ui.shell;
+    let replace = f.open();
+    replace.set_text(Some("Stale $n"));
+    shell.editor.borrow_mut().update_node(f.frame, "External rename", |n| n.name = "New name".into());
+    let external = f.ui.json();
+    f.ui.key(&replace, Key::Enter);
+    assert_eq!(f.ui.json(), external);
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+
+    let replace = f.open();
+    replace.set_text(Some("Wrong targets $n"));
+    shell.editor.borrow_mut().selection = vec![f.child, f.bottom];
+    f.ui.key(&replace, Key::Enter);
+    assert_eq!(f.ui.json(), external);
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+
+    let replace = f.open();
+    replace.set_text(Some("Wrong file $n"));
+    let doc = shell.editor.borrow().document.clone();
+    let mut replacement = Editor::new(doc);
+    replacement.selection = vec![f.child, f.bottom];
+    *shell.editor.borrow_mut() = replacement;
+    f.ui.key(&replace, Key::Enter);
+    assert_eq!(f.ui.json(), external);
+    assert_eq!(shell.editor.borrow().history_len(), 0);
+}

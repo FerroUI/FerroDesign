@@ -633,6 +633,7 @@ dependencies = [
  "ferroui-vello",
  "ferroui-win32",
  "ferroui-x11",
+ "regex",
  "serde_json",
  "wasm-bindgen",
  "zip",
