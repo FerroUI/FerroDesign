@@ -848,12 +848,16 @@ async function prototypeInputRegressions(page, reference, check) {
     const playing = (await state(page)).chrome;
     assert.equal(playing.PreviewBack.enabled, false);
     assert.ok(playing.CanvasHost.y + playing.CanvasHost.height <= playing.PreviewControls.y);
-    for (const name of ["PreviewBack", "PreviewRestart", "PreviewExit"]) {
+    for (const name of ["PreviewBack", "PreviewNext", "PreviewRestart", "PreviewExit"]) {
         assert.ok(playing[name].width >= 44 && playing[name].height >= 44, name + " has a phone-sized target");
     }
     await moveWorld(page, 100, 90);
     await showing(20);
     await clickNative(page, "PreviewBack");
+    await showing(10);
+    await clickNative(page, "PreviewNext");
+    await showing(20);
+    await page.keyboard.press("r");
     await showing(10);
     await moveWorld(page, 100, 90);
     await showing(20);

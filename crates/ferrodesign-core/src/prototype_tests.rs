@@ -1064,3 +1064,53 @@ fn prototype_authoring_rules_roundtrip_with_one_undo_step_per_transaction() {
         [key_rule, timed_rule]
     );
 }
+
+#[test]
+fn viewer_steps_skip_hidden_unconnected_and_overlay_frames_and_revisit_actual_history() {
+    let (mut document, a, b, overlay, button) = fixture();
+    let page = document.pages[0].id;
+    let orphan = document.insert_node(page, Node::new(NodeKind::Frame, "Unused", 50.0, 0.0, 20.0, 20.0)).unwrap();
+    document.nodes.get_mut(&button).unwrap().interactions = vec![
+        interaction(Trigger::Click, PrototypeAction::NavigateTo { target: b }),
+        Interaction { key: Some("R".into()), ..interaction(Trigger::Key, PrototypeAction::OpenOverlay { target: overlay, position: Point::default() }) },
+    ];
+    let mut player = PrototypePlayer::default();
+    assert!(player.start_at(&document, a));
+    assert!(!player.can_step(&document, false));
+    document.nodes.get_mut(&button).unwrap().visible = false;
+    assert!(!player.can_step(&document, true));
+    assert!(player.key_sources(&document, "r").is_empty());
+    document.nodes.get_mut(&button).unwrap().visible = true;
+    assert_eq!(player.key_sources(&document, "r"), [button]);
+    assert!(player.trigger_key(&mut document, button, "R"));
+    assert!(player.key_sources(&document, "r").is_empty());
+    assert!(!player.can_step(&document, true));
+    assert!(player.step(&mut document, false));
+    assert_eq!(player.interaction_root(), Some(a));
+    assert!(player.step(&mut document, true));
+    assert_eq!(player.current, Some(b));
+    assert!(!player.can_step(&document, true));
+    assert!(player.step(&mut document, false));
+    document.nodes.get_mut(&button).unwrap().visible = false;
+    assert!(player.step(&mut document, true), "Forward revisits actual history before evaluating links");
+    assert_eq!(player.current, Some(b));
+
+    document.pages[0].prototype_start = None;
+    document.nodes.get_mut(&button).unwrap().visible = true;
+    assert!(player.start_at(&document, a));
+    assert!(player.step(&mut document, true));
+    assert_eq!(player.current, Some(b), "Skip unconnected frame between connected boards");
+
+    document.nodes.get_mut(&button).unwrap().interactions.clear();
+    document.nodes.get_mut(&b).unwrap().visible = false;
+    document.nodes.get_mut(&a).unwrap().x = 50.0;
+    document.nodes.get_mut(&a).unwrap().y = 30.0;
+    assert!(player.start_at(&document, a));
+    assert!(player.step(&mut document, false));
+    assert_eq!(player.current, Some(orphan), "Equal x uses y, independent of layer order");
+    assert!(player.step(&mut document, true));
+    assert_eq!(player.current, Some(a));
+    assert!(player.step(&mut document, true));
+    assert_eq!(player.current, Some(overlay), "Hidden frames are skipped");
+    assert!(!player.step(&mut document, true));
+}

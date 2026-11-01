@@ -36,7 +36,7 @@ impl EditorShell {
         self.root.add_handler_with(InputElement::key_down_event(), move |_, event| {
             if event.key != Key::Escape || !event.key_modifiers.is_empty() { return; }
             let Some(shell) = weak.upgrade() else { return; };
-            if shell.compact_panel.get() == CompactPanel::Canvas
+            if shell.prototype.is_active() || shell.compact_panel.get() == CompactPanel::Canvas
                 || shell.control::<Border>("ModalBackdrop").is_visible() { return; }
             // Give text and popup controls their own Escape. Canvas shortcuts
             // must not clear the selection underneath an open drawer.

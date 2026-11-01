@@ -1,5 +1,6 @@
 //! The native playback bar must stay outside the authored hit surface, including on phones.
 use super::*;
+use ferroui_base::input::PhysicalKey;
 
 #[test]
 fn phone_preview_controls_follow_navigation_overlays_and_restore_the_editing_session() {
@@ -32,6 +33,7 @@ fn phone_preview_controls_follow_navigation_overlays_and_restore_the_editing_ses
     let camera = shell.canvas.viewport.get();
     let authored = fixture.json();
     let back = shell.button("PreviewBack");
+    let next = shell.button("PreviewNext");
     let restart = shell.button("PreviewRestart");
     let done = shell.button("PreviewExit");
     let canvas = shell.control::<Grid>("CanvasHost");
@@ -57,16 +59,37 @@ fn phone_preview_controls_follow_navigation_overlays_and_restore_the_editing_ses
     fixture.window.set_height(650.0);
     render();
     assert_eq!(shell.canvas.viewport.get(), fit);
-    for button in [&back, &restart, &done] {
+    for button in [&back, &next, &restart, &done] {
         assert!(button.bounds().width >= 44.0 && button.bounds().height >= 44.0);
     }
 
+    let key = |key, physical, modifiers| {
+        fixture.window.key_press(key, modifiers, physical, None);
+        fixture.window.key_release(key, modifiers, physical, None);
+        render();
+    };
+    let plain = RawInputModifiers::NONE;
+    key(Key::Tab, PhysicalKey::Tab, plain);
+    assert!(next.is_focused(), "Tab skips the unavailable previous screen");
+    key(Key::Tab, PhysicalKey::Tab, plain);
+    assert!(restart.is_focused());
+    key(Key::Tab, PhysicalKey::Tab, RawInputModifiers::SHIFT);
+    assert!(next.is_focused());
+    key(Key::Enter, PhysicalKey::Enter, plain);
+    assert_eq!(title.text().as_deref(), Some("Review order"));
+    key(Key::Left, PhysicalKey::ArrowLeft, plain);
+    assert_eq!(title.text().as_deref(), Some("Home"));
+    key(Key::Right, PhysicalKey::ArrowRight, plain);
+    assert_eq!(title.text().as_deref(), Some("Review order"));
+    key(Key::R, PhysicalKey::R, plain);
+    assert_eq!(title.text().as_deref(), Some("Home"));
     assert!(shell.prototype.dispatch(home, core::Trigger::Click));
     assert!(shell.prototype.dispatch(review, core::Trigger::Click));
     render();
     assert_eq!(title.text().as_deref(), Some("Confirmation"));
     assert!(back.is_enabled());
-    click(&back);
+    assert!(!next.is_enabled(), "An overlay owns the input surface");
+    key(Key::Escape, PhysicalKey::Escape, plain);
     assert_eq!(title.text().as_deref(), Some("Review order"));
     click(&back);
     assert_eq!(title.text().as_deref(), Some("Home"));

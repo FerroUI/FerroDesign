@@ -109,9 +109,12 @@ impl PrototypeRuntime {
         root.is_some_and(|root| self.start(root))
     }
 
-    pub fn can_go_back(&self) -> bool {
-        let player = self.player.borrow();
-        !player.overlays.is_empty() || !player.history.is_empty()
+    pub fn can_step(&self, forward: bool) -> bool {
+        self.player.borrow().can_step(&self.editor.borrow().document, forward)
+    }
+
+    pub fn has_overlay(&self) -> bool {
+        !self.player.borrow().overlays.is_empty()
     }
 
     pub fn visible_frame(&self) -> Option<NodeId> {
@@ -249,15 +252,15 @@ impl PrototypeRuntime {
         true
     }
 
-    pub fn back(self: &Rc<Self>) -> bool {
-        if !self.is_active() {
+    pub fn step(self: &Rc<Self>, forward: bool) -> bool {
+        if !self.can_step(forward) {
             return false;
         }
         let previous = self.before_action();
         let changed = self
             .player
             .borrow_mut()
-            .back(&self.editor.borrow().document);
+            .step(&mut self.editor.borrow_mut().document, forward);
         if changed {
             self.after_action(previous);
         }
@@ -390,19 +393,14 @@ impl PrototypeRuntime {
         if !self.is_active() {
             return false;
         }
+        let matches = self.player.borrow().key_sources(&self.editor.borrow().document, key);
+        // Viewer shortcuts and typing unassigned keys need no transition snapshot.
+        if matches.is_empty() { return false }
         let previous = self.before_action();
         let changed = {
             let mut editor = self.editor.borrow_mut();
             let mut player = self.player.borrow_mut();
-            let Some(root) = player.interaction_root() else {
-                return false;
-            };
-            editor
-                .document
-                .descendants(root)
-                .into_iter()
-                .rev()
-                .any(|node| player.trigger_key(&mut editor.document, node, key))
+            matches.into_iter().any(|node| player.trigger_key(&mut editor.document, node, key))
         };
         if changed {
             self.after_action(previous);

@@ -13,6 +13,11 @@ pub use animation::*;
 mod scroll;
 pub use scroll::*;
 
+#[path = "prototype_navigation.rs"]
+mod navigation;
+use navigation::FrameOrder;
+use std::sync::Arc;
+
 const MAX_PROTOTYPE_HISTORY: usize = 1000;
 const MAX_PROTOTYPE_OVERLAYS: usize = 64;
 
@@ -48,6 +53,8 @@ pub struct PrototypePlayer {
     pub current: Option<NodeId>,
     pub overlays: Vec<(NodeId, Point)>,
     pub history: Vec<NodeId>,
+    forward: Vec<NodeId>,
+    frame_order: Arc<FrameOrder>,
     pub last_transition: Transition,
     pub last_action: Option<PrototypeAction>,
     pub pending_url: Option<String>,
@@ -83,6 +90,7 @@ impl PrototypePlayer {
             return false;
         }
         self.stop();
+        self.frame_order = Arc::new(FrameOrder::new(document));
         self.current = Some(root);
         self.reconcile_activations();
         true
@@ -92,6 +100,8 @@ impl PrototypePlayer {
         self.current = None;
         self.overlays.clear();
         self.history.clear();
+        self.forward.clear();
+        self.frame_order = Arc::default();
         self.last_transition = Transition::default();
         self.last_action = None;
         self.pending_url = None;
@@ -180,6 +190,17 @@ impl PrototypePlayer {
         true
     }
 
+    /// Possible sources, frontmost first. Visibility and modal scope can change
+    /// during playback, but authored key bindings and paint order are stable.
+    pub fn key_sources(&self, document: &Document, key: &str) -> Vec<NodeId> {
+        let Some(key) = normalize_prototype_key(key) else { return Vec::new() };
+        let Some(sources) = self.frame_order.keys.get(&key) else { return Vec::new() };
+        let Some(root) = self.interaction_root() else { return Vec::new() };
+        sources.iter().rev().copied().filter(|id|
+            is_within(document, *id, root) && document.effective_visible(*id)
+        ).collect()
+    }
+
     pub fn trigger_key(&mut self, document: &mut Document, node: NodeId, key: &str) -> bool {
         let Some(key) = normalize_prototype_key(key) else {
             return false;
@@ -251,6 +272,8 @@ impl PrototypePlayer {
             current: self.current,
             overlays: self.overlays.clone(),
             history: self.history.clone(),
+            forward: self.forward.clone(),
+            frame_order: self.frame_order.clone(),
             last_transition: self.last_transition.clone(),
             last_action: self.last_action.clone(),
             pending_url: self.pending_url.clone(),
@@ -338,6 +361,61 @@ impl PrototypePlayer {
         self.execute(document, interaction)
     }
 
+    /// The previous/next controls first follow the actual path through the flow.
+    /// With no authored flow start, a viewer may also browse boards in canvas order.
+    pub fn can_step(&self, document: &Document, forward: bool) -> bool {
+        if !self.overlays.is_empty() {
+            return !forward;
+        }
+        self.step_target(document, forward).is_some()
+    }
+
+    fn step_target(&self, document: &Document, forward: bool) -> Option<NodeId> {
+        let stack = if forward { &self.forward } else { &self.history };
+        stack.iter().rev().copied().find(|id| document.effective_visible(*id))
+            .or_else(|| self.frame_order.adjacent(document, self, forward))
+    }
+
+    pub fn step(&mut self, document: &mut Document, forward: bool) -> bool {
+        if !self.overlays.is_empty() {
+            if forward { return false }
+            self.transients.clear();
+            return self.back(document);
+        }
+        let Some(target) = self.step_target(document, forward) else { return false };
+        let stack = if forward { &mut self.forward } else { &mut self.history };
+        if let Some(index) = stack.iter().rposition(|id| *id == target) {
+            stack.truncate(index);
+        }
+        if let Some(current) = self.current {
+            let opposite = if forward { &mut self.history } else { &mut self.forward };
+            Self::remember(opposite, current);
+        }
+        self.enter_frame(document, target);
+        self.last_action = Some(PrototypeAction::NavigateTo { target });
+        self.last_transition = Transition { kind: TransitionKind::Instant, ..Default::default() };
+        self.transients.clear();
+        true
+    }
+
+    fn remember(stack: &mut Vec<NodeId>, id: NodeId) {
+        stack.push(id);
+        if stack.len() > MAX_PROTOTYPE_HISTORY {
+            stack.remove(0);
+        }
+    }
+
+    fn enter_frame(&mut self, document: &mut Document, target: NodeId) {
+        self.current = Some(target);
+        self.scroll.reset_subtree(document, target);
+        self.overlays.clear();
+        self.activations.clear();
+        self.fired_timers.clear();
+        self.pending_url = None;
+        self.scroll_target = None;
+        self.reconcile_activations();
+    }
+
     pub fn back(&mut self, document: &Document) -> bool {
         if self.overlays.pop().is_some() {
             self.reconcile_activations();
@@ -355,6 +433,9 @@ impl PrototypePlayer {
         };
         let previous = self.history[index];
         self.history.truncate(index);
+        if let Some(current) = self.current {
+            Self::remember(&mut self.forward, current);
+        }
         self.current = Some(previous);
         self.pending_url = None;
         self.scroll_target = None;
@@ -374,19 +455,10 @@ impl PrototypePlayer {
                     return false;
                 }
                 if let Some(current) = self.current.filter(|current| *current != target) {
-                    self.history.push(current);
-                    if self.history.len() > MAX_PROTOTYPE_HISTORY {
-                        self.history.remove(0);
-                    }
+                    Self::remember(&mut self.history, current);
+                    self.forward.clear();
                 }
-                self.current = Some(target);
-                self.scroll.reset_subtree(document, target);
-                self.overlays.clear();
-                self.activations.clear();
-                self.fired_timers.clear();
-                self.pending_url = None;
-                self.scroll_target = None;
-                self.reconcile_activations();
+                self.enter_frame(document, target);
             }
             PrototypeAction::OpenOverlay { target, position } => {
                 if !document.nodes.contains_key(&target)
