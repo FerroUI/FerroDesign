@@ -37,6 +37,8 @@ Click with a shape tool to place its default size, or drag to set its bounds. Ho
 
 With a selection on the canvas, hold **Alt/Option** and hover another layer to measure horizontal and vertical gaps. Hover the selected layer to measure its four insets inside its parent. **Ctrl/Cmd+Alt/Option** reaches nested artwork when group selection is enabled. Measurements use transformed layer bounds in document units and disappear when you release the modifier.
 
+The position, width, height and rotation fields accept arithmetic. Enter `320/2` for an absolute value or `(x/2)+6` to calculate from each unlocked layer’s current value. In a mixed selection, `Mixed+10` adds ten to each individual value. Signed numbers such as `-12` set an absolute coordinate. Enter or leaving the field commits the selection in one undo step. Escape discards the draft.
+
 With **Move** active, drag a side of a selected layer to change its width or height. The opposite edge stays fixed, including on rotated layers. Hold **Shift** to preserve proportions or **Alt/Option** to resize about the center. The size label shows fractional dimensions near the selection. **Esc** cancels the drag and **Undo** restores the previous geometry.
 
 [Side resize on a rotated layer](images/ferrodesign-side-resize.png) · [Layer search on a phone](images/ferrodesign-layer-search.png) · [Quick Actions on a phone](images/ferrodesign-quick-actions.png)
@@ -44,6 +46,8 @@ With **Move** active, drag a side of a selected layer to change its width or hei
 Press **K** to scale selected layers proportionally. Drag an edge or corner handle to scale around its opposite point, or hold **Alt/Option** to keep the center fixed. For an exact size, choose one of the nine anchors in the Scale inspector and enter a multiplier, percentage, width or height. Editable geometry, text, strokes and effects scale together. Instances and layers with linked dimensions keep their source values and take an affine scale. Press **Esc** to cancel a drag.
 
 Press **S** or choose **Slice** from the region tools to drag an export viewport. Select its edge or its Layers row to rename, move, rotate, or resize it. Export PNG or SVG for a transparent crop of the visible artwork, including overlapping layers. A multi-slice export produces one ZIP containing named files; any selected artwork outside the slice list is exported together as an additional file. Slice outlines and labels appear only in the editor.
+
+In **Pages**, double-click a page name to edit it in place. When a page row has keyboard focus, ↑/↓ switch pages, Home/End jump to the first or last page, and F2 starts renaming. Enter saves and Escape cancels. Open **Page actions** beside the + button or right-click a page to rename it or move it up or down. Reordering keeps the active page and its artwork together and takes one undo step.
 
 In **Layers**, hold **Shift** to select a range of displayed rows, or **Cmd/Ctrl** to toggle individual layers. The lock and eye buttons control locking and visibility independently. Hover over a row to locate its layer on the canvas without changing the selection. Double-click a layer name, or press **F2** or **Cmd/Ctrl+R** with one unlocked layer selected, to rename it in place. Press **Enter** to commit or **Esc** to discard. **Reveal in Layers** in Quick Actions opens the selected row, including nested and offscreen rows. A search that hides the chosen row is cleared.
 

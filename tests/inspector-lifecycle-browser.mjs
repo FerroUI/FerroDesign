@@ -152,6 +152,19 @@ export async function mixedSelectionAndDock(page, reference, check, helpers) {
     assert.deepEqual(await documentState(page), before);
     check("Mixed widths accept the first layer's existing value as a batch edit, while a common height remains visible and undo restores both layers");
 
+    await clickNative(page, "WidthField", "InspectorViewport");
+    await page.keyboard.insertText("(Mixed / 2) + 6");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => {
+        const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return nodes[2].width === 38 && nodes[3].width === 54;
+    });
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 96);
+    assert.deepEqual(await documentState(page), before);
+    check("A mixed width equation evaluates each original size, commits once and restores both layers on undo");
+
     await page.keyboard.press("F6");
     await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.SelectTool.focused === true);
     await page.keyboard.press("End");
