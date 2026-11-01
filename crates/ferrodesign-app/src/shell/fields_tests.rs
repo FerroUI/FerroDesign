@@ -14,6 +14,9 @@ use ferroui_vello::{VelloApplicationExtensions, VelloOptions, VelloRenderingMode
 #[path = "action_search_tests.rs"]
 mod action_search_tests;
 
+#[path = "measure_input_tests.rs"]
+mod measure_input_tests;
+
 #[path = "resize_input_tests.rs"]
 mod resize_input_tests;
 

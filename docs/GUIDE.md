@@ -35,6 +35,8 @@ The floating toolbar groups move, region, shape and drawing tools. Press **F6** 
 
 Click with a shape tool to place its default size, or drag to set its bounds. Hold **Shift** for a circle, square or line in 45° increments. **Alt/Option** draws from the center. Hold **Space** during a shape drag to reposition it. Draw inside an unlocked frame to create a child. Use **Shift+L** for an arrow and drag either endpoint to edit it. With the Text tool, a click starts auto-sizing text and a drag defines a fixed text box.
 
+With a selection on the canvas, hold **Alt/Option** and hover another layer to measure horizontal and vertical gaps. Hover the selected layer to measure its four insets inside its parent. **Ctrl/Cmd+Alt/Option** reaches nested artwork when group selection is enabled. Measurements use transformed layer bounds in document units and disappear when you release the modifier.
+
 With **Move** active, drag a side of a selected layer to change its width or height. The opposite edge stays fixed, including on rotated layers. Hold **Shift** to preserve proportions or **Alt/Option** to resize about the center. The size label shows fractional dimensions near the selection. **Esc** cancels the drag and **Undo** restores the previous geometry.
 
 [Side resize on a rotated layer](images/ferrodesign-side-resize.png) · [Layer search on a phone](images/ferrodesign-layer-search.png) · [Quick Actions on a phone](images/ferrodesign-quick-actions.png)

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 export async function navigationRegressions(page, reference, check, helpers) {
-    const { fixtureNode, isolatedDocument, importFixture, documentState, state, clickWorld, clickNative } = helpers;
+    const { fixtureNode, isolatedDocument, importFixture, documentState, state, clickWorld, clickNative, moveWorld } = helpers;
     await importFixture(page, isolatedDocument(reference, [
         fixtureNode(reference, 2, { x: 20, y: 20, width: 180, height: 100 }),
         fixtureNode(reference, 3, { x: 480, y: 160, width: 120, height: 120 }),
@@ -10,6 +10,18 @@ export async function navigationRegressions(page, reference, check, helpers) {
     const document = await documentState(page);
     const initial = await state(page);
     assert.deepEqual(initial.selection, [2]);
+    await moveWorld(page, 540, 220);
+    await page.keyboard.down("Alt");
+    try {
+        await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).measurementTarget === 3);
+        const measured = await state(page);
+        assert.deepEqual(measured.selection, [2]);
+        assert.equal(measured.historyLength, initial.historyLength);
+    } finally { await page.keyboard.up("Alt"); }
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).measurementTarget === null);
+    assert.deepEqual(await documentState(page), document);
+    check("Alt at a stationary pointer measures the hovered layer, then releases without changing artwork, selection or history");
+
     const waitZoom = zoom => page.waitForFunction(expected =>
         JSON.parse(globalThis.ferroDesign.ferroDesignState()).zoom === expected, zoom, { timeout: 10000 });
 
