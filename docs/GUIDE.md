@@ -37,6 +37,8 @@ Click with a shape tool to place its default size, or drag to set its bounds. Ho
 
 With **Move** active, drag a side of a selected layer to change its width or height. The opposite edge stays fixed, including on rotated layers. Hold **Shift** to preserve proportions or **Alt/Option** to resize about the center. The size label shows fractional dimensions near the selection. **Esc** cancels the drag and **Undo** restores the previous geometry.
 
+[Side resize on a rotated layer](images/ferrodesign-side-resize.png) · [Layer search on a phone](images/ferrodesign-layer-search.png) · [Quick Actions on a phone](images/ferrodesign-quick-actions.png)
+
 Press **K** to scale selected layers proportionally. Drag an edge or corner handle to scale around its opposite point, or hold **Alt/Option** to keep the center fixed. For an exact size, choose one of the nine anchors in the Scale inspector and enter a multiplier, percentage, width or height. Editable geometry, text, strokes and effects scale together. Instances and layers with linked dimensions keep their source values and take an affine scale. Press **Esc** to cancel a drag.
 
 Press **S** or choose **Slice** from the region tools to drag an export viewport. Select its edge or its Layers row to rename, move, rotate, or resize it. Export PNG or SVG for a transparent crop of the visible artwork, including overlapping layers. A multi-slice export produces one ZIP containing named files; any selected artwork outside the slice list is exported together as an additional file. Slice outlines and labels appear only in the editor.
