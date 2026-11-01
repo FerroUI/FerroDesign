@@ -667,8 +667,11 @@ impl VectorPath {
             .map(|p| Rect::new(p.x, p.y, 0.0, 0.0))
             .reduce(|a, b| a.union(b))
     }
+    pub(crate) fn fill_contours(&self) -> Vec<Vec<Point>> {
+        self.flattened(0.35)
+    }
     pub fn contains(&self, p: Point) -> bool {
-        crate::geometry::path_contours_contain(self.fill_rule, &self.flattened(0.35), p)
+        crate::geometry::path_contours_contain(self.fill_rule, &self.fill_contours(), p)
     }
 }
 /// Editor-only layout guide. Its effective values travel with the frame,

@@ -427,6 +427,10 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     } finally {
         await page.keyboard.up("Alt");
     }
+    await page.waitForFunction(previousHistory => {
+        const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+        return view.historyLength === previousHistory + 1 && view.selection.length === 1 && view.selection[0] !== 2;
+    }, copyBase.history);
     const copyView = await state(page), copy = (await documentState(page)).nodes[copyView.selection[0]];
     assert.notEqual(copy.id, 2);
     assert.equal(copy.kind, "frame");

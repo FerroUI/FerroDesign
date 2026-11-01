@@ -37,7 +37,9 @@ struct TransferClip {
     world: Transform,
     inverse: Transform,
     bounds: Rect,
-    radius: f64,
+    radii: [f64; 4],
+    smoothing: f64,
+    contours: Vec<Vec<Point>>,
     parent: Option<usize>,
 }
 
@@ -424,12 +426,22 @@ impl LayoutTransferSession {
                 if let Some(world) = document.world_transform(id) {
                     if let Some(inverse) = world.inverse() {
                         let index = clips.len();
+                        let radii = node.corner_radii.unwrap_or([node.corner_radius; 4]);
+                        // Keep rectangular clips on the bounds-only path. For a curved
+                        // clip, build the same contour used by native picking once.
+                        let contours = if radii.iter().any(|r| *r > 0.0) {
+                            crate::corner_path(node).fill_contours()
+                        } else {
+                            Vec::new()
+                        };
                         clips.push(TransferClip {
                             id,
                             world,
                             inverse,
                             bounds: node.local_bounds(),
-                            radius: node.corner_radius,
+                            radii,
+                            smoothing: node.corner_smoothing,
+                            contours,
                             parent: clip,
                         });
                         clip = Some(index);
@@ -627,19 +639,10 @@ impl LayoutTransferSession {
             if !clip.bounds.contains(local) {
                 return false;
             }
-            let radius = clip
-                .radius
-                .max(0.0)
-                .min(clip.bounds.width * 0.5)
-                .min(clip.bounds.height * 0.5);
-            if radius > 0.0 {
-                let center = Point::new(
-                    local.x.clamp(radius, clip.bounds.width - radius),
-                    local.y.clamp(radius, clip.bounds.height - radius),
-                );
-                if local.distance(center) > radius {
-                    return false;
-                }
+            if !clip.contours.is_empty()
+                && !crate::geometry::path_contours_contain(FillRule::NonZero, &clip.contours, local)
+            {
+                return false;
             }
             index = clip.parent;
         }
@@ -694,7 +697,8 @@ impl LayoutTransferSession {
             if document.nodes.get(&snapshot.id).is_none_or(|node| {
                 !node.clip_content
                     || node.local_bounds() != snapshot.bounds
-                    || node.corner_radius != snapshot.radius
+                    || node.corner_radii.unwrap_or([node.corner_radius; 4]) != snapshot.radii
+                    || node.corner_smoothing != snapshot.smoothing
             }) || document.world_transform(snapshot.id) != Some(snapshot.world)
             {
                 return Err(drag_error(
