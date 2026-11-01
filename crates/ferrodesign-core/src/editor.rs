@@ -901,29 +901,43 @@ impl Editor {
             .unwrap_or_default()
     }
     pub fn select_rect(&mut self, r: Rect, additive: bool) {
-        if !additive {
-            self.selection.clear()
-        }
-        let mut ids: Vec<_> = self
-            .scene
-            .spatial
-            .query(r)
-            .into_iter()
-            .filter(|id| {
-                !self.document.effective_locked(*id)
-                    && self
-                        .document
-                        .world_bounds(*id)
-                        .is_some_and(|b| r.contains_rect(b))
-            })
-            .collect();
-        let set: BTreeSet<_> = ids.iter().copied().collect();
-        ids.retain(|id| !has_selected_ancestor(&self.document, *id, &set));
-        for id in ids {
-            if !self.selection.contains(&id) {
-                self.selection.push(id)
+        self.selection = self.marquee_selection(r, additive, false);
+    }
+
+    /// Project a marquee without changing selection, history, or the document.
+    /// Normal drags keep the outermost enclosed layer of each branch. A deep
+    /// drag picks the innermost enclosed layers, including empty containers.
+    pub fn marquee_selection(&self, rect: Rect, additive: bool, deep: bool) -> Vec<NodeId> {
+        let mut hits = self.scene.spatial.query(rect);
+        hits.retain(|id| {
+            let node = &self.document.nodes[id];
+            !self.document.effective_locked(*id)
+                && self.scene.transforms.get(id)
+                    .is_some_and(|t| rect.contains_rect(t.transform_rect(node.local_bounds())))
+        });
+        if deep {
+            let mut ancestors = BTreeSet::new();
+            for id in &hits {
+                let mut parent = self.document.nodes[id].parent;
+                while let Some(id) = parent {
+                    if !ancestors.insert(id) {
+                        break;
+                    }
+                    parent = self.document.nodes.get(&id).and_then(|n| n.parent);
+                }
             }
+            hits.retain(|id| !ancestors.contains(id));
+        } else {
+            let set = hits.iter().copied().collect();
+            hits.retain(|id| !has_selected_ancestor(&self.document, *id, &set));
         }
+        if !additive || self.selection.is_empty() {
+            return hits;
+        }
+        let mut result = self.selection.clone();
+        let selected: BTreeSet<_> = result.iter().copied().collect();
+        result.extend(hits.into_iter().filter(|id| !selected.contains(id)));
+        result
     }
     pub fn hit_test(&self, p: Point, tolerance: f64) -> Option<NodeId> {
         self.scene.hit_test(&self.document, p, tolerance, false)

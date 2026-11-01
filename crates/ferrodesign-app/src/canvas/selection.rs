@@ -15,7 +15,60 @@ pub(super) struct CachedPrototypeSelection {
     builds: u64,
 }
 
+pub(super) struct Marquee {
+    pub(super) start: Point,
+    pub(super) current: Point,
+    pub(super) preview: Vec<NodeId>,
+    page: NodeId,
+    token: core::EditorRenderToken,
+}
+
+impl Marquee {
+    fn new(editor: &Editor, start: Point, additive: bool) -> Self {
+        Self {
+            start, current: start, page: editor.active_page, token: editor.render_change_token(),
+            preview: if additive { editor.selection.clone() } else { Vec::new() },
+        }
+    }
+
+    pub(super) fn update(&mut self, editor: &Editor, point: Point, modifiers: KeyModifiers) -> bool {
+        self.current = point;
+        if self.page != editor.active_page || self.token != editor.render_change_token()
+            || editor.has_active_transaction() {
+            self.preview.clear();
+            return false;
+        }
+        let additive = modifiers.contains(KeyModifiers::SHIFT);
+        self.preview = if self.start == point {
+            if additive { editor.selection.clone() } else { Vec::new() }
+        } else {
+            editor.marquee_selection(
+                Rect::from_points(self.start, point), additive,
+                modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META),
+            )
+        };
+        true
+    }
+}
+
 impl DesignCanvas {
+    pub(super) fn marquee_modifier(&self, event: &KeyEventArgs, pressed: bool) -> bool {
+        let modifier = match event.key {
+            Key::LeftShift | Key::RightShift => KeyModifiers::SHIFT,
+            Key::LeftCtrl | Key::RightCtrl => KeyModifiers::CONTROL,
+            Key::LWin | Key::RWin => KeyModifiers::META,
+            _ => return false,
+        };
+        let mut gesture = self.gesture.borrow_mut();
+        let Gesture::Marquee(drag) = &mut *gesture else { return false };
+        let mut modifiers = event.key_modifiers;
+        modifiers.set(modifier, pressed);
+        drag.update(&self.editor.borrow(), drag.current, modifiers);
+        drop(gesture);
+        self.invalidate_visual();
+        true
+    }
+
     pub fn prototype_selection_index_stats(&self) -> serde_json::Value {
         let cached = self.prototype_selection.borrow();
         serde_json::json!({
@@ -96,11 +149,15 @@ impl DesignCanvas {
                 if let Some(probe) = self.free_layout_probe.borrow_mut().as_mut() { probe.record_transaction(&editor); }
                 *self.gesture.borrow_mut() = Gesture::Move { start: world, nodes, bounds, exclude, moved: false };
             }
-        } else {
-            if !additive { editor.clear_selection(); }
-            if drag_origin.is_some() {
-                *self.gesture.borrow_mut() = Gesture::Marquee { start: world, current: world, additive };
+        } else if drag_origin.is_some() {
+            if !editor.has_active_transaction() {
+                *self.gesture.borrow_mut() = Gesture::Marquee(Marquee::new(&editor, world, additive));
+                self.hover.set(None);
+                self.invalidate_visual();
             }
+            return;
+        } else if !additive {
+            editor.clear_selection();
         }
         drop(editor);
         self.emit(CanvasEvent::Selection);

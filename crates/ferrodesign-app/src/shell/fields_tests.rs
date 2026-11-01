@@ -17,6 +17,9 @@ mod pages_tests;
 #[path = "action_search_tests.rs"]
 mod action_search_tests;
 
+#[path = "marquee_input_tests.rs"]
+mod marquee_input_tests;
+
 #[path = "measure_input_tests.rs"]
 mod measure_input_tests;
 

@@ -162,6 +162,31 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     await importFixture(page, isolatedDocument(reference, hierarchy, "Native hierarchy navigation"));
     await click({ x: 48, y: 48 }, [], [2]);
     const beforeNavigation = await snapshot();
+    // Start on empty canvas and reverse the drag across the complete frame.
+    // Ctrl changes the depth after pointer motion, before release or Escape.
+    await moveWorld(page, 358, 237);
+    await page.mouse.down();
+    await moveWorld(page, 23, 24);
+    await page.keyboard.down("Control");
+    try {
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await selected([2]);
+        await moveWorld(page, 23, 24);
+        await page.mouse.down();
+        await moveWorld(page, 358, 237);
+        await page.mouse.up();
+        await selected([4, 5, 8]);
+    } finally {
+        await page.keyboard.up("Control");
+    }
+    await moveWorld(page, 358, 237);
+    await page.mouse.down();
+    await moveWorld(page, 23, 24);
+    await page.mouse.up();
+    await selected([2]);
+    await unchanged(beforeNavigation, "Deep, reversed and cancelled marquee");
+    check("Marquee selects the frame or its unlocked visible descendants with Ctrl, preserves selection on Escape, and keeps document history untouched");
     const unfilteredRowCount = (await state(page)).layerRowCount;
     await page.keyboard.press("Control+f");
     await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.LayerSearch.focused);

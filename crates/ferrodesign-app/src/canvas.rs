@@ -142,11 +142,7 @@ enum Gesture {
         center: Point,
         angle: f64,
     },
-    Marquee {
-        start: Point,
-        current: Point,
-        additive: bool,
-    },
+    Marquee(selection::Marquee),
     Draw(drawing::ShapeDrag),
     LineEndpoint(line_endpoint::EndpointDrag),
     Pencil {
@@ -553,6 +549,11 @@ impl DesignCanvas {
     }
     pub fn cancel(&self) {
         self.clear_measurement();
+        if matches!(*self.gesture.borrow(), Gesture::Marquee(_)) {
+            *self.gesture.borrow_mut() = Gesture::None;
+            self.invalidate_visual();
+            return;
+        }
         if matches!(*self.gesture.borrow(), Gesture::EdgePress { .. }) {
             *self.gesture.borrow_mut() = Gesture::None;
             self.set_resize_hover(None);
@@ -1209,7 +1210,7 @@ impl InputElementImpl for DesignCanvas {
                 }
                 editor.refresh_preview_nodes(&[node.id]);
             }
-            Gesture::Marquee { current, .. } => *current = world,
+            Gesture::Marquee(drag) => { drag.update(&this.editor.borrow(), world, e.key_modifiers()); }
             Gesture::Draw(drag) => drag.update(this, world, e.key_modifiers(), false),
             Gesture::LineEndpoint(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::Pencil { id, origin } => {
@@ -1405,15 +1406,14 @@ impl InputElementImpl for DesignCanvas {
                     this.select_at_pointer(world, modifiers, clicks, None);
                 }
             }
-            Gesture::Marquee {
-                start,
-                current,
-                additive,
-            } => {
-                this.editor
-                    .borrow_mut()
-                    .select_rect(Rect::from_points(start, current), additive);
-                this.emit(CanvasEvent::Selection);
+            Gesture::Marquee(mut drag) => {
+                let mut editor = this.editor.borrow_mut();
+                if drag.update(&editor, this.world(release_screen), e.key_modifiers())
+                    && editor.selection != drag.preview {
+                    editor.selection = drag.preview;
+                    drop(editor);
+                    this.emit(CanvasEvent::Selection);
+                }
             }
             Gesture::Scale(drag) => {
                 let changed = drag.commit(&mut this.editor.borrow_mut());
@@ -1526,6 +1526,9 @@ impl InputElementImpl for DesignCanvas {
     fn on_lost_focus(this: &Self, e: &FocusChangedEventArgs) {
         Self::parent_on_lost_focus(this, e);
         this.clear_measurement();
+        if matches!(*this.gesture.borrow(), Gesture::Marquee(_)) {
+            this.cancel();
+        }
         // KeyUp is routed to the new focus owner.
         this.space.set(false);
     }
@@ -1537,6 +1540,10 @@ impl InputElementImpl for DesignCanvas {
                 e.key_modifiers,
                 e.key_symbol.as_deref(),
             )));
+            e.set_handled(true);
+            return;
+        }
+        if this.marquee_modifier(e, true) {
             e.set_handled(true);
             return;
         }
@@ -1726,6 +1733,10 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_key_up(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_up(this, e);
+        if this.marquee_modifier(e, false) {
+            e.set_handled(true);
+            return;
+        }
         if matches!(e.key, Key::LeftAlt | Key::RightAlt) { this.clear_measurement(); }
         if matches!(e.key, Key::LeftCtrl | Key::RightCtrl | Key::LWin | Key::RWin) && e.key_modifiers.contains(KeyModifiers::ALT) {
             this.measure_at_pointer(e.key_modifiers);
@@ -2141,14 +2152,29 @@ impl VisualImpl for DesignCanvas {
         }
         let white = brush("#FFFFFF");
         let scale_mode = this.tool.get() == Tool::Scale;
-        if scale_mode { this.render_scale_handles(ctx, &editor, v); }
-        for &id in &editor.selection {
+        let gesture = this.gesture.borrow();
+        let marquee = match &*gesture {
+            Gesture::Marquee(drag) => Some(drag),
+            _ => None,
+        };
+        if scale_mode && marquee.is_none() { this.render_scale_handles(ctx, &editor, v); }
+        let selection = marquee.map_or(editor.selection.as_slice(), |drag| drag.preview.as_slice());
+        for &id in selection {
             let Some(n) = doc.nodes.get(&id) else {
                 continue;
             };
-            let Some(t) = doc.world_transform(id) else {
+            let Some(&t) = editor.scene.transforms.get(&id) else {
                 continue;
             };
+            if marquee.is_some() {
+                let points = n.local_bounds().corners().map(|p| ui(v.world_to_screen(t.apply(p))));
+                if n.kind == NodeKind::Line {
+                    ctx.draw_line(&blue, points[0], points[2]);
+                } else {
+                    for i in 0..4 { ctx.draw_line(&blue, points[i], points[(i + 1) % 4]); }
+                }
+                continue;
+            }
             if this.render_linear_gradient(ctx, &editor, id) { continue; }
             if this.render_image_crop(ctx, n, t, v) { continue; }
             if this.render_stroke_width(ctx, &editor, id, t, v) { continue; }
@@ -2227,9 +2253,9 @@ impl VisualImpl for DesignCanvas {
                 this.render_corner_radius(ctx, &editor, id);
             }
         }
-        if let Gesture::Marquee { start, current, .. } = &*this.gesture.borrow() {
-            let a = v.world_to_screen(*start);
-            let b = v.world_to_screen(*current);
+        if let Some(drag) = marquee {
+            let a = v.world_to_screen(drag.start);
+            let b = v.world_to_screen(drag.current);
             let fill = brush("#200D99FF");
             ctx.draw_rectangle(
                 Some(&fill),

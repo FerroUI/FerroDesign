@@ -275,3 +275,37 @@ fn native_selection_prototype_reuses_one_isolated_index_for_thousand_layer_point
     assert_eq!(canvas.prototype_selection_index_stats()["indexedNodes"], 1);
     scope.dispose();
 }
+
+#[test]
+fn marquee_preview_switches_hierarchy_at_the_stationary_pointer_and_rejects_stale_releases() {
+    let mut document = core::Document::new("Marquee preview");
+    let frame = layer(&mut document, 1, NodeKind::Frame);
+    let group = layer(&mut document, frame, NodeKind::Group);
+    let leaf = layer(&mut document, group, NodeKind::Rectangle);
+    let locked = layer(&mut document, group, NodeKind::Rectangle);
+    let hidden = layer(&mut document, frame, NodeKind::Rectangle);
+    document.nodes.get_mut(&locked).unwrap().locked = true;
+    document.nodes.get_mut(&hidden).unwrap().visible = false;
+    let canvas = DesignCanvas::new(Rc::new(RefCell::new(Editor::new(document))));
+    let start = Point::new(-10.0, -10.0);
+    let end = Point::new(110.0, 110.0);
+    let mut drag = Marquee::new(&canvas.editor.borrow(), start, false);
+    assert!(drag.update(&canvas.editor.borrow(), end, KeyModifiers::empty()));
+    assert_eq!(drag.preview, [frame]);
+    *canvas.gesture.borrow_mut() = Gesture::Marquee(drag);
+    let mut event = KeyEventArgs::new();
+    event.key = Key::LWin;
+    for pressed in [true, false] {
+        assert!(canvas.marquee_modifier(&event, pressed));
+        let gesture = canvas.gesture.borrow();
+        let Gesture::Marquee(drag) = &*gesture else { panic!("lost marquee") };
+        assert_eq!(drag.preview, [if pressed { leaf } else { frame }]);
+        assert!(canvas.editor.borrow().selection.is_empty());
+    }
+    let replacement = Editor::new(canvas.editor.borrow().document.clone());
+    *canvas.editor.borrow_mut() = replacement;
+    let mut gesture = canvas.gesture.borrow_mut();
+    let Gesture::Marquee(drag) = &mut *gesture else { panic!("lost marquee") };
+    assert!(!drag.update(&canvas.editor.borrow(), end, KeyModifiers::empty()));
+    assert!(drag.preview.is_empty());
+}
