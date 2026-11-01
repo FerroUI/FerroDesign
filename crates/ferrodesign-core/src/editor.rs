@@ -1103,7 +1103,7 @@ impl Editor {
         {
             return;
         }
-        self.edit("Resize layer", |e| {
+        let resize = |e: &mut Self| {
             if let Some(n) = e.document.nodes.get(&id) {
                 let (ow, oh) = (n.width, n.height);
                 let original_transform = n.local_transform();
@@ -1129,7 +1129,14 @@ impl Editor {
                     }
                 }
             }
-        })
+        };
+        // Only containers can propagate constraints to children. Keep ordinary leaf drags
+        // on the node-scoped render journal, including their previews and undo records.
+        if self.layout_node_count == 0 && self.document.nodes.get(&id).is_some_and(|n| n.children.is_empty()) {
+            self.edit_nodes("Resize layer", &[id], resize);
+        } else {
+            self.edit("Resize layer", resize);
+        }
     }
     pub fn rotate_selection(&mut self, degrees: f64) {
         if !degrees.is_finite() {
@@ -2363,6 +2370,31 @@ mod render_change_tests {
         nodes.sort_unstable(); nodes.dedup();
         ancestors.sort_unstable(); ancestors.dedup();
         assert_eq!(editor.render_changes_since(token), EditorRenderChanges::Nodes { nodes, ancestors });
+    }
+
+    #[test]
+    fn resize_previews_scope_leaf_changes_and_preserve_constraint_children_in_history() {
+        let (mut editor, frame, child, _) = nested_editor();
+        editor.document.nodes.get_mut(&child).unwrap().constraints.horizontal = crate::Constraint::End;
+        editor.refresh();
+        let initial = editor.document.to_json().unwrap();
+        let before = editor.render_change_token();
+        editor.begin_node_transaction(&[child], "Resize");
+        editor.resize_node_and_position(child, 30.0, 20.0, Point::new(5.0, 6.0));
+        editor.resize_node_and_position(child, 32.0, 20.0, Point::new(5.0, 6.0));
+        assert!(matches!(editor.pending.as_ref().unwrap().before, PendingSnapshot::Nodes { .. }));
+        scoped(&editor, &before, &[child], &[frame]);
+        assert!(editor.commit_transaction());
+        assert!(editor.undo());
+        assert_eq!(editor.document.to_json().unwrap(), initial);
+
+        editor.begin_node_transaction(&[frame], "Resize");
+        editor.resize_node_and_position(frame, 150.0, 100.0, Point::new(8.0, 20.0));
+        assert_eq!(editor.document.nodes[&child].x, 35.0);
+        assert!(matches!(editor.pending.as_ref().unwrap().before, PendingSnapshot::Document(_)));
+        assert!(editor.commit_transaction());
+        assert!(editor.undo());
+        assert_eq!(editor.document.to_json().unwrap(), initial);
     }
 
     #[test]
