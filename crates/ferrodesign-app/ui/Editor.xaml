@@ -62,6 +62,16 @@
       <Setter Property="Height" Value="40"/><Setter Property="Padding" Value="3"/>
       <Setter Property="CornerRadius" Value="5"/>
     </Style>
+    <Style Selector="Border.editor-dock">
+      <Setter Property="Margin" Value="8,0,8,24"/><Setter Property="Padding" Value="5"/>
+    </Style>
+    <Style Selector="Border.editor-dock.narrow">
+      <Setter Property="Margin" Value="0,0,0,12"/><Setter Property="Padding" Value="2"/>
+    </Style>
+    <Style Selector="Button.touch-tool">
+      <Setter Property="Width" Value="44"/><Setter Property="Height" Value="44"/>
+      <Setter Property="Padding" Value="4"/><Setter Property="CornerRadius" Value="7"/>
+    </Style>
     <Style Selector="Button.layer">
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -544,7 +554,7 @@
       </Grid>
     </Border>
     <TextBlock Name="CanvasCaption" Grid.Column="2" Text="" FontSize="10" Foreground="#868686" Margin="24,25" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"/>
-    <Border Name="Toolbar" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="8,0,8,24" Padding="5" Background="White" CornerRadius="13" BorderBrush="#D7D7D7" BorderThickness="1" BoxShadow="0 3 14 0 #20000000">
+    <Border Name="Toolbar" Classes="editor-dock" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Bottom" Background="White" CornerRadius="13" BorderBrush="#D7D7D7" BorderThickness="1" BoxShadow="0 3 14 0 #20000000">
       <Border.Resources>
         <!-- Fluent's button template reads these brushes from its presenter in each state. -->
         <SolidColorBrush x:Key="AccentButtonBackground" Color="#087AC4"/>
@@ -600,7 +610,7 @@
         </Button>
         <Button Name="TextTool" Classes="dock-tool" AutomationProperties.Name="Text" AutomationProperties.AcceleratorKey="T" ToolTip.Tip="Text (T)"/>
         <Button Name="CommentTool" Classes="dock-tool" AutomationProperties.Name="Comment" AutomationProperties.AcceleratorKey="C" ToolTip.Tip="Comment (C)"/>
-        <Border Width="1" Background="#E6E6E6" Margin="4,6"/>
+        <Border Name="DockDivider" Width="1" Background="#E6E6E6" Margin="4,6"/>
         <Button Name="ActionsButton" Classes="dock-tool" AutomationProperties.Name="Quick actions" ToolTip.Tip="Quick actions (Ctrl/Cmd+/)"/>
       </StackPanel>
       </ScrollViewer>

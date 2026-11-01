@@ -9,6 +9,7 @@ use ferroui_controls::{MenuItem, MenuItemToggleType, ToolTip, automation::Automa
 pub(super) struct ToolbarState {
     displayed: Cell<Option<Tool>>,
     choices: Cell<[usize; 4]>,
+    narrow: Cell<bool>,
 }
 
 struct Group {
@@ -107,21 +108,28 @@ impl EditorShell {
             if !shell.control::<Border>("Toolbar").is_effectively_visible() { return; }
             let tool = shell.canvas.tool.get();
             let name = GROUPS.iter().find(|group| group.choices.iter().any(|choice| choice.1 == tool))
-                .map(|group| group.primary)
+                .map(|group| if shell.toolbar.narrow.get() { group.menu } else { group.primary })
                 .unwrap_or(if tool == Tool::Text { "TextTool" } else { "CommentTool" });
             e.set_handled(shell.button(name).focus_with(NavigationMethod::Directional, KeyModifiers::NONE));
         }, RoutingStrategies::TUNNEL, false);
-        for (index, &name) in dock.iter().enumerate() {
+        for &name in dock.iter() {
             let weak = Rc::downgrade(self);
             let dock = dock.clone();
             self.button(name).add_handler_with(InputElement::key_down_event(), move |_, e| {
                 if !e.key_modifiers.is_empty() { return; }
                 let Some(shell) = weak.upgrade() else { return; };
                 let target = match e.key {
-                    Key::Right => (index + 1) % dock.len(),
-                    Key::Left => (index + dock.len() - 1) % dock.len(),
-                    Key::Home => 0,
-                    Key::End => dock.len() - 1,
+                    Key::Right | Key::Left | Key::Home | Key::End => {
+                        let visible: Vec<_> = dock.iter().copied()
+                            .filter(|id| shell.button(id).is_visible()).collect();
+                        let Some(index) = visible.iter().position(|id| *id == name) else { return; };
+                        visible[match e.key {
+                            Key::Right => (index + 1) % visible.len(),
+                            Key::Left => (index + visible.len() - 1) % visible.len(),
+                            Key::Home => 0,
+                            _ => visible.len() - 1,
+                        }]
+                    }
                     Key::Down => {
                         if let Some(group) = GROUPS.iter().find(|group| group.primary == name || group.menu == name) {
                             let owner = shell.button(group.menu);
@@ -138,13 +146,37 @@ impl EditorShell {
                     }
                     _ => return,
                 };
-                let button = shell.button(dock[target]);
+                let button = shell.button(target);
                 if button.focus_with(NavigationMethod::Directional, KeyModifiers::NONE) {
                     button.bring_into_view();
                     e.set_handled(true);
                 }
             }, RoutingStrategies::TUNNEL, false);
         }
+    }
+
+    pub(super) fn size_tool_dock(&self, narrow: bool) {
+        if self.toolbar.narrow.replace(narrow) == narrow { return; }
+        self.control::<Border>("Toolbar").classes().set("narrow", narrow);
+        self.visible("DockDivider", !narrow);
+        for group in &GROUPS {
+            let primary = self.button(group.primary);
+            let move_focus = narrow && primary.is_focused();
+            primary.set_is_visible(!narrow);
+            let menu = self.button(group.menu);
+            menu.classes().set("touch-tool", narrow);
+            if !narrow {
+                menu.classes().remove("accent");
+                AutomationProperties::set_item_status(&menu, None);
+                menu.set_content(Some(Control::boxed(icons::icon("chevron-down", "#686868", 7.0))));
+            }
+            if move_focus { menu.focus_with(NavigationMethod::Directional, KeyModifiers::NONE); }
+        }
+        for name in ["TextTool", "CommentTool", "ActionsButton"] {
+            self.button(name).classes().set("touch-tool", narrow);
+        }
+        self.toolbar.displayed.set(None);
+        self.sync_toolbar();
     }
 
     pub(super) fn sync_toolbar(&self) {
@@ -167,6 +199,19 @@ impl EditorShell {
             }
             let (name, tool, _, glyph) = group.choices[choices[index]];
             self.set_tool_glyph(group.primary, glyph, active == tool);
+            if self.toolbar.narrow.get() {
+                let owner = self.button(group.menu);
+                let selected = active == tool;
+                owner.classes().set("accent", selected);
+                AutomationProperties::set_item_status(&owner, Some(tool.name()));
+                let color = if selected { "#FFFFFF" } else { "#303030" };
+                let face = StackPanel::new();
+                face.set_orientation(Orientation::Horizontal);
+                face.set_spacing(3.0);
+                face.children().add(icons::icon(glyph, color, 17.0));
+                face.children().add(icons::icon("chevron-down", color, 7.0));
+                owner.set_content(Some(Control::boxed(face)));
+            }
             let item = self.control::<MenuItem>(name);
             item.set_is_checked(true);
             let shortcut = item.input_gesture().map(|key| key.to_string()).unwrap_or_default();

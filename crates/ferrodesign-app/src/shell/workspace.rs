@@ -51,7 +51,10 @@ impl EditorShell {
             let dialog = shell.control::<Border>("ModalPanel");
             dialog.set_max_width((size.width - 16.0).max(0.0));
             dialog.set_max_height((size.height - 16.0).clamp(0.0, 660.0));
-            let compact = size.width < 900.0;
+            // The desktop rail and panels reserve 584 DIPs beside the canvas.
+            // Switch to drawers before they squeeze the full tool dock.
+            let compact = size.width < 970.0;
+            shell.size_tool_dock(size.width < 440.0);
             if shell.compact.replace(compact) != compact {
                 shell.compact_panel.set(CompactPanel::Canvas);
                 shell.layout_workspace();
