@@ -114,3 +114,48 @@ fn transparent_star_edge_clicks_pick_geometry_while_drags_resize_the_selection()
     assert!(shell.command("undo"));
     assert_eq!(fixture.json(), before);
 }
+
+#[test]
+fn free_move_commits_final_pointer_position_and_modifiers_once() {
+    let fixture = Fixture::with_kind(false, NodeKind::Rectangle);
+    let shell = &fixture.shell;
+    let canvas = &shell.canvas;
+    fixture.window.capture_rendered_frame().unwrap();
+    let view = core::Viewport { zoom: 1.0, pan: Point::new(70.0, 70.0), ..canvas.viewport.get() };
+    canvas.viewport.set(view);
+    canvas.snap.set(false);
+    canvas.invalidate_visual();
+    fixture.window.capture_rendered_frame().unwrap();
+    let screen = |x, y| {
+        let p = view.world_to_screen(Point::new(x, y));
+        canvas.translate_point(ferroui_base::Point::new(p.x, p.y), &fixture.window).unwrap()
+    };
+    let before = fixture.json();
+    let start = screen(80.0, 80.0);
+    let end = screen(103.0, 87.0);
+
+    // With no intermediate sample, pointer-up is the only evidence of a drag.
+    fixture.window.mouse_down(start, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.mouse_up(end, MouseButton::Left, RawInputModifiers::SHIFT);
+    let bounds = || shell.editor.borrow().document.nodes[&fixture.id].bounds();
+    assert_eq!(bounds(), core::Rect::new(43.0, 20.0, 120.0, 120.0));
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+
+    // An earlier unconstrained sample must not override Shift on release.
+    fixture.window.mouse_down(start, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.mouse_move(screen(84.0, 92.0), RawInputModifiers::LEFT_MOUSE_BUTTON);
+    assert_eq!(bounds(), core::Rect::new(24.0, 32.0, 120.0, 120.0));
+    fixture.window.mouse_up(end, MouseButton::Left, RawInputModifiers::SHIFT);
+    assert_eq!(bounds(), core::Rect::new(43.0, 20.0, 120.0, 120.0));
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+
+    // A stationary click must retain the redo branch.
+    fixture.window.mouse_down(start, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.mouse_up(start, MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(shell.editor.borrow().history_len(), 0);
+    assert!(shell.editor.borrow().can_redo());
+}

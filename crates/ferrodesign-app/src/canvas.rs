@@ -1117,80 +1117,7 @@ impl InputElementImpl for DesignCanvas {
                 return;
             }
             Gesture::Pan { .. } => return, // Handled before tool hit testing.
-            Gesture::Move {
-                start,
-                nodes,
-                bounds,
-                exclude,
-                moved,
-            } => {
-                let mut delta = world - *start;
-                if delta.distance(Point::new(0.0, 0.0)) < 0.5 / this.viewport.get().zoom && !*moved
-                {
-                    return;
-                }
-                if shift {
-                    if delta.x.abs() > delta.y.abs() {
-                        delta.y = 0.0
-                    } else {
-                        delta.x = 0.0
-                    }
-                }
-                if this.snap.get() {
-                    delta.x = delta.x.round();
-                    delta.y = delta.y.round();
-                }
-                let mut editor = this.editor.borrow_mut();
-                this.snap_guides.set((None, None));
-                this.layout_grids.borrow_mut().clear_snap();
-                if this.snap.get() {
-                    if let Some(bounds) = bounds {
-                        let proposed = Rect::new(
-                            bounds.x + delta.x,
-                            bounds.y + delta.y,
-                            bounds.width,
-                            bounds.height,
-                        );
-                        // An axis-constrained drag must stay on its original axis.
-                        let snap_x = !shift || delta.x != 0.0;
-                        let snap_y = !shift || delta.y != 0.0;
-                        let direction = shift.then_some(if snap_x { Point::new(1.0, 0.0) } else { Point::new(0.0, 1.0) });
-                        let guide = this.layout_grids.borrow_mut().snap_bounds(&editor, proposed,
-                            5.0 / this.viewport.get().zoom, exclude, direction);
-                        if let Some(guide) = guide {
-                            delta = delta + guide.delta;
-                        } else {
-                            let snap = editor.smart_snap(proposed, 5.0 / this.viewport.get().zoom, exclude);
-                            if snap_x { delta.x += snap.delta.x; }
-                            if snap_y { delta.y += snap.delta.y; }
-                            this.snap_guides.set((
-                                if snap_x { snap.vertical_guide } else { None },
-                                if snap_y { snap.horizontal_guide } else { None },
-                            ));
-                        }
-                    }
-                }
-                for original in nodes.iter() {
-                    if editor.document.effective_locked(original.id) { continue; }
-                    let parent = original
-                        .parent
-                        .and_then(|id| editor.document.world_transform(id))
-                        .unwrap_or(core::Transform::IDENTITY);
-                    let local = parent
-                        .inverse()
-                        .unwrap_or(core::Transform::IDENTITY)
-                        .apply_vector(delta);
-                    if let Some(node) = editor.document.nodes.get_mut(&original.id) {
-                        node.x = original.x + local.x;
-                        node.y = original.y + local.y;
-                    }
-                }
-                editor.refresh_preview_nodes(exclude);
-                if let Some(probe) = this.free_layout_probe.borrow_mut().as_mut() {
-                    probe.record_revision(editor.revision);
-                }
-                *moved = true;
-            }
+            move_drag @ Gesture::Move { .. } => this.update_free_move(move_drag, world, shift),
             Gesture::Scale(drag) => drag.update(&mut this.editor.borrow_mut(), world, e.key_modifiers().contains(KeyModifiers::ALT)),
             Gesture::Resize(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::Rotate {
@@ -1389,6 +1316,9 @@ impl InputElementImpl for DesignCanvas {
         this.activate_edge_drag(&mut gesture, Point::new(release_screen.x, release_screen.y));
         // Hosts may coalesce the last move into the release event.
         match &mut gesture {
+            move_drag @ Gesture::Move { .. } => this.update_free_move(
+                move_drag, this.world(release_screen), e.key_modifiers().contains(KeyModifiers::SHIFT),
+            ),
             Gesture::Scale(drag) => drag.update(&mut this.editor.borrow_mut(), this.world(release_screen), e.key_modifiers().contains(KeyModifiers::ALT)),
             Gesture::Draw(drag) => drag.update(this, this.world(release_screen), e.key_modifiers(), true),
             Gesture::LineEndpoint(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
