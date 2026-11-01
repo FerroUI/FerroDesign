@@ -18,6 +18,20 @@ pub(super) struct LayerRow {
 }
 
 impl LayerRow {
+    fn from_node(node: &Node, depth: usize, expanded: Option<bool>, assets: bool) -> Self {
+        Self {
+            id: node.id,
+            name: node.name.clone(),
+            kind: node.kind,
+            depth,
+            expanded,
+            has_children: !node.children.is_empty(),
+            visible: node.visible,
+            locked: node.locked,
+            assets,
+        }
+    }
+
     fn matches_node(&self, node: &Node) -> bool {
         self.id == node.id
             && self.name == node.name
@@ -181,50 +195,53 @@ fn project_rows(
     filter: &str,
     expanded: &BTreeSet<NodeId>,
 ) -> Vec<LayerRow> {
-    let roots = if assets {
-        editor.document.nodes.values()
-            .filter(|node| node.kind == NodeKind::Component)
-            .map(|node| node.id)
-            .collect::<Vec<_>>()
-    } else {
-        editor.document.page(editor.active_page)
-            .map(|page| page.children.clone())
-            .unwrap_or_default()
-    };
-    // Search visits each matching ancestor chain once, preserving the existing
-    // reverse sibling order without realizing native controls for all rows.
-    let mut included = BTreeSet::new();
-    if !filter.is_empty() {
-        for node in editor.document.nodes.values()
-            .filter(|node| node.name.to_lowercase().contains(filter))
-        {
-            let mut id = Some(node.id);
-            while let Some(current) = id {
-                if !included.insert(current) { break; }
-                id = editor.document.nodes.get(&current).and_then(|node| node.parent);
+    if assets {
+        // Components are reusable across every page. A descendant name can
+        // match its component even though Assets displays a flat catalog.
+        let mut included = BTreeSet::new();
+        if !filter.is_empty() {
+            for node in editor.document.nodes.values()
+                .filter(|node| node.name.to_lowercase().contains(filter))
+            {
+                let mut id = Some(node.id);
+                while let Some(current) = id {
+                    if !included.insert(current) { break; }
+                    id = editor.document.nodes.get(&current).and_then(|node| node.parent);
+                }
             }
         }
+        return editor.document.nodes.values().rev()
+            .filter(|node| node.kind == NodeKind::Component &&
+                (filter.is_empty() || included.contains(&node.id)))
+            .map(|node| LayerRow::from_node(node, 0, None, true))
+            .collect();
     }
-    let mut pending: Vec<_> = roots.into_iter().map(|id| (id, 0)).collect();
+
+    let Some(page) = editor.document.page(editor.active_page) else { return Vec::new(); };
+    let mut pending: Vec<_> = page.children.iter().map(|&id| (id, 0)).collect();
     let mut rows = Vec::new();
+    let mut path = Vec::new();
+    let mut shown_depth = 0;
     while let Some((id, depth)) = pending.pop() {
-        if !filter.is_empty() && !included.contains(&id) { continue; }
         let Some(node) = editor.document.nodes.get(&id) else { continue; };
-        let open = expanded.contains(&id) || !filter.is_empty();
-        rows.push(LayerRow {
-            id,
-            name: node.name.clone(),
-            kind: node.kind,
-            depth,
-            expanded: (!assets && filter.is_empty() && !node.children.is_empty()).then_some(open),
-            has_children: !node.children.is_empty(),
-            visible: node.visible,
-            locked: node.locked,
-            assets,
-        });
-        if open && !assets {
-            pending.extend(node.children.iter().map(|&child| (child, depth + 1)));
+        if filter.is_empty() {
+            let open = expanded.contains(&id);
+            rows.push(LayerRow::from_node(node, depth, (!node.children.is_empty()).then_some(open), false));
+            if !open { continue; }
+        } else {
+            // Carry the path down the active page only. On a match, append
+            // ancestors after the last emitted prefix, in display order.
+            path.truncate(depth);
+            path.push(node);
+            shown_depth = shown_depth.min(depth);
+            if node.name.to_lowercase().contains(filter) {
+                for (index, ancestor) in path.iter().enumerate().skip(shown_depth) {
+                    rows.push(LayerRow::from_node(ancestor, index, None, false));
+                }
+                shown_depth = path.len();
+            }
         }
+        pending.extend(node.children.iter().map(|&child| (child, depth + 1)));
     }
     rows
 }
@@ -408,6 +425,29 @@ mod tests {
         assert_eq!(ids(&projection), vec![sibling, parent]);
         assert!(!projection.refresh(&editor, false, "", &expanded));
         assert_eq!(projection.stats(), LayerProjectionStats { builds: 4, reuses: 3 });
+    }
+
+    #[test]
+    fn page_search_emits_only_matching_paths_once_in_layer_order() {
+        let (mut editor, parent, child, sibling) = tree_editor();
+        let nested = editor.document.insert_node(parent,
+            Node::new(NodeKind::Frame, "Nested", 0.0, 0.0, 40.0, 40.0)).unwrap();
+        let leaf = editor.document.insert_node(nested,
+            Node::new(NodeKind::Text, "Child title", 0.0, 0.0, 16.0, 16.0)).unwrap();
+        let other_page = editor.document.add_page("Other page");
+        let other = editor.document.insert_node(other_page,
+            Node::new(NodeKind::Text, "Child on another page", 0.0, 0.0, 16.0, 16.0)).unwrap();
+        let expanded = BTreeSet::from([parent]);
+        let mut projection = LayerProjection::default();
+        projection.refresh(&editor, false, "child", &expanded);
+        assert_eq!(ids(&projection), [parent, nested, leaf, child]);
+        assert_eq!(projection.rows().iter().map(|row| row.depth).collect::<Vec<_>>(), [0, 1, 2, 1]);
+        assert!(projection.rows().iter().all(|row| row.expanded.is_none()));
+        projection.refresh(&editor, false, "", &expanded);
+        assert_eq!(ids(&projection), [sibling, parent, nested, child]);
+        editor.set_active_page(other_page);
+        projection.refresh(&editor, false, "child", &expanded);
+        assert_eq!(ids(&projection), [other]);
     }
 
     #[test]
