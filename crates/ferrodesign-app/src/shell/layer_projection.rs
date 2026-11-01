@@ -131,10 +131,9 @@ impl LayerProjection {
             page: editor.active_page,
             assets,
             filter: filter.to_owned(),
-            // Snapshot only on a full projection. Equality may still compare
-            // expanded IDs on reuse; the flat document's empty set is constant
-            // work, and no expansion mutation can silently bypass this guard.
-            expanded: expanded.clone(),
+            // Filtered paths and the flat catalog are independent of the
+            // stored disclosure set, including expanded branches on other pages.
+            expanded: if assets || !filter.is_empty() { BTreeSet::new() } else { expanded.clone() },
         });
         changed
     }
@@ -150,7 +149,7 @@ impl LayerProjection {
         if context.page != editor.active_page
             || context.assets != assets
             || context.filter != filter
-            || &context.expanded != expanded
+            || (!assets && filter.is_empty() && &context.expanded != expanded)
         {
             return false;
         }
@@ -443,6 +442,9 @@ mod tests {
         assert_eq!(ids(&projection), [parent, nested, leaf, child]);
         assert_eq!(projection.rows().iter().map(|row| row.depth).collect::<Vec<_>>(), [0, 1, 2, 1]);
         assert!(projection.rows().iter().all(|row| row.expanded.is_none()));
+        let builds = projection.stats().builds;
+        assert!(!projection.refresh(&editor, false, "child", &BTreeSet::new()));
+        assert_eq!(projection.stats().builds, builds);
         projection.refresh(&editor, false, "", &expanded);
         assert_eq!(ids(&projection), [sibling, parent, nested, child]);
         editor.set_active_page(other_page);
