@@ -77,6 +77,7 @@ Select one or several layers and drag between layout frames, ordinary frames or 
 | Select inverse | `Ctrl`/`Cmd+Shift+A` |
 | Cycle overlapping layers | `Alt`+click / `Shift+Alt`+click, or `Alt+[` / `Alt+]` |
 | Deep selection with Select groups enabled | `Ctrl`/`Cmd`+click; double-click descends one group |
+| Narrow tool dock | On a phone, tap the Move, Region, Shape or Drawing icon to open its tool family. The glyph shows the last tool chosen in that family. Text, Comment and Quick Actions remain directly accessible. |
 | Quick actions | Open with `Ctrl`/`Cmd+/` or `Ctrl`/`Cmd+K`. Search tools, file actions and layer commands by name or shortcut. Typing `R` puts Rectangle first. Use ↑/↓ to choose, Enter to run, and Esc to dismiss. |
 | Save / open | `Ctrl`/`Cmd+S` / `Ctrl`/`Cmd+O` |
 | Cancel gesture / leave presentation | `Escape` |

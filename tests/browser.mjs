@@ -1263,6 +1263,21 @@ try {
             assert.deepEqual(await documentState(page), svgDocument);
             await canvas.screenshot({ path: resolve(output, mode + "-phone.png") });
             check("At phone width, drawers share a full-width artboard and the drawing tools remain reachable");
+            await page.setViewportSize({ width: 320, height: 650 });
+            await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).canvas.width === 320);
+            const narrow = await state(page);
+            let lastEdge = 0;
+            for (const name of ["MoveToolMenu", "RegionToolMenu", "ShapeToolMenu", "DrawingToolMenu", "TextTool", "CommentTool", "ActionsButton"]) {
+                const button = narrow.chrome[name];
+                assert.ok(button.visible && button.width >= 44 && button.height >= 44 &&
+                    button.x >= lastEdge && button.x + button.width <= 320, name + " fits the narrow touch dock");
+                lastEdge = button.x + button.width;
+            }
+            await clickNative(page, "ShapeToolMenu");
+            await clickNative(page, "EllipseChoice");
+            assert.equal((await state(page)).tool, "Ellipse");
+            assert.deepEqual(await documentState(page), svgDocument);
+            check("All seven native dock targets fit at 320 px, and the shape menu selects Ellipse without editing artwork");
             await page.setViewportSize({ width: 1600, height: 1000 });
             await frames(page);
 

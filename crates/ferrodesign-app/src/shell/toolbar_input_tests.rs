@@ -57,3 +57,51 @@ fn native_dock_feedback_keyboard_and_family_choices() {
     assert_eq!(AutomationProperties::get_item_status(&shell.button("SelectTool")).as_deref(), Some("Active tool"));
     assert_eq!(fixture.json(), before);
 }
+
+#[test]
+fn narrow_dock_fits_seven_touch_targets_and_preserves_native_family_navigation() {
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let window = &fixture.window;
+    let before = fixture.json();
+    assert!(shell.command("ellipse"));
+    window.set_width(320.0);
+    window.set_height(650.0);
+    window.capture_rendered_frame().unwrap();
+    let names = ["MoveToolMenu", "RegionToolMenu", "ShapeToolMenu", "DrawingToolMenu", "TextTool", "CommentTool", "ActionsButton"];
+    let mut right = 0.0;
+    for name in names {
+        let button = shell.button(name);
+        let start = button.translate_point(ferroui_base::Point::default(), window).unwrap();
+        let bounds = button.bounds();
+        assert!(bounds.width >= 44.0 && bounds.height >= 44.0, "{name} size {bounds:?}");
+        assert!(start.x >= right && start.x + bounds.width <= 320.0, "{name} x={} width={}", start.x, bounds.width);
+        right = start.x + bounds.width;
+    }
+    let shape = shell.button("ShapeToolMenu");
+    assert!(!shell.button("RectTool").is_visible());
+    assert_eq!(AutomationProperties::get_item_status(&shape).as_deref(), Some("Ellipse"));
+    assert!(shell.canvas.focus());
+    let press = |key, physical| {
+        window.key_press(key, RawInputModifiers::NONE, physical, None);
+        window.key_release(key, RawInputModifiers::NONE, physical, None);
+    };
+    press(Key::F6, PhysicalKey::F6);
+    assert!(shape.is_focused());
+    press(Key::Left, PhysicalKey::ArrowLeft);
+    assert!(shell.button("RegionToolMenu").is_focused());
+    press(Key::Home, PhysicalKey::Home);
+    assert!(shell.button("MoveToolMenu").is_focused());
+    press(Key::End, PhysicalKey::End);
+    assert!(shell.button("ActionsButton").is_focused());
+    fixture.click_button(&shape, RawInputModifiers::NONE);
+    let flyout = shape.flyout().unwrap();
+    assert!(flyout.is_open());
+    assert!(shell.control::<MenuItem>("EllipseChoice").is_checked());
+    flyout.hide();
+    window.set_width(980.0);
+    window.capture_rendered_frame().unwrap();
+    assert!(shell.button("RectTool").is_effectively_visible());
+    assert_eq!(AutomationProperties::get_name(&shell.button("RectTool")).as_deref(), Some("Ellipse"));
+    assert_eq!(fixture.json(), before);
+}
