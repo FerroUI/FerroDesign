@@ -23,6 +23,11 @@ fn phone_preview_controls_follow_navigation_overlays_and_restore_the_editing_ses
     doc.nodes.get_mut(&review).unwrap().interactions.push(rule(core::PrototypeAction::OpenOverlay {
         target: sheet, position: Point::new(4.0, 8.0),
     }));
+    doc.nodes.get_mut(&sheet).unwrap().interactions.push(core::Interaction {
+        trigger: core::Trigger::Key,
+        key: Some("R".into()),
+        ..rule(core::PrototypeAction::CloseOverlay)
+    });
     *shell.editor.borrow_mut() = Editor::new(doc);
     shell.editor.borrow_mut().select(home, false);
     shell.refresh();
@@ -69,6 +74,10 @@ fn phone_preview_controls_follow_navigation_overlays_and_restore_the_editing_ses
         render();
     };
     let plain = RawInputModifiers::NONE;
+    key(Key::Tab, PhysicalKey::Tab, RawInputModifiers::SHIFT);
+    assert!(done.is_focused(), "Reverse traversal starts at Done");
+    key(Key::Tab, PhysicalKey::Tab, plain);
+    assert!(shell.canvas.is_focused(), "Tab from Done returns to the prototype");
     key(Key::Tab, PhysicalKey::Tab, plain);
     assert!(next.is_focused(), "Tab skips the unavailable previous screen");
     key(Key::Tab, PhysicalKey::Tab, plain);
@@ -89,6 +98,9 @@ fn phone_preview_controls_follow_navigation_overlays_and_restore_the_editing_ses
     assert_eq!(title.text().as_deref(), Some("Confirmation"));
     assert!(back.is_enabled());
     assert!(!next.is_enabled(), "An overlay owns the input surface");
+    key(Key::R, PhysicalKey::R, plain);
+    assert_eq!(title.text().as_deref(), Some("Review order"), "The overlay's authored R wins over restart");
+    assert!(shell.prototype.dispatch(review, core::Trigger::Click));
     key(Key::Escape, PhysicalKey::Escape, plain);
     assert_eq!(title.text().as_deref(), Some("Review order"));
     click(&back);
@@ -105,4 +117,35 @@ fn phone_preview_controls_follow_navigation_overlays_and_restore_the_editing_ses
     assert_eq!(shell.canvas.viewport.get(), camera);
     assert_eq!(fixture.json(), authored);
     assert_eq!(shell.editor.borrow().history_len(), 0);
+}
+
+#[test]
+fn presentation_starts_at_a_visible_board_and_reports_empty_pages() {
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let mut doc = core::Document::new("Board order");
+    let page = doc.pages[0].id;
+    let mut add = |kind, name, x| doc.insert_node(page, Node::new(kind, name, x, 0.0, 140.0, 260.0)).unwrap();
+    let loose = add(NodeKind::Rectangle, "Decoration", -100.0);
+    let hidden = add(NodeKind::Frame, "Hidden flow", 0.0);
+    let right = add(NodeKind::Frame, "Second", 300.0);
+    let left = add(NodeKind::Frame, "First", 100.0);
+    doc.nodes.get_mut(&hidden).unwrap().visible = false;
+    doc.pages[0].prototype_start = Some(hidden);
+    *shell.editor.borrow_mut() = Editor::new(doc);
+    shell.refresh();
+    assert!(shell.command("present"));
+    assert_eq!(shell.prototype.current(), Some(left));
+    assert!(shell.command("prototype-next"));
+    assert_eq!(shell.prototype.current(), Some(right));
+    assert!(shell.command("prototype-exit"));
+    for id in [left, right] {
+        shell.editor.borrow_mut().document.nodes.get_mut(&id).unwrap().visible = false;
+    }
+    assert!(shell.command("present"), "Documents of loose artwork remain playable");
+    assert_eq!(shell.prototype.current(), Some(loose));
+    assert!(shell.command("prototype-exit"));
+    shell.editor.borrow_mut().document.nodes.get_mut(&loose).unwrap().visible = false;
+    assert!(!shell.command("present"));
+    assert!(!shell.prototype.is_active());
 }

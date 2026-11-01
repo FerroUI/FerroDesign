@@ -69,20 +69,21 @@ pub struct PrototypePlayer {
 
 impl PrototypePlayer {
     pub fn start(&mut self, document: &Document, page: NodeId) -> bool {
-        let root = document.page(page).and_then(|page| {
-            page.prototype_start.or_else(|| {
-                page.children
-                    .iter()
-                    .find(|id| {
-                        document
-                            .nodes
-                            .get(id)
-                            .is_some_and(|node| node.kind == NodeKind::Frame && node.visible)
-                    })
-                    .copied()
+        Self::page_start(document, page).is_some_and(|root| self.start_at(document, root))
+    }
+
+    /// Prefer the authored start when visible. Otherwise begin at the first
+    /// visible board in the same canvas order used by the screen controls.
+    pub fn page_start(document: &Document, page: NodeId) -> Option<NodeId> {
+        let page = document.page(page)?;
+        page.prototype_start
+            .filter(|id| document.page_of(*id) == Some(page.id) && document.effective_visible(*id))
+            .or_else(|| {
+                page.children.iter().filter_map(|id| document.nodes.get(id))
+                    .filter(|node| node.kind == NodeKind::Frame && node.visible)
+                    .min_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)).then(a.id.cmp(&b.id)))
+                    .map(|node| node.id)
             })
-        });
-        root.is_some_and(|root| self.start_at(document, root))
     }
 
     pub fn start_at(&mut self, document: &Document, root: NodeId) -> bool {
@@ -386,12 +387,16 @@ impl PrototypePlayer {
         let stack = if forward { &mut self.forward } else { &mut self.history };
         if let Some(index) = stack.iter().rposition(|id| *id == target) {
             stack.truncate(index);
+        } else {
+            // Restore a visited screen at its scroll position. A first visit
+            // begins at the authored origin, just like a NavigateTo action.
+            self.scroll.reset_subtree(document, target);
         }
         if let Some(current) = self.current {
             let opposite = if forward { &mut self.history } else { &mut self.forward };
             Self::remember(opposite, current);
         }
-        self.enter_frame(document, target);
+        self.enter_frame(target);
         self.last_action = Some(PrototypeAction::NavigateTo { target });
         self.last_transition = Transition { kind: TransitionKind::Instant, ..Default::default() };
         self.transients.clear();
@@ -405,9 +410,8 @@ impl PrototypePlayer {
         }
     }
 
-    fn enter_frame(&mut self, document: &mut Document, target: NodeId) {
+    fn enter_frame(&mut self, target: NodeId) {
         self.current = Some(target);
-        self.scroll.reset_subtree(document, target);
         self.overlays.clear();
         self.activations.clear();
         self.fired_timers.clear();
@@ -436,12 +440,7 @@ impl PrototypePlayer {
         if let Some(current) = self.current {
             Self::remember(&mut self.forward, current);
         }
-        self.current = Some(previous);
-        self.pending_url = None;
-        self.scroll_target = None;
-        self.activations.clear();
-        self.fired_timers.clear();
-        self.reconcile_activations();
+        self.enter_frame(previous);
         self.last_action = Some(PrototypeAction::Back);
         true
     }
@@ -458,7 +457,8 @@ impl PrototypePlayer {
                     Self::remember(&mut self.history, current);
                     self.forward.clear();
                 }
-                self.enter_frame(document, target);
+                self.scroll.reset_subtree(document, target);
+                self.enter_frame(target);
             }
             PrototypeAction::OpenOverlay { target, position } => {
                 if !document.nodes.contains_key(&target)

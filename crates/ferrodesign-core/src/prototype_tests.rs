@@ -1069,6 +1069,8 @@ fn prototype_authoring_rules_roundtrip_with_one_undo_step_per_transaction() {
 fn viewer_steps_skip_hidden_unconnected_and_overlay_frames_and_revisit_actual_history() {
     let (mut document, a, b, overlay, button) = fixture();
     let page = document.pages[0].id;
+    document.nodes.get_mut(&a).unwrap().prototype_overflow = PrototypeOverflow::Vertical;
+    document.insert_node(a, Node::new(NodeKind::Rectangle, "Footer", 0.0, 800.0, 10.0, 10.0)).unwrap();
     let orphan = document.insert_node(page, Node::new(NodeKind::Frame, "Unused", 50.0, 0.0, 20.0, 20.0)).unwrap();
     document.nodes.get_mut(&button).unwrap().interactions = vec![
         interaction(Trigger::Click, PrototypeAction::NavigateTo { target: b }),
@@ -1087,10 +1089,12 @@ fn viewer_steps_skip_hidden_unconnected_and_overlay_frames_and_revisit_actual_hi
     assert!(!player.can_step(&document, true));
     assert!(player.step(&mut document, false));
     assert_eq!(player.interaction_root(), Some(a));
+    assert!(player.scroll_by(&mut document, button, Point::new(0.0, 60.0)));
     assert!(player.step(&mut document, true));
     assert_eq!(player.current, Some(b));
     assert!(!player.can_step(&document, true));
     assert!(player.step(&mut document, false));
+    assert_eq!(player.scroll.offset(a), Point::new(0.0, 60.0), "Back restores the previous scroll position");
     document.nodes.get_mut(&button).unwrap().visible = false;
     assert!(player.step(&mut document, true), "Forward revisits actual history before evaluating links");
     assert_eq!(player.current, Some(b));

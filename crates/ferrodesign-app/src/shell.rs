@@ -679,7 +679,7 @@ impl EditorShell {
             CanvasEvent::PrototypeKey(key) => {
                 self.preview_canvas_key(&key);
             }
-            CanvasEvent::ExitPresentation => self.set_presentation(None),
+            CanvasEvent::ExitPresentation => { self.set_presentation(None); }
             CanvasEvent::Action(command) => {
                 self.command(command);
             }
@@ -2101,38 +2101,7 @@ impl EditorShell {
                 self.advanced_dialog();
                 return true;
             }
-            "present" => {
-                let editor = self.editor.borrow();
-                let root = editor
-                    .selection
-                    .first()
-                    .copied()
-                    .or_else(|| {
-                        editor
-                            .document
-                            .page(editor.active_page)
-                            .and_then(|p| p.prototype_start)
-                    })
-                    .or_else(|| {
-                        editor
-                            .document
-                            .page(editor.active_page)
-                            .and_then(|p| p.children.first())
-                            .copied()
-                    });
-                let root = root.map(|mut id| {
-                    while let Some(parent) = editor.document.nodes.get(&id).and_then(|n| n.parent) {
-                        if !editor.document.nodes.contains_key(&parent) {
-                            break;
-                        }
-                        id = parent;
-                    }
-                    id
-                });
-                drop(editor);
-                self.set_presentation(root);
-                return root.is_some();
-            }
+            "present" => return self.present_preview(),
             "prototype-back" | "prototype-next" => {
                 let changed = self.prototype.step(command == "prototype-next");
                 if changed { self.canvas.focus(); }
@@ -2761,13 +2730,13 @@ impl EditorShell {
             false
         }
     }
-    fn set_presentation(self: &Rc<Self>, root: Option<NodeId>) {
+    fn set_presentation(self: &Rc<Self>, root: Option<NodeId>) -> bool {
         self.finish_inline_text(true);
         self.close_modal();
         if let Some(root) = root {
-            self.prototype.start(root);
+            self.prototype.start(root)
         } else {
-            self.prototype.stop();
+            self.prototype.stop()
         }
     }
     fn sync_preview_controls(&self) {
