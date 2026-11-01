@@ -837,6 +837,37 @@ async function prototypeInputRegressions(page, reference, check) {
     assert.deepEqual(await documentState(page), authored, "Stopping prototype playback must preserve the authored document exactly");
     check("Real prototype hover (including locked layers), press, drag and key chord navigate frames; drag suppresses click and Escape restores authored state");
 
+    const desktopSize = page.viewportSize();
+    await page.setViewportSize({ width: 320, height: 650 });
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.CompactProperties.visible);
+    await clickNative(page, "CompactProperties");
+    await clickNative(page, "PresentButton");
+    const showing = async id => page.waitForFunction(id => JSON.parse(globalThis.ferroDesign.ferroDesignState()).presentation === id, id);
+    await showing(10);
+    await frames(page);
+    const playing = (await state(page)).chrome;
+    assert.equal(playing.PreviewBack.enabled, false);
+    assert.ok(playing.CanvasHost.y + playing.CanvasHost.height <= playing.PreviewControls.y);
+    for (const name of ["PreviewBack", "PreviewRestart", "PreviewExit"]) {
+        assert.ok(playing[name].width >= 44 && playing[name].height >= 44, name + " has a phone-sized target");
+    }
+    await moveWorld(page, 100, 90);
+    await showing(20);
+    await clickNative(page, "PreviewBack");
+    await showing(10);
+    await moveWorld(page, 100, 90);
+    await showing(20);
+    await clickNative(page, "PreviewRestart");
+    await showing(10);
+    assert.equal((await state(page)).chrome.PreviewBack.enabled, false);
+    await clickNative(page, "PreviewExit");
+    await showing(null);
+    assert.deepEqual(await documentState(page), authored);
+    assert.equal((await state(page)).chrome.CompactProperties.visible, true);
+    await page.setViewportSize(desktopSize);
+    await frames(page);
+    check("At 320 px, native Back, Restart and Done navigate the prototype and restore the authored document without a hardware keyboard");
+
     const timed = structuredClone(fixture);
     timed.name = "Prototype delayed event fixture";
     for (const node of Object.values(timed.nodes)) node.interactions = [];

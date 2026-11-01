@@ -126,6 +126,8 @@ The Appearance blend selector controls isolated or pass-through layer compositin
 
 **Local styles** creates fill, text, effect and grid styles from the selection. **Edit** opens native fields for name, description and the complete supported style definition, including ordered paint/effect stacks, typography and layout guides. Definition changes update linked layers across pages; **Replace from selection**, **Detach selected**, and **Delete style** support the rest of the lifecycle. Detaching or deleting preserves each layer's effective appearance. Explicit application and detachment respect locks and compatible layer types; definition changes also reach locked linked layers. Editing a bound property directly makes that property independent, while moving a layer retains its styles. Each accepted command is one undo step, and invalid or unchanged drafts preserve history.
 
+During presentation, the playback bar names the current frame or overlay. **Back** closes the top overlay or returns to the previous frame. **Restart** runs the original starting frame again with fresh preview state. **Done** returns to the editor with its original selection, tool, and camera. The bar sits outside the interactive artwork, including on phones.
+
 In the Prototype tab, **Edit interactions…** adds trigger/action rules and transitions. Presentation supports animated transitions, Smart Animate, reversible hover/press interactions, scroll containers, wheel scrolling and ScrollTo. Preview changes operate on disposable state; the authored design is restored when presentation ends and remains the source for autosaves. `Layer data…` remains available for validated structured properties without a dedicated control.
 
 ## Files and local persistence
