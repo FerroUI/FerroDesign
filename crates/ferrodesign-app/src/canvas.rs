@@ -176,6 +176,7 @@ pub struct DesignCanvas {
     gesture: RefCell<Gesture>,
     manipulation_cursor: Cell<Option<ferroui_base::input::StandardCursorType>>,
     hovered_resize_edge: Cell<Option<(NodeId, usize)>>,
+    size_badge: RefCell<Option<(resize::BadgeValue, FormattedText)>>,
     scale_bounds: RefCell<Option<scale::CachedBounds>>,
     painter: RefCell<ScenePainter>,
     callback: RefCell<Option<Rc<dyn Fn(CanvasEvent)>>>,
@@ -229,6 +230,7 @@ impl DesignCanvas {
             gesture: RefCell::new(Gesture::None),
             manipulation_cursor: Cell::new(None),
             hovered_resize_edge: Cell::new(None),
+            size_badge: RefCell::default(),
             scale_bounds: RefCell::default(),
             painter: RefCell::new(ScenePainter::default()),
             callback: RefCell::new(None),
@@ -2234,8 +2236,7 @@ impl VisualImpl for DesignCanvas {
             if editor.selection.len() == 1 {
                 let bounds = Rect::from_points(corners[0], corners[2])
                     .union(Rect::from_points(corners[1], corners[3]));
-                let value = resize::dimensions(n.width, n.height);
-                resize::draw_badge(ctx, &value, bounds, v);
+                this.draw_size_badge(ctx, resize::BadgeValue::Dimensions(n.width, n.height), bounds, v);
                 this.render_corner_radius(ctx, &editor, id);
             }
         }

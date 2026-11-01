@@ -189,7 +189,7 @@ impl ResizeDrag {
     }
 }
 
-pub(super) fn dimensions(width: f64, height: f64) -> String {
+fn dimensions(width: f64, height: f64) -> String {
     let width = format!("{width:.2}");
     let height = format!("{height:.2}");
     format!("{} × {}", width.trim_end_matches('0').trim_end_matches('.'),
@@ -209,14 +209,34 @@ fn badge_rect(bounds: Rect, view: Viewport, width: f64, height: f64) -> Option<R
     Some(Rect::new(x, y, width, height))
 }
 
-pub(super) fn draw_badge(ctx: &mut DrawingContext, text: &str, bounds: Rect, view: Viewport) {
-    let label = FormattedText::new(text, CultureInfo::invariant_culture(), FlowDirection::LeftToRight,
-        Typeface::from_name("fonts:Inter#Inter"), 11.0, Some(brush("#FFFFFF")));
-    let Some(body) = badge_rect(bounds, view, label.width().ceil() + 14.0, label.height().ceil() + 6.0) else {
-        return;
-    };
-    ctx.draw_rectangle(Some(&brush("#096DAE")), None, rect(body), 4.0, 4.0, &BoxShadows::default());
-    ctx.draw_text(&label, ui(Point::new(body.x + 7.0, body.y + 3.0)));
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum BadgeValue {
+    Dimensions(f64, f64),
+    Scale(f64),
+}
+
+impl DesignCanvas {
+    pub(super) fn draw_size_badge(&self, ctx: &mut DrawingContext, value: BadgeValue, bounds: Rect, view: Viewport) {
+        if !bounds.intersects(Rect::new(0.0, 0.0, view.width, view.height)) { return; }
+        // The readout is measured in screen DIPs. Panning, zoom and pointer hover
+        // reposition it without rebuilding text runs or reshaping the same numbers.
+        let mut cached = self.size_badge.borrow_mut();
+        if cached.as_ref().is_none_or(|(previous, _)| *previous != value) {
+            let text = match value {
+                BadgeValue::Dimensions(width, height) => dimensions(width, height),
+                BadgeValue::Scale(factor) => format!("{:.1}%", factor * 100.0),
+            };
+            let label = FormattedText::new(&text, CultureInfo::invariant_culture(), FlowDirection::LeftToRight,
+                Typeface::from_name("fonts:Inter#Inter"), 11.0, Some(brush("#FFFFFF")));
+            *cached = Some((value, label));
+        }
+        let label = &cached.as_ref().unwrap().1;
+        let Some(body) = badge_rect(bounds, view, label.width().ceil() + 14.0, label.height().ceil() + 6.0) else {
+            return;
+        };
+        ctx.draw_rectangle(Some(&brush("#096DAE")), None, rect(body), 4.0, 4.0, &BoxShadows::default());
+        ctx.draw_text(label, ui(Point::new(body.x + 7.0, body.y + 3.0)));
+    }
 }
 
 #[cfg(test)]

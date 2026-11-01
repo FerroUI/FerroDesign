@@ -199,7 +199,7 @@ impl DesignCanvas {
         }
         if let Gesture::Scale(drag) = &*self.gesture.borrow() {
             let screen = Rect::new(top.x, top.y, bounds.width * view.zoom, bounds.height * view.zoom);
-            resize::draw_badge(ctx, &format!("{:.1}%", drag.factor * 100.0), screen, view);
+            self.draw_size_badge(ctx, resize::BadgeValue::Scale(drag.factor), screen, view);
         }
     }
 }
