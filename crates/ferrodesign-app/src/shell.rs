@@ -13,6 +13,7 @@ mod components;
 mod layout;
 mod layer_projection;
 mod layer_rename;
+mod pages;
 mod prototyping;
 mod rich_text;
 mod text;
@@ -58,13 +59,6 @@ use std::{
     rc::Rc,
 };
 
-#[derive(Default)]
-struct PageList {
-    rows: Vec<(NodeId, String)>,
-    active: Option<NodeId>,
-    title: String,
-}
-
 pub struct EditorShell {
     pub root: Ref<UserControl>,
     pub canvas: Ref<DesignCanvas>,
@@ -80,7 +74,7 @@ pub struct EditorShell {
     expanded: RefCell<BTreeSet<NodeId>>,
     layer_buttons: RefCell<BTreeMap<NodeId, WeakRef<Button>>>,
     layer_projection: RefCell<LayerProjection>,
-    page_list: RefCell<PageList>,
+    page_list: RefCell<pages::PageList>,
     assets: Cell<bool>,
     inspector_tab: Cell<u8>,
     displayed_zoom: Cell<Option<i32>>,
@@ -410,6 +404,7 @@ impl EditorShell {
         );
         for (name, icon) in [
             ("MenuButton", "logo"),
+            ("PageActionsButton", "more"),
             ("FileRailButton", "file"),
             ("AssetsRailButton", "assets"),
             ("ToolsRailButton", "tools"),
@@ -435,6 +430,7 @@ impl EditorShell {
         self.wire_toolbar();
         self.wire_scale();
         self.wire_workspace();
+        self.wire_page_menu();
         for (name, command) in [
             ("MenuButton", "menu"),
             ("FileActionsButton", "menu"),
@@ -775,7 +771,7 @@ impl EditorShell {
             "PageStylesButton", "PageVariablesButton", "PageComponentsButton", "VariablesRailButton",
             "EditLayoutButton",
             "PaddingField", "GapField", "CrossGapField",
-            "AddPageButton",
+            "AddPageButton", "PageActionsButton",
             "EditVectorButton",
             "DoneVectorButton",
             "VectorPointOptions",
@@ -809,7 +805,11 @@ impl EditorShell {
             )
         })
         .collect();
-        for (name, item) in self.open_tool_items() {
+        let mut popup_items = self.open_tool_items();
+        if self.button("PageActionsButton").flyout().is_some_and(|f| f.is_open()) {
+            popup_items.extend(["PageRename", "PageMoveUp", "PageMoveDown"].map(|name| (name, self.control(name))));
+        }
+        for (name, item) in popup_items {
             if item.is_attached_to_visual_tree() {
                 let mut bounds = native_bounds(&item);
                 let origin = self.root.point_to_client(item.point_to_screen(ferroui_base::Point::default()));
@@ -845,6 +845,11 @@ impl EditorShell {
                 .children()
                 .get(index);
             chrome.insert("ActivePage".into(), native_bounds(&button));
+            if let Some(row) = button.cast::<Grid>() {
+                if row.children().count() > 1 {
+                    chrome.insert("PageRenameEditor".into(), native_bounds(&row.children().get(1)));
+                }
+            }
         }
         // Keep each macro expansion small while preserving the flat bridge
         // schema. These groups are moved into the result without cloning values.
@@ -1099,80 +1104,6 @@ impl EditorShell {
         // registry unborrowed while updating this bounded set of realized rows.
         for (button, selected) in buttons {
             button.classes().set("active", selected);
-        }
-    }
-    fn refresh_pages(self: &Rc<Self>) {
-        let host = self.control::<StackPanel>("PagesHost");
-        let editor = self.editor.borrow();
-        let active = editor.active_page;
-        let pages = &editor.document.pages;
-        let mut cache = self.page_list.borrow_mut();
-        let same_rows = cache.rows.iter().map(|(id, name)| (*id, name))
-            .eq(pages.iter().map(|page| (page.id, &page.name)));
-        let previous = cache.active.replace(active);
-        let title_changed = previous.is_none() || cache.title != editor.document.name;
-        if same_rows && previous == Some(active) && !title_changed {
-            return;
-        }
-        if title_changed {
-            cache.title.clone_from(&editor.document.name);
-        }
-        if !same_rows {
-            cache.rows = pages.iter().map(|page| (page.id, page.name.clone())).collect();
-        }
-        drop(cache);
-
-        if title_changed {
-            self.text("FileTitle", &editor.document.name);
-            self.text("CompactDocumentTitle", &editor.document.name);
-        }
-        let page = editor.document.page(active).map(|page| page.name.as_str()).unwrap_or("");
-        self.text("CanvasCaption", &format!("{} / {page}", editor.document.name));
-        self.text("CompactPageTitle", page);
-        let update_button = |button: &Button, name: &str, selected: bool| {
-            button.classes().set("active", selected);
-            button.set_content(Some(Rc::new(format!("{}  {name}", if selected { "✓" } else { " " }))));
-            if selected { button.bring_into_view(); }
-        };
-        if same_rows {
-            if previous != Some(active) {
-                for (index, page) in pages.iter().enumerate() {
-                    if Some(page.id) == previous || page.id == active {
-                        let button = host.children().get(index).cast::<Button>().expect("page button");
-                        update_button(&button, &page.name, page.id == active);
-                    }
-                }
-            }
-            return;
-        }
-        host.children().clear();
-        for page in pages {
-            let id = page.id;
-            let button = Button::new();
-            button.classes().add("layer");
-            let weak = Rc::downgrade(self);
-            button.click(move |_, _| {
-                if let Some(s) = weak.upgrade() {
-                    if s.editor.borrow().active_page == id {
-                        s.canvas.focus();
-                        return;
-                    }
-                    if !s.flush_inspector_drafts() { return; }
-                    s.finish_inline_text(true);
-                    s.canvas.cancel_active_edit();
-                    {
-                        let mut editor = s.editor.borrow_mut();
-                        editor.active_page = id;
-                        editor.selection.clear();
-                        editor.refresh();
-                    }
-                    s.canvas.reset_fit();
-                    s.refresh();
-                    s.canvas.focus();
-                }
-            });
-            host.children().add(button.clone());
-            update_button(&button, &page.name, id == active);
         }
     }
     fn refresh_layers(self: &Rc<Self>) {

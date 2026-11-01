@@ -90,6 +90,12 @@
     </Style>
     <Style Selector="Button.action-result.active Border.action-marker"><Setter Property="Opacity" Value="1"/></Style>
     <Style Selector="Button.action-result.active TextBlock.action-caption"><Setter Property="Foreground" Value="#07558C"/></Style>
+    <Style Selector="ToggleButton.page-row">
+      <Setter Property="Height" Value="29"/><Setter Property="MinHeight" Value="0"/>
+      <Setter Property="Padding" Value="8,3"/><Setter Property="CornerRadius" Value="5"/>
+      <Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="Transparent"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
     <Style Selector="TextBox.layer-rename">
       <Setter Property="FontSize" Value="11"/><Setter Property="Padding" Value="5,0"/>
       <Setter Property="MinHeight" Value="0"/><Setter Property="Height" Value="26"/>
@@ -167,12 +173,30 @@
           <TextBlock Text="Drafts / FerroDesign" Classes="label"/>
         </StackPanel>
         <StackPanel Grid.Row="1" Margin="12,0,12,12" Spacing="4">
-          <Grid ColumnDefinitions="*,28" Margin="4,0,0,4">
+          <Grid ColumnDefinitions="*,28,28" Margin="4,0,0,4">
             <TextBlock Text="Pages" Classes="heading" VerticalAlignment="Center"/>
-            <Button Name="AddPageButton" Grid.Column="1" Content="+" ToolTip.Tip="Add page"/>
+            <Button Name="PageActionsButton" Grid.Column="1" Padding="5" AutomationProperties.Name="Page actions" ToolTip.Tip="Page actions">
+              <Button.Flyout>
+                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                  <MenuItem Name="PageRename" Header="Rename page"/>
+                  <MenuItem Name="PageMoveUp" Header="Move page up"/>
+                  <MenuItem Name="PageMoveDown" Header="Move page down"/>
+                </MenuFlyout>
+              </Button.Flyout>
+            </Button>
+            <Button Name="AddPageButton" Grid.Column="2" Content="+" AutomationProperties.Name="Add page" ToolTip.Tip="Add page"/>
           </Grid>
           <ScrollViewer Name="PagesViewport" MaxHeight="155" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-            <StackPanel Name="PagesHost" Spacing="2"/>
+            <StackPanel Name="PagesHost" Spacing="2">
+              <StackPanel.Resources>
+                <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#E6F3FF"/>
+                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#D7EBFC"/>
+                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#C4E2F9"/>
+                <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#085B92"/>
+                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#085B92"/>
+                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#064D7B"/>
+              </StackPanel.Resources>
+            </StackPanel>
           </ScrollViewer>
         </StackPanel>
         <StackPanel Grid.Row="2" Margin="12,0,12,8" Spacing="8">

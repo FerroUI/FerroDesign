@@ -1,6 +1,12 @@
-//! A rename field exists only while its virtualized Layers row is being edited.
+//! Pages and Layers share the focused native field and the save/discard lifecycle.
 use super::*;
 use ferroui_controls::automation::AutomationProperties;
+
+#[derive(Clone, Copy)]
+pub(super) enum NameRow {
+    Layer(NodeId),
+    Page(NodeId),
+}
 
 impl EditorShell {
     pub(super) fn reveal_selected_layer(self: &Rc<Self>, edit_name: bool) -> bool {
@@ -50,22 +56,32 @@ impl EditorShell {
         };
         if !edit_name { return true; }
         let Some(row) = button.parent().and_then(|parent| parent.cast::<Grid>()) else { return false; };
-        self.open_layer_name_field(id, &row)
+        self.open_row_name(NameRow::Layer(id), &row)
     }
 
-    fn open_layer_name_field(self: &Rc<Self>, id: NodeId, row: &Ref<Grid>) -> bool {
+    pub(super) fn open_row_name(self: &Rc<Self>, target: NameRow, row: &Ref<Grid>) -> bool {
         let (original, version) = {
             let editor = self.editor.borrow();
-            let Some(node) = editor.document.nodes.get(&id) else { return false; };
-            (node.name.clone(), editor.render_change_token())
+            let name = match target {
+                NameRow::Layer(id) => editor.document.nodes.get(&id).map(|node| &node.name),
+                NameRow::Page(id) => editor.document.page(id).map(|page| &page.name),
+            };
+            let Some(name) = name else { return false; };
+            (name.clone(), editor.render_change_token())
         };
         let field = TextBox::new();
-        field.set_name(Some("LayerRenameEditor".into()));
+        let (name, label) = match target {
+            NameRow::Layer(_) => ("LayerRenameEditor", "Layer name"),
+            NameRow::Page(_) => ("PageRenameEditor", "Page name"),
+        };
+        field.set_name(Some(name.into()));
         field.classes().add("layer-rename");
-        AutomationProperties::set_name(&field, Some("Layer name"));
+        AutomationProperties::set_name(&field, Some(label));
         field.set_text(Some(&original));
-        Grid::set_column(&field, 1);
-        Grid::set_column_span(&field, 3);
+        if matches!(target, NameRow::Layer(_)) {
+            Grid::set_column(&field, 1);
+            Grid::set_column_span(&field, 3);
+        }
         row.children().add(field.clone());
 
         let active = Cell::new(true);
@@ -81,11 +97,22 @@ impl EditorShell {
                 let mut editor = shell.editor.borrow_mut();
                 // A row may be recycled after import, deletion, undo or page
                 // changes. A stale draft must never rename a replacement ID.
-                !matches!(editor.render_changes_since(&version), core::EditorRenderChanges::Full)
-                    && editor.selection.as_slice() == [id]
-                    && editor.document.nodes.get(&id).is_some_and(|node| node.name == original)
-                    && !editor.has_active_transaction() && !editor.document.effective_locked(id)
-                    && editor.update_node(id, "Rename layer", |n| n.name = value).is_some()
+                if editor.has_active_transaction() || matches!(editor.render_changes_since(&version), core::EditorRenderChanges::Full) {
+                    false
+                } else {
+                    match target {
+                        NameRow::Layer(id) => editor.selection.as_slice() == [id]
+                            && editor.document.nodes.get(&id).is_some_and(|node| node.name == original)
+                            && !editor.document.effective_locked(id)
+                            && editor.update_node(id, "Rename layer", |n| n.name = value).is_some(),
+                        NameRow::Page(id) if editor.active_page == id &&
+                            editor.document.page(id).is_some_and(|page| page.name == original) => {
+                            editor.transact("Rename page", |doc| doc.page_mut(id).unwrap().name = value);
+                            true
+                        }
+                        NameRow::Page(_) => false,
+                    }
+                }
             } else { false };
             if let Some(row) = weak_row.upgrade() { row.children().remove(field); }
             if changed { shell.changed(); }
