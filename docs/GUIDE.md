@@ -73,6 +73,7 @@ Select one or several layers and drag between layout frames, ordinary frames or 
 | Group / ungroup | `Ctrl`/`Cmd+G` / `Ctrl`/`Cmd+Shift+G` |
 | Move selection | Arrow keys; hold `Shift` for 10 units |
 | Parent / children / siblings | `Shift+Enter` / `Enter` / `Tab` and `Shift+Tab` |
+| Find layers on this page | From the canvas press `Ctrl`/`Cmd+F`. Search reveals matching descendants. `Esc` clears the query and restores the tree. |
 | Select inverse | `Ctrl`/`Cmd+Shift+A` |
 | Cycle overlapping layers | `Alt`+click / `Shift+Alt`+click, or `Alt+[` / `Alt+]` |
 | Deep selection with Select groups enabled | `Ctrl`/`Cmd`+click; double-click descends one group |

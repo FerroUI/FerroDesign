@@ -10,7 +10,7 @@ pub(super) struct LayerRow {
     pub(super) name: String,
     pub(super) kind: NodeKind,
     pub(super) depth: usize,
-    pub(super) expanded: bool,
+    pub(super) expanded: Option<bool>,
     pub(super) has_children: bool,
     pub(super) visible: bool,
     pub(super) locked: bool,
@@ -47,6 +47,7 @@ pub(super) struct LayerProjection {
     rows: Vec<LayerRow>,
     indices: BTreeMap<NodeId, usize>,
     context: Option<ProjectionContext>,
+    tree_expanded: Option<bool>,
     stats: LayerProjectionStats,
 }
 
@@ -77,6 +78,11 @@ impl LayerProjection {
         self.indices.get(&id).copied()
     }
 
+    /// None for a flat list or search results, otherwise whether a visible branch is open.
+    pub(super) fn tree_expanded(&self) -> Option<bool> {
+        self.tree_expanded
+    }
+
     pub(super) fn stats(&self) -> LayerProjectionStats {
         self.stats
     }
@@ -102,6 +108,7 @@ impl LayerProjection {
         self.stats.builds = self.stats.builds.saturating_add(1);
         let changed = self.rows != rows;
         if changed {
+            self.tree_expanded = rows.iter().filter_map(|row| row.expanded).max();
             self.indices = rows.iter().enumerate().map(|(index, row)| (row.id, index)).collect();
             self.rows = rows;
         }
@@ -209,7 +216,7 @@ fn project_rows(
             name: node.name.clone(),
             kind: node.kind,
             depth,
-            expanded: open,
+            expanded: (!assets && filter.is_empty() && !node.children.is_empty()).then_some(open),
             has_children: !node.children.is_empty(),
             visible: node.visible,
             locked: node.locked,
@@ -352,7 +359,7 @@ mod tests {
         assert_eq!(ids(&projection), vec![sibling, parent, child]);
         assert_eq!(projection.rows()[2].name, "Updated child");
         assert_eq!(projection.rows()[2].depth, 1);
-        assert!(projection.rows()[1].expanded);
+        assert_eq!(projection.rows()[1].expanded, Some(true));
         expanded.clear();
         assert!(projection.refresh(&editor, false, "", &expanded));
         assert_eq!(ids(&projection), vec![sibling, parent]);

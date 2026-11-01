@@ -527,8 +527,32 @@ impl EditorShell {
                 s.canvas_event(event)
             }
         });
+        let search = self.field("LayerSearch");
         let weak = Rc::downgrade(self);
-        self.field("LayerSearch").text_changed(move |_, _| {
+        self.button("ClearLayerSearch").click(move |_, _| {
+            if let Some(shell) = weak.upgrade() {
+                let search = shell.field("LayerSearch");
+                search.clear();
+                search.focus();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        search.add_handler(InputElement::key_down_event(), move |_, event| {
+            if event.key != Key::Escape || !event.key_modifiers.is_empty() { return; }
+            let Some(shell) = weak.upgrade() else { return; };
+            let search = shell.field("LayerSearch");
+            if search.is_composing_text() { return; }
+            if !search.text().unwrap_or_default().is_empty() {
+                search.clear();
+            } else if shell.compact.get() {
+                return; // Let the drawer handle the next Escape.
+            } else {
+                shell.canvas.focus();
+            }
+            event.set_handled(true);
+        });
+        let weak = Rc::downgrade(self);
+        search.text_changed(move |_, _| {
             if let Some(s) = weak.upgrade() {
                 if !s.updating.get() {
                     s.refresh_layers();
@@ -1162,13 +1186,20 @@ impl EditorShell {
         self.button("AssetsRailButton")
             .classes()
             .set("active", self.assets.get());
-        let filter = self
-            .field("LayerSearch")
-            .text()
-            .unwrap_or_default()
-            .to_lowercase();
         let assets = self.assets.get();
-        let (items, empty) = {
+        let search = self.field("LayerSearch");
+        let label = if assets { "Search components" } else { "Search layers" };
+        let placeholder = if assets { "Search components…" } else { "Search layers…" };
+        if search.placeholder_text().as_deref() != Some(placeholder) {
+            search.set_placeholder_text(Some(placeholder));
+            ferroui_controls::automation::AutomationProperties::set_name(&search, Some(label));
+            let tip = if assets { "Find components by name" } else { "Find layers (Ctrl/Cmd+F)" };
+            ferroui_controls::ToolTip::set_tip(&search, Some(Rc::new(tip.to_owned())));
+        }
+        let query = search.text().unwrap_or_default();
+        self.visible("ClearLayerSearch", !query.is_empty());
+        let filter = query.trim().to_lowercase();
+        let (items, empty, expanded) = {
             let editor = self.editor.borrow();
             let expanded = self.expanded.borrow();
             let mut projection = self.layer_projection.borrow_mut();
@@ -1177,15 +1208,28 @@ impl EditorShell {
                 projection.rows().iter().cloned()
                     .map(|row| Some(Rc::new(row) as BoxedValue)),
             ));
-            (items, projection.rows().is_empty())
+            (items, projection.rows().is_empty(), projection.tree_expanded())
         };
         // ItemsSource realization can synchronously call layer_row. No editor,
         // expansion or projection RefCell borrow crosses native control setters.
+        self.visible("CollapseLayersButton", expanded.is_some());
+        if let Some(open) = expanded {
+            self.visible("ExpandTreeIcon", !open);
+            self.visible("CollapseTreeIcon", open);
+            let label = if open { "Collapse all layers" } else { "Expand all layers" };
+            let button = self.button("CollapseLayersButton");
+            if ferroui_controls::automation::AutomationProperties::get_name(&button).as_deref() != Some(label) {
+                ferroui_controls::automation::AutomationProperties::set_name(&button, Some(label));
+                ferroui_controls::ToolTip::set_tip(&button, Some(Rc::new(label.to_owned())));
+            }
+        }
         self.visible("EmptyLayers", empty);
         self.text(
             "EmptyLayers",
-            if !filter.is_empty() {
-                "No layers match your search."
+            if assets && !filter.is_empty() {
+                "No matching components. Try a different name or clear the search."
+            } else if !filter.is_empty() {
+                "No matching layers. Try a different name or clear the search."
             } else if assets {
                 "Create a component to reuse it here."
             } else {
@@ -1212,15 +1256,15 @@ impl EditorShell {
             0.0,
             0.0,
         ));
-        if row.has_children {
+        if let Some(open) = row.expanded {
             let collapse = Button::new();
-            let verb = if row.expanded { "Collapse" } else { "Expand" };
+            let verb = if open { "Collapse" } else { "Expand" };
             ferroui_controls::automation::AutomationProperties::set_name(
                 &collapse, Some(&format!("{verb} {}", row.name)));
             collapse.set_min_width(20.0);
             collapse.set_padding(Thickness::uniform(0.0));
             collapse.set_content(Some(Control::boxed(icons::icon(
-                if row.expanded {
+                if open {
                     "chevron-down"
                 } else {
                     "chevron-right"
@@ -1863,6 +1907,19 @@ impl EditorShell {
             return true;
         }
         match command {
+            "find-layers" => {
+                if !self.flush_inspector_drafts() { return false; }
+                if self.compact.get() {
+                    self.compact_panel.set(workspace::CompactPanel::Layers);
+                    self.layout_workspace();
+                }
+                self.assets.set(false);
+                self.refresh_layers();
+                let search = self.field("LayerSearch");
+                search.focus();
+                search.select_all();
+                return true;
+            }
             "reveal-layer" | "rename-layer" => return self.reveal_selected_layer(command == "rename-layer"),
             "select-matching" => { self.select_matching_dialog(); return true; }
             "select-same-properties" => return self.select_same(core::SelectionMatch::Appearance),
@@ -2051,13 +2108,19 @@ impl EditorShell {
                 return true;
             }
             "collapse-layers" => {
-                let mut expanded = self.expanded.borrow_mut();
-                if expanded.is_empty() {
-                    expanded.extend(self.editor.borrow().document.nodes.keys().copied());
-                } else {
-                    expanded.clear();
+                let Some(open) = self.layer_projection.borrow().tree_expanded() else { return false; };
+                {
+                    let editor = self.editor.borrow();
+                    let Some(page) = editor.document.page(editor.active_page) else { return false; };
+                    let mut pending = page.children.clone();
+                    let mut expanded = self.expanded.borrow_mut();
+                    while let Some(id) = pending.pop() {
+                        let Some(node) = editor.document.nodes.get(&id) else { continue; };
+                        if node.children.is_empty() { continue; }
+                        if open { expanded.remove(&id); } else { expanded.insert(id); }
+                        pending.extend(node.children.iter().copied());
+                    }
                 }
-                drop(expanded);
                 self.refresh_layers();
                 return true;
             }

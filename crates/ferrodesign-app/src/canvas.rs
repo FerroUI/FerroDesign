@@ -1744,6 +1744,7 @@ impl InputElementImpl for DesignCanvas {
                 }),
                 Key::S => Some("save"),
                 Key::O => Some("open"),
+                Key::F if !alt && !shift => Some("find-layers"),
                 Key::R if !alt && !shift => Some("rename-layer"),
                 Key::OemQuestion if !alt && !shift => Some("actions"),
                 Key::K => Some(if shift {

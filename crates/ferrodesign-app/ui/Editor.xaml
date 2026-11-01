@@ -158,14 +158,25 @@
           <Border Height="1" Background="#EEEEEE" Margin="-12,0"/>
           <Grid ColumnDefinitions="*,28" Margin="4,4,0,0">
             <TextBlock Name="LeftTitle" Text="Layers" Classes="heading" VerticalAlignment="Center"/>
-            <Button Name="CollapseLayersButton" Grid.Column="1" Content="⌃" ToolTip.Tip="Expand or collapse all"/>
+            <Button Name="CollapseLayersButton" Grid.Column="1" Padding="5" AutomationProperties.Name="Expand all layers" ToolTip.Tip="Expand all layers">
+              <Grid Width="14" Height="14">
+                <Path Name="ExpandTreeIcon" Data="M2,5 L7,1 L12,5 M2,9 L7,13 L12,9" Stroke="#555555" StrokeThickness="1.4"/>
+                <Path Name="CollapseTreeIcon" Data="M2,1 L7,5 L12,1 M2,13 L7,9 L12,13" Stroke="#555555" StrokeThickness="1.4" IsVisible="False"/>
+              </Grid>
+            </Button>
           </Grid>
-          <TextBox Name="LayerSearch" PlaceholderText="Search layers…" AutomationProperties.Name="Search layers">
+          <TextBox Name="LayerSearch" PlaceholderText="Search layers…" AutomationProperties.Name="Search layers" ToolTip.Tip="Find layers (Ctrl/Cmd+F)">
             <TextBox.InnerLeftContent>
               <Path Data="M10,3 A7,7 0 1 0 10,17 A7,7 0 1 0 10,3 M15,15 L21,21"
                     Stroke="#686868" StrokeThickness="2" Stretch="Uniform" Width="13" Height="13"
                     Margin="8,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
             </TextBox.InnerLeftContent>
+            <TextBox.InnerRightContent>
+              <Button Name="ClearLayerSearch" Width="28" Height="28" Padding="8" IsVisible="False"
+                      AutomationProperties.Name="Clear search" ToolTip.Tip="Clear search (Esc)">
+                <Path Data="M1,1 L11,11 M11,1 L1,11" Stroke="#555555" StrokeThickness="1.5" Width="12" Height="12"/>
+              </Button>
+            </TextBox.InnerRightContent>
           </TextBox>
         </StackPanel>
         <ScrollViewer Name="LayersViewport" Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
@@ -173,7 +184,7 @@
             <ItemsControl.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
           </ItemsControl>
         </ScrollViewer>
-        <TextBlock Name="EmptyLayers" Grid.Row="3" Text="Draw a frame or shape to get started." Margin="20,12" TextWrapping="Wrap" Foreground="#888888" IsVisible="False"/>
+        <TextBlock Name="EmptyLayers" Grid.Row="3" Text="Draw a frame or shape to get started." Margin="20,12" TextWrapping="Wrap" Foreground="#626262" IsHitTestVisible="False" IsVisible="False"/>
         <Border Grid.Row="4" BorderBrush="#EEEEEE" BorderThickness="0,1,0,0" Padding="12,9">
           <TextBlock Name="DocumentStatus" Text="All changes saved locally" FontSize="10" Foreground="#626262"/>
         </Border>
