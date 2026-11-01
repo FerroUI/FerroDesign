@@ -77,11 +77,16 @@ impl DesignCanvas {
             || self.linear_gradient_active()
             || self.image_crop.get().is_some()
             || self.stroke_width_mode_active()
+            || self.editor.borrow().has_active_transaction()
+            || self.layout_drag.borrow().is_some()
             || self.editor.borrow().selection.is_empty()
             || !matches!(*self.gesture.borrow(), Gesture::None)
         {
             self.clear_measurement();
             return false;
+        }
+        if self.hover_edit_handle(world, modifiers) {
+            return true;
         }
         let hit = self.pick_with_modifiers(world, modifiers, false);
         let editor = self.editor.borrow();
@@ -100,9 +105,6 @@ impl DesignCanvas {
                 .filter(|parent| editor.document.nodes.contains_key(parent))
         });
         drop(editor);
-        let handles = !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META);
-        self.set_resize_hover(if handles { self.handle_at(world) } else { None });
-        self.clear_corner_radius_hover();
         let previous_hit = self.hover.replace(hit);
         if self.measurements.target.replace(target) != target || previous_hit != hit {
             self.invalidate_visual();

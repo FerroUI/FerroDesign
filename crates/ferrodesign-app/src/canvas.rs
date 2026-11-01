@@ -396,6 +396,21 @@ impl DesignCanvas {
             self.emit(CanvasEvent::Camera);
         }
     }
+    // Pointer movement and a modifier change at a stationary pointer must agree
+    // on the target. Geometry handles own their hit area before layer measurement.
+    fn hover_edit_handle(&self, world: Point, modifiers: KeyModifiers) -> bool {
+        let resize = (!modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META))
+            .then(|| self.handle_at(world)).flatten();
+        self.set_resize_hover(resize);
+        if resize.is_some() {
+            self.clear_corner_radius_hover();
+        } else if !self.corner_radius_hover(world, modifiers) {
+            return false;
+        }
+        self.clear_measurement();
+        if self.hover.take().is_some() { self.invalidate_visual(); }
+        true
+    }
     fn pan_pointer(&self, screen: Point) -> bool {
         // A captured pan is independent of the document. In particular, do not
         // run vector/gradient hover probes while dragging over their handles.
@@ -1085,19 +1100,8 @@ impl InputElementImpl for DesignCanvas {
             if this.measure_hover(world, e.key_modifiers()) { return; }
             if this.tool.get() == Tool::Scale {
                 this.update_scale_cursor(world);
-            } else {
-                let hit = (!e.key_modifiers().intersects(KeyModifiers::CONTROL | KeyModifiers::META))
-                    .then(|| this.handle_at(world)).flatten();
-                this.set_resize_hover(hit);
-                if hit.is_some() {
-                    this.clear_corner_radius_hover();
-                    if this.hover.take().is_some() { this.invalidate_visual(); }
-                    return;
-                }
-                if this.corner_radius_hover(world, e.key_modifiers()) {
-                    if this.hover.take().is_some() { this.invalidate_visual(); }
-                    return;
-                }
+            } else if this.hover_edit_handle(world, e.key_modifiers()) {
+                return;
             }
         }
         let mut gesture = this.gesture.borrow_mut();

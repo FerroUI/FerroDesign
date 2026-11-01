@@ -94,3 +94,51 @@ fn alt_measurements_use_real_hover_and_release_without_editing() {
     assert_eq!(fixture.json(), before);
     assert_eq!(shell.editor.borrow().history_len(), 0);
 }
+
+#[test]
+fn alt_keeps_individual_corner_handles_reachable_while_measuring() {
+    let fixture = Fixture::with_kind(false, NodeKind::Rectangle);
+    let shell = &fixture.shell;
+    let canvas = &shell.canvas;
+    let window = &fixture.window;
+    assert!(canvas.focus());
+    window.capture_rendered_frame().unwrap();
+    let state = canvas.corner_radius_state();
+    let handle = state["handles"].as_array().unwrap().iter().find(|h| h["corner"] == 1).unwrap();
+    let p = &handle["screen"];
+    let point = canvas
+        .translate_point(ferroui_base::Point::new(p["x"].as_f64().unwrap(), p["y"].as_f64().unwrap()), window)
+        .unwrap();
+    let delta = &handle["worldPerRadius"];
+    let zoom = canvas.viewport.get().zoom;
+    let end = ferroui_base::Point::new(
+        point.x + 6.25 * zoom * delta["x"].as_f64().unwrap(),
+        point.y + 6.25 * zoom * delta["y"].as_f64().unwrap(),
+    );
+    let before = fixture.json();
+    window.mouse_move(point, RawInputModifiers::NONE);
+    assert_eq!(canvas.corner_radius_state()["hover"], 1);
+    window.key_press(Key::LeftAlt, RawInputModifiers::ALT, PhysicalKey::AltLeft, None);
+    assert_eq!(canvas.corner_radius_state()["hover"], 1, "Alt at a revealed marker keeps it visible");
+    window.mouse_move(ferroui_base::Point::new(point.x - 36.0, point.y + 36.0), RawInputModifiers::ALT);
+    window.mouse_move(point, RawInputModifiers::ALT);
+    assert_eq!(
+        canvas.corner_radius_state()["hover"],
+        1,
+        "Alt-hover reveals the same individually editable marker"
+    );
+    assert_eq!(canvas.measurement_target(), None);
+    window.mouse_down(point, MouseButton::Left, RawInputModifiers::ALT);
+    assert_eq!(canvas.corner_radius_state()["individual"], true);
+    window.mouse_move(end, RawInputModifiers::LEFT_MOUSE_BUTTON | RawInputModifiers::ALT);
+    window.mouse_up(end, MouseButton::Left, RawInputModifiers::ALT);
+    window.key_release(Key::LeftAlt, RawInputModifiers::NONE, PhysicalKey::AltLeft, None);
+    let editor = shell.editor.borrow();
+    let corners = editor.document.nodes[&fixture.id].corner_radii.unwrap();
+    assert!(corners[1] > 12.5);
+    assert_eq!([corners[0], corners[2], corners[3]], [12.5; 3]);
+    assert_eq!(editor.history_len(), 1);
+    drop(editor);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+}
