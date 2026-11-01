@@ -14,21 +14,22 @@ pub(super) struct Measurements {
 struct Span {
     from: Point,
     to: Point,
+    along_x: bool,
 }
 
-fn horizontal(x1: f64, x2: f64, y: f64) -> Option<Span> {
-    (x1 != x2).then_some(Span { from: Point::new(x1, y), to: Point::new(x2, y) })
+fn horizontal(x1: f64, x2: f64, y: f64) -> Span {
+    Span { from: Point::new(x1, y), to: Point::new(x2, y), along_x: true }
 }
-fn vertical(y1: f64, y2: f64, x: f64) -> Option<Span> {
-    (y1 != y2).then_some(Span { from: Point::new(x, y1), to: Point::new(x, y2) })
+fn vertical(y1: f64, y2: f64, x: f64) -> Span {
+    Span { from: Point::new(x, y1), to: Point::new(x, y2), along_x: false }
 }
 
 // When projections are disjoint the nearest facing edges define the gap.
 // If they intersect, use the midpoint of the shared projection as the ruler.
 fn gap(a: f64, b: f64, c: f64, d: f64) -> Option<(f64, f64)> {
-    if b < c {
+    if b <= c {
         Some((b, c))
-    } else if d < a {
+    } else if d <= a {
         Some((a, d))
     } else {
         None
@@ -39,16 +40,17 @@ fn spans(a: Rect, b: Rect) -> [Option<Span>; 4] {
     let x = (a.x.max(b.x) + a.right().min(b.right())) * 0.5;
     let y = (a.y.max(b.y) + a.bottom().min(b.bottom())) * 0.5;
     match (gap(a.x, a.right(), b.x, b.right()), gap(a.y, a.bottom(), b.y, b.bottom())) {
-        (Some((ax, bx)), Some((ay, by))) => [horizontal(ax, bx, ay), vertical(ay, by, bx), None, None],
-        (Some((ax, bx)), None) => [horizontal(ax, bx, y), None, None, None],
-        (None, Some((ay, by))) => [vertical(ay, by, x), None, None, None],
+        (Some((ax, bx)), Some((ay, by))) => [Some(horizontal(ax, bx, ay)), Some(vertical(ay, by, bx)), None, None],
+        (Some((ax, bx)), None) => [Some(horizontal(ax, bx, y)), None, None, None],
+        (None, Some((ay, by))) => [Some(vertical(ay, by, x)), None, None, None],
         // Nested and overlapping bounds expose their corresponding edge offsets.
         (None, None) => [
             horizontal(a.x, b.x, y),
             horizontal(a.right(), b.right(), y),
             vertical(a.y, b.y, x),
             vertical(a.bottom(), b.bottom(), x),
-        ],
+        ]
+        .map(|span| (span.from != span.to).then_some(span)),
     }
 }
 
@@ -144,7 +146,7 @@ impl DesignCanvas {
             let Some(visible) = Rect::from_points(from, to).intersection(view) else {
                 continue;
             };
-            let horizontal = span.from.y == span.to.y;
+            let horizontal = span.along_x;
             let cap = if horizontal { Point::new(0.0, 3.0) } else { Point::new(3.0, 0.0) };
             ctx.draw_line(&guide, ui(from), ui(to));
             for end in [from, to] {
@@ -154,8 +156,11 @@ impl DesignCanvas {
                 if horizontal { (span.to.x - span.from.x).abs() } else { (span.to.y - span.from.y).abs() };
             if labels[i].as_ref().is_none_or(|(old, _)| *old != distance) {
                 let precise = format!("{distance:.2}");
-                let text =
-                    if distance < 0.005 { "<0.01" } else { precise.trim_end_matches('0').trim_end_matches('.') };
+                let text = if distance > 0.0 && distance < 0.005 {
+                    "<0.01"
+                } else {
+                    precise.trim_end_matches('0').trim_end_matches('.')
+                };
                 labels[i] = Some((
                     distance,
                     FormattedText::new(
@@ -203,16 +208,18 @@ mod tests {
     fn gaps_use_only_separated_axes_and_reverse_symmetrically() {
         let selected = Rect::new(-40.0, 10.0, 120.0, 50.0);
         let target = Rect::new(95.125, 20.0, 30.0, 10.0);
-        assert_eq!(spans(selected, target), [horizontal(80.0, 95.125, 25.0), None, None, None]);
-        assert_eq!(spans(target, selected), [horizontal(95.125, 80.0, 25.0), None, None, None]);
+        assert_eq!(spans(selected, target), [Some(horizontal(80.0, 95.125, 25.0)), None, None, None]);
+        assert_eq!(spans(target, selected), [Some(horizontal(95.125, 80.0, 25.0)), None, None, None]);
+        let flush = Rect::new(80.0, 20.0, 30.0, 10.0);
+        assert_eq!(spans(selected, flush), [Some(horizontal(80.0, 80.0, 25.0)), None, None, None]);
         let diagonal = Rect::new(95.125, -20.0, 30.0, 12.5);
         assert_eq!(
             spans(selected, diagonal),
-            [horizontal(80.0, 95.125, 10.0), vertical(10.0, -7.5, 95.125), None, None]
+            [Some(horizontal(80.0, 95.125, 10.0)), Some(vertical(10.0, -7.5, 95.125)), None, None]
         );
         assert_eq!(
             spans(selected, Rect::new(20.0, 80.0, 30.0, 40.0)),
-            [vertical(60.0, 80.0, 35.0), None, None, None]
+            [Some(vertical(60.0, 80.0, 35.0)), None, None, None]
         );
     }
 
@@ -223,10 +230,10 @@ mod tests {
         assert_eq!(
             spans(child, parent),
             [
-                horizontal(53.5, 20.0, 65.0),
-                horizontal(113.5, 270.0, 65.0),
-                vertical(50.0, 25.0, 83.5),
-                vertical(80.0, 155.0, 83.5)
+                Some(horizontal(53.5, 20.0, 65.0)),
+                Some(horizontal(113.5, 270.0, 65.0)),
+                Some(vertical(50.0, 25.0, 83.5)),
+                Some(vertical(80.0, 155.0, 83.5))
             ]
         );
         assert_eq!(spans(child, child), [None; 4]);

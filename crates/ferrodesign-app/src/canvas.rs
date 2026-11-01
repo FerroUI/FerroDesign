@@ -1540,6 +1540,9 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
+        if matches!(e.key, Key::LeftCtrl | Key::RightCtrl | Key::LWin | Key::RWin) && e.key_modifiers.contains(KeyModifiers::ALT) {
+            this.measure_at_pointer(e.key_modifiers);
+        }
         if this.linear_gradient_key(e.key, e.key_modifiers) { e.set_handled(true); return; }
         if e.key == Key::Escape && this.cancel_corner_radius_gesture() {
             e.set_handled(true);
@@ -1720,6 +1723,9 @@ impl InputElementImpl for DesignCanvas {
     fn on_key_up(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_up(this, e);
         if matches!(e.key, Key::LeftAlt | Key::RightAlt) { this.clear_measurement(); }
+        if matches!(e.key, Key::LeftCtrl | Key::RightCtrl | Key::LWin | Key::RWin) && e.key_modifiers.contains(KeyModifiers::ALT) {
+            this.measure_at_pointer(e.key_modifiers);
+        }
         if e.key == Key::Space {
             this.space.set(false);
             e.set_handled(true);
