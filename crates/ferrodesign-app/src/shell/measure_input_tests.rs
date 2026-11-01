@@ -19,10 +19,11 @@ fn alt_measurements_use_real_hover_and_release_without_editing() {
                 .with_fill(core::Color::rgb(88, 60, 190)),
         )
         .unwrap();
+    let group = doc.insert_node(card, Node::new(NodeKind::Group, "Actions", 116.0, 38.0, 128.0, 52.0)).unwrap();
     let b = doc
         .insert_node(
-            card,
-            Node::new(NodeKind::Rectangle, "Button", 116.0, 38.0, 128.0, 52.0)
+            group,
+            Node::new(NodeKind::Rectangle, "Button", 0.0, 0.0, 128.0, 52.0)
                 .with_fill(core::Color::rgb(47, 139, 103)),
         )
         .unwrap();
@@ -71,6 +72,18 @@ fn alt_measurements_use_real_hover_and_release_without_editing() {
     window.key_release(Key::Space, RawInputModifiers::ALT, PhysicalKey::Space, None);
     window.mouse_move(target_center, RawInputModifiers::ALT);
     assert_eq!(canvas.measurement_target(), Some(b));
+    canvas.select_groups.set(true);
+    window.mouse_move(point(Point::new(193.0, 107.0)), RawInputModifiers::ALT);
+    assert_eq!(canvas.measurement_target(), Some(group));
+    window.key_press(
+        Key::LeftCtrl,
+        RawInputModifiers::CONTROL | RawInputModifiers::ALT,
+        PhysicalKey::ControlLeft,
+        None,
+    );
+    assert_eq!(canvas.measurement_target(), Some(b), "deep-pick modifiers update at a stationary pointer");
+    window.key_release(Key::LeftCtrl, RawInputModifiers::ALT, PhysicalKey::ControlLeft, None);
+    assert_eq!(canvas.measurement_target(), Some(group));
     assert!(shell.button("SelectTool").focus());
     assert_eq!(
         canvas.measurement_target(),
