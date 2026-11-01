@@ -2423,6 +2423,49 @@ mod render_change_tests {
     }
 
     #[test]
+    fn batch_layer_dimensions_apply_parents_first_and_restore_exact_undo() {
+        let mut doc = Document::new("Nested width calculation");
+        let mut child = Node::new(NodeKind::Rectangle, "Child", 8.0, 10.0, 20.0, 16.0);
+        child.constraints.horizontal = Constraint::Scale;
+        let id = doc.insert_node(1, child).unwrap();
+        let frame = doc.insert_node(1, Node::new(NodeKind::Frame, "Frame", 40.0, 40.0, 100.0, 80.0)).unwrap();
+        doc.reparent(id, frame, 0).unwrap();
+        doc.variables.insert(900, Variable {
+            id: 900, name: "Width".into(), collection: "Sizing".into(),
+            values: BTreeMap::from([("Default".into(), VariableValue::Number(20.0))]),
+        });
+        doc.next_id = 901;
+        doc.nodes.get_mut(&id).unwrap().variable_bindings.insert("width".into(), 900);
+        let mut editor = Editor::new(doc);
+        let before = editor.document.to_json().unwrap();
+        editor.set_layer_dimensions(LayerDimension::Width, &BTreeMap::from([(id, 40.0), (frame, 200.0)])).unwrap();
+        assert_eq!(editor.document.nodes[&id].width, 40.0);
+        assert_eq!(editor.document.nodes[&id].x, 16.0);
+        assert!(!editor.document.nodes[&id].variable_bindings.contains_key("width"));
+        assert_eq!(editor.history_len(), 1);
+        assert!(editor.undo());
+        assert_eq!(editor.document.to_json().unwrap(), before);
+    }
+
+    #[test]
+    fn batch_layer_dimensions_roll_back_earlier_layers_if_vector_resize_overflows() {
+        let mut doc = Document::new("Atomic resize");
+        let ordinary = doc.insert_node(1, Node::new(NodeKind::Rectangle, "Box", 0.0, 0.0, 20.0, 10.0)).unwrap();
+        let mut network = VectorNetwork::default();
+        network.add_vertex(Point::new(1.0e304, 0.0)).unwrap();
+        let mut vector = Node::new(NodeKind::Vector, "Wide network", 0.0, 0.0, 1.0, 10.0);
+        vector.vector_network = Some(network);
+        let vector = doc.insert_node(1, vector).unwrap();
+        let mut editor = Editor::new(doc);
+        let before = editor.document.to_json().unwrap();
+        let result = editor.set_layer_dimensions(LayerDimension::Width, &BTreeMap::from([(ordinary, 30.0), (vector, 1.0e7)]));
+        assert!(result.is_err());
+        assert_eq!(editor.document.to_json().unwrap(), before);
+        assert_eq!(editor.history_len(), 0);
+        assert!(!editor.has_active_transaction());
+    }
+
+    #[test]
     fn resize_previews_scope_leaf_changes_and_preserve_constraint_children_in_history() {
         let (mut editor, frame, child, _) = nested_editor();
         editor.document.nodes.get_mut(&child).unwrap().constraints.horizontal = crate::Constraint::End;

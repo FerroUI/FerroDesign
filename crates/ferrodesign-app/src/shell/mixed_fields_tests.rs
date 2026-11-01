@@ -164,6 +164,11 @@ fn geometry_equations_commit_once_from_mixed_drafts_and_preserve_variable_undo()
     assert_eq!(fixture.json(), before);
     assert!(shell.command("redo"));
     assert_eq!(fixture.json(), after);
+    shell.editor.borrow_mut().selection = vec![locked];
+    shell.refresh_selection();
+    for name in ["XField", "YField", "WidthField", "HeightField", "RotationField"] {
+        assert!(!shell.field(name).is_enabled());
+    }
 }
 
 #[test]

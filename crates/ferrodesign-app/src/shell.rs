@@ -1401,10 +1401,13 @@ impl EditorShell {
                 (p.top == p.left && p.right == p.left && p.bottom == p.left).then_some(p.left)
             })),
         ];
+        let can_edit_geometry = editor.selection.iter().any(|id| !editor.document.effective_locked(*id));
         for &(name, property) in GEOMETRY_AND_APPEARANCE {
             let value = selection.common(property).map(|v| v.map(number).unwrap_or_default());
             let hint = (name == "PaddingField").then_some("Mixed");
-            selection.show(&self.field(name), value.as_deref(), hint);
+            let field = self.field(name);
+            if geometry_fields::GeometryField::named(name).is_some() { field.set_is_enabled(can_edit_geometry); }
+            selection.show(&field, value.as_deref(), hint);
         }
         let page_background = editor.document.page(editor.active_page)
             .map_or(Color::WHITE, |page| page.background);
