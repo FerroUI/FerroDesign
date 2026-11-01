@@ -860,7 +860,7 @@ impl EditorShell {
             "revision":editor.revision,"documentRevision":editor.document.revision,"nodeCount":editor.document.nodes.len(),
             "selectionCount":editor.selection.len(),"selection":editor.selection,"selectionBounds":selection_bounds,
             "tool":self.canvas.tool.get().name(),"zoom":v.zoom,"pan":{"x":v.pan.x,"y":v.pan.y},
-            "selectGroups":self.canvas.select_groups.get(),
+            "selectGroups":self.canvas.select_groups.get(),"measurementTarget":self.canvas.measurement_target(),
             "prototypeSelectionIndex":self.canvas.prototype_selection_index_stats(),
             "zoomLabel":self.button("ZoomValueButton").content().and_then(|value| value.downcast_ref::<String>().cloned()),
             "canvas":{"x":canvas.x,"y":canvas.y,"width":canvas.width,"height":canvas.height},

@@ -1,5 +1,6 @@
 //! Interactive retained-mode surface. Artwork uses only FerroUI's public DrawingContext API.
 mod drawing;
+mod measure;
 mod resize;
 mod line_endpoint;
 mod network;
@@ -182,6 +183,7 @@ pub struct DesignCanvas {
     painter: RefCell<ScenePainter>,
     callback: RefCell<Option<Rc<dyn Fn(CanvasEvent)>>>,
     hover: Cell<Option<NodeId>>,
+    measurements: measure::Measurements,
     layer_preview: Cell<Option<NodeId>>,
     prototype_press: Cell<Option<(NodeId, Point, bool)>>,
     space: Cell<bool>,
@@ -236,6 +238,7 @@ impl DesignCanvas {
             painter: RefCell::new(ScenePainter::default()),
             callback: RefCell::new(None),
             hover: Cell::new(None),
+            measurements: Default::default(),
             layer_preview: Cell::new(None),
             prototype_press: Cell::new(None),
             space: Cell::new(false),
@@ -311,6 +314,7 @@ impl DesignCanvas {
     }
     /// Activation changes cannot reuse a press or hover from an earlier frame.
     pub fn reset_presentation_input(&self) {
+        self.clear_measurement();
         self.set_resize_hover(None);
         self.leave_linear_gradient_edit();
         self.cancel_corner_radius_gesture();
@@ -338,6 +342,7 @@ impl DesignCanvas {
     }
 
     pub fn set_tool(&self, tool: Tool) {
+        self.clear_measurement();
         self.leave_linear_gradient_edit();
         self.cancel_corner_radius_gesture();
         self.clear_corner_radius_hover();
@@ -361,6 +366,7 @@ impl DesignCanvas {
         self.emit(CanvasEvent::Tool);
     }
     pub fn reset_fit(&self) {
+        self.clear_measurement();
         self.cancel_linear_gradient_gesture();
         self.clear_gradient_hover();
         self.cancel_corner_radius_gesture();
@@ -384,6 +390,7 @@ impl DesignCanvas {
     }
     fn update_camera(&self, viewport: Viewport) {
         if self.viewport.replace(viewport) != viewport {
+            self.clear_measurement();
             self.set_resize_hover(None);
             self.invalidate_visual();
             self.emit(CanvasEvent::Camera);
@@ -402,6 +409,7 @@ impl DesignCanvas {
         true
     }
     pub fn zoom_to_selection(&self) {
+        self.clear_measurement();
         self.cancel_linear_gradient_gesture();
         self.clear_gradient_hover();
         self.cancel_corner_radius_gesture();
@@ -529,6 +537,7 @@ impl DesignCanvas {
         active
     }
     pub fn cancel(&self) {
+        self.clear_measurement();
         if matches!(*self.gesture.borrow(), Gesture::EdgePress { .. }) {
             *self.gesture.borrow_mut() = Gesture::None;
             self.set_resize_hover(None);
@@ -830,6 +839,7 @@ impl DesignCanvas {
 impl InputElementImpl for DesignCanvas {
     fn on_pointer_pressed(this: &Self, e: &PointerPressedEventArgs) {
         Self::parent_on_pointer_pressed(this, e);
+        this.clear_measurement();
         this.layout_grids.borrow_mut().clear_snap();
         this.cancel_linear_gradient_gesture();
         this.cancel_corner_radius_gesture();
@@ -1072,6 +1082,7 @@ impl InputElementImpl for DesignCanvas {
         let shift = e.key_modifiers().contains(KeyModifiers::SHIFT);
         if this.layout_drag_move_constrained(world, Point::new(screen.x, screen.y), shift) { return; }
         if matches!(*this.gesture.borrow(), Gesture::None) {
+            if this.measure_hover(world, e.key_modifiers()) { return; }
             if this.tool.get() == Tool::Scale {
                 this.update_scale_cursor(world);
             } else {
@@ -1464,6 +1475,7 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_pointer_exited(this: &Self, e: &PointerEventArgs) {
         Self::parent_on_pointer_exited(this, e);
+        this.clear_measurement();
         this.set_resize_hover(None);
         this.clear_gradient_hover();
         this.clear_corner_radius_hover();
@@ -1509,6 +1521,7 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_lost_focus(this: &Self, e: &FocusChangedEventArgs) {
         Self::parent_on_lost_focus(this, e);
+        this.clear_measurement();
         // KeyUp is routed to the new focus owner.
         this.space.set(false);
     }
@@ -1520,6 +1533,10 @@ impl InputElementImpl for DesignCanvas {
                 e.key_modifiers,
                 e.key_symbol.as_deref(),
             )));
+            e.set_handled(true);
+            return;
+        }
+        if matches!(e.key, Key::LeftAlt | Key::RightAlt) && this.measure_at_pointer(e.key_modifiers | KeyModifiers::ALT) {
             e.set_handled(true);
             return;
         }
@@ -1535,6 +1552,7 @@ impl InputElementImpl for DesignCanvas {
             return;
         }
         if e.key == Key::Space {
+            this.clear_measurement();
             if this.space.replace(true) {
                 e.set_handled(true);
                 return;
@@ -1701,6 +1719,7 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_key_up(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_up(this, e);
+        if matches!(e.key, Key::LeftAlt | Key::RightAlt) { this.clear_measurement(); }
         if e.key == Key::Space {
             this.space.set(false);
             e.set_handled(true);
@@ -2096,16 +2115,18 @@ impl VisualImpl for DesignCanvas {
             let world_width = transform.a.abs() * local.width + transform.c.abs() * local.height;
             canvas_caption(ctx, &node.name, Point::new(point.x, point.y - 20.0), world_width * v.zoom, color);
         }
-        if let Some(id) = this.highlighted_layer() {
+        let measuring = this.measurement_target();
+        if let Some(id) = measuring.or_else(|| this.highlighted_layer()) {
+            let outline = if measuring.is_some() { pen(measure::GUIDE_COLOR, 1.0) } else { blue.clone() };
             if !editor.selection.contains(&id) && doc.effective_visible(id) {
                 if let (Some(node), Some(transform)) = (doc.nodes.get(&id), editor.scene.transforms.get(&id)) {
                     let points = node.local_bounds().corners()
                         .map(|p| ui(v.world_to_screen(transform.apply(p))));
                     if node.kind == NodeKind::Line {
-                        ctx.draw_line(&blue, points[0], points[2]);
+                        ctx.draw_line(&outline, points[0], points[2]);
                     } else {
                         for i in 0..4 {
-                            ctx.draw_line(&blue, points[i], points[(i + 1) % 4]);
+                            ctx.draw_line(&outline, points[i], points[(i + 1) % 4]);
                         }
                     }
                 }
@@ -2195,7 +2216,7 @@ impl VisualImpl for DesignCanvas {
             if editor.selection.len() == 1 {
                 let bounds = Rect::from_points(corners[0], corners[2])
                     .union(Rect::from_points(corners[1], corners[3]));
-                this.draw_size_badge(ctx, resize::BadgeValue::Dimensions(n.width, n.height), bounds, v);
+                if measuring.is_none() { this.draw_size_badge(ctx, resize::BadgeValue::Dimensions(n.width, n.height), bounds, v); }
                 this.render_corner_radius(ctx, &editor, id);
             }
         }
@@ -2213,6 +2234,7 @@ impl VisualImpl for DesignCanvas {
             );
         }
         this.render_layout_drag(ctx, v);
+        this.draw_measurements(ctx, &editor, v);
         for comment in &doc.comments {
             if !comment.resolved && doc.comment_page(comment) == Some(editor.active_page) {
                 let p = v.world_to_screen(comment.position);
