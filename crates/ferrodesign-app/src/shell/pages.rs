@@ -1,7 +1,7 @@
 //! Keep page controls stable while names, order and active-page state change.
 use super::*;
 use super::layer_rename::NameRow;
-use ferroui_base::interactivity::RoutingStrategies;
+use ferroui_base::{input::{KeyModifiers, NavigationMethod}, interactivity::RoutingStrategies};
 use ferroui_controls::{MenuItem, ToolTip, automation::AutomationProperties, primitives::ToggleButton};
 
 #[derive(Default)]
@@ -84,6 +84,7 @@ impl EditorShell {
         let mut selected = None;
         for (index, row) in list.rows.iter().enumerate() {
             let current = row.id == active;
+            if row.button.is_tab_stop() != current { row.button.set_is_tab_stop(current); }
             if row.button.is_checked() != Some(current) { row.button.set_is_checked(Some(current)); }
             if current { selected = Some(index); }
         }
@@ -115,6 +116,7 @@ impl EditorShell {
             pressed.set(e.properties().is_left_button_pressed && e.click_count() == 2);
         }, RoutingStrategies::TUNNEL, true);
         let weak = Rc::downgrade(self);
+        let clicked = button.downgrade();
         button.click(move |_, _| {
             let Some(shell) = weak.upgrade() else { return; };
             let rename = twice.replace(false);
@@ -123,18 +125,37 @@ impl EditorShell {
             }
             // Clicking the active ToggleButton or rejecting an invalid inspector edit
             // must not leave the accessible checked state out of sync with the document.
-            let active = shell.editor.borrow().active_page;
-            for row in &shell.page_list.borrow().rows {
-                if row.id == id { row.button.set_is_checked(Some(id == active)); break; }
+            if let Some(button) = clicked.upgrade() {
+                button.set_is_checked(Some(shell.editor.borrow().active_page == id));
             }
         });
         let weak = Rc::downgrade(self);
         button.add_handler(InputElement::key_down_event(), move |_, e| {
-            if e.key != Key::F2 || !e.key_modifiers.is_empty() { return; }
-            if let Some(shell) = weak.upgrade() {
+            if !e.key_modifiers.is_empty() { return; }
+            let Some(shell) = weak.upgrade() else { return; };
+            if e.key == Key::F2 {
                 if shell.go_to_page(id) { shell.rename_active_page(); }
                 e.set_handled(true);
+                return;
             }
+            if !matches!(e.key, Key::Up | Key::Down | Key::Home | Key::End) { return; }
+            let target = {
+                let list = shell.page_list.borrow();
+                let Some(index) = list.rows.iter().position(|row| row.id == id) else { return; };
+                let last = list.rows.len() - 1;
+                let next = match e.key {
+                    Key::Up => index.saturating_sub(1),
+                    Key::Down => (index + 1).min(last),
+                    Key::Home => 0,
+                    _ => last,
+                };
+                (list.rows[next].id, list.rows[next].button.clone())
+            };
+            if shell.go_to_page(target.0) {
+                target.1.focus_with(NavigationMethod::Directional, KeyModifiers::NONE);
+                target.1.bring_into_view();
+            }
+            e.set_handled(true);
         });
         let weak = Rc::downgrade(self);
         let target = button.downgrade();

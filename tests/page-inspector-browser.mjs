@@ -58,4 +58,32 @@ export async function pageInspectorRegressions(page, reference, check, helpers, 
     assert.equal(view.chrome.PageInspector.visible, true);
     assert.equal(view.chrome.DesignInspector.visible, false);
     check("Empty selection exposes native page background and local resources; native color edits change canvas pixels, validate atomically, and undo exactly");
+
+    await clickNative(page, "AddPageButton");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).pageCount === 2);
+    const beforePages = await documentState(page);
+    const current = (await state(page)).activePage;
+    const depth = (await state(page)).historyLength;
+    await clickNative(page, "PageActionsButton");
+    await clickNative(page, "PageRename");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.PageRenameEditor?.focused);
+    await page.keyboard.insertText("Checkout – review");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(id =>
+        JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).pages.find(p => p.id === id)?.name === "Checkout – review", current);
+    const afterRename = await documentState(page);
+    assert.equal((await state(page)).historyLength, depth + 1);
+    await clickNative(page, "PageActionsButton");
+    await clickNative(page, "PageMoveUp");
+    await page.waitForFunction(id => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).pages[0].id === id, current);
+    assert.equal((await state(page)).activePage, current);
+    assert.equal((await state(page)).historyLength, depth + 2);
+    await page.keyboard.press("Control+z");
+    await frames(page);
+    assert.deepEqual(await documentState(page), afterRename);
+    await page.keyboard.press("Control+z");
+    await frames(page);
+    assert.deepEqual(await documentState(page), beforePages);
+    check("The native page menu renames in place and reorders pages while preserving the active page and exact undo");
+
 }

@@ -11,6 +11,9 @@ use ferroui_headless::{FerroHeadlessPlatformExtensions, FerroHeadlessPlatformOpt
 use ferroui_themes_fluent::FluentTheme;
 use ferroui_vello::{VelloApplicationExtensions, VelloOptions, VelloRenderingMode};
 
+#[path = "pages_tests.rs"]
+mod pages_tests;
+
 #[path = "action_search_tests.rs"]
 mod action_search_tests;
 
