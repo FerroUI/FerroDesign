@@ -100,7 +100,9 @@ fn native_pages_reorder_preserves_page_identity_camera_and_exact_undo() {
     assert_eq!(shell.canvas.viewport.get(), camera);
     assert_eq!(shell.editor.borrow().history_len(), 1);
     assert!(!shell.control::<MenuItem>("PageMoveDown").is_enabled());
-    assert!(shell.command("undo"));
+    assert!(shell.canvas.is_focused(), "page menu activation restores the canvas shortcut scope");
+    f.window.key_press(Key::Z, RawInputModifiers::CONTROL, PhysicalKey::Z, None);
+    f.window.key_release(Key::Z, RawInputModifiers::CONTROL, PhysicalKey::Z, None);
     assert_eq!(f.json(), original);
     assert!(first.is_tab_stop() && !second.is_tab_stop());
     assert!(first.focus());
