@@ -165,7 +165,8 @@ impl BatchFixture {
         self.ui.window.key_press(Key::F2, RawInputModifiers::NONE, PhysicalKey::F2, None);
         self.ui.window.key_release(Key::F2, RawInputModifiers::NONE, PhysicalKey::F2, None);
         let replace = self.control::<TextBox>("RenameReplacement");
-        assert!(replace.is_focused());
+        assert!(replace.is_focused(), "Rename to must own keyboard input on F2. Attached={}, visible={}, canvas focused={}",
+            replace.is_attached_to_visual_tree(), replace.is_effectively_visible(), self.ui.shell.canvas.is_focused());
         assert_eq!(replace.selected_text(), "$&");
         replace
     }
@@ -275,4 +276,58 @@ fn bulk_rename_stale_targets_never_replace_new_names_selection_or_documents() {
     f.ui.key(&replace, Key::Enter);
     assert_eq!(f.ui.json(), external);
     assert_eq!(shell.editor.borrow().history_len(), 0);
+}
+
+#[test]
+fn bulk_rename_tab_cycles_and_native_actions_cancel_or_apply_one_edit() {
+    use ferroui_base::input::PhysicalKey;
+    let f = BatchFixture::new();
+    let shell = &f.ui.shell;
+    let before = f.ui.json();
+    let replace = f.open();
+    replace.set_text(Some("Panel $nn"));
+    Dispatcher::ui_thread().run_jobs(None);
+    f.ui.window.capture_rendered_frame().unwrap();
+    let panel = shell.control::<Border>("ModalPanel");
+    let close = shell.button("CloseModalButton");
+    let cancel = f.control::<Button>("RenameCancel");
+    let apply = f.control::<Button>("RenameApply");
+    let key = |key, physical, modifiers| {
+        f.ui.window.key_press(key, modifiers, physical, None);
+        f.ui.window.key_release(key, modifiers, physical, None);
+    };
+    let mut visited = (false, false, false);
+    for _ in 0..20 {
+        key(Key::Tab, PhysicalKey::Tab, RawInputModifiers::NONE);
+        assert!(panel.is_keyboard_focus_within(), "Tab left the rename dialog");
+        visited.0 |= close.is_focused();
+        visited.1 |= cancel.is_focused();
+        visited.2 |= apply.is_focused();
+        if replace.is_focused() { break; }
+    }
+    assert!(replace.is_focused(), "Tab should return to the original field");
+    assert_eq!(visited, (true, true, true));
+    assert!(close.focus());
+    key(Key::Tab, PhysicalKey::Tab, RawInputModifiers::SHIFT);
+    assert!(apply.is_focused(), "Shift+Tab from the first control wraps to Rename");
+    key(Key::Escape, PhysicalKey::Escape, RawInputModifiers::NONE);
+    assert!(shell.canvas.is_focused());
+    assert_eq!(f.ui.json(), before);
+    let replace = f.open();
+    replace.set_text(Some("Discard"));
+    f.ui.window.capture_rendered_frame().unwrap();
+    f.ui.click_button(&f.control::<Button>("RenameCancel"), RawInputModifiers::NONE);
+    assert!(!shell.control::<Border>("ModalBackdrop").is_visible());
+    assert_eq!(f.ui.json(), before);
+
+    let replace = f.open();
+    replace.set_text(Some("Commit $nn"));
+    Dispatcher::ui_thread().run_jobs(None);
+    f.ui.window.capture_rendered_frame().unwrap();
+    f.ui.click_button(&f.control::<Button>("RenameApply"), RawInputModifiers::NONE);
+    assert!(shell.canvas.is_focused());
+    assert_eq!(shell.editor.borrow().document.nodes[&f.frame].name, "Commit 01");
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.command("undo"));
+    assert_eq!(f.ui.json(), before);
 }

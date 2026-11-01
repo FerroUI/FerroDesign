@@ -351,6 +351,8 @@ impl EditorShell {
             );
         }
         refresh();
+        // Realize the ScrollViewer before handing keyboard input over from the canvas.
+        self.control::<Border>("ModalPanel").update_layout();
         replace.focus();
         replace.select_all();
         true

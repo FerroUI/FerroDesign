@@ -197,4 +197,18 @@ export async function mixedSelectionAndDock(page, reference, check, helpers) {
     assert.equal((await state(page)).chrome.CanvasHost.focusWithin, true);
     assert.deepEqual(await documentState(page), before);
     check("F6 enters the tool dock; Home, End and Escape navigate and restore native canvas focus without editing the document");
+
+    await page.keyboard.press("F2");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.RenameReplacement?.focused);
+    await page.keyboard.insertText("Icon/$nn-$&");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.RenameApply.enabled);
+    assert.deepEqual(await documentState(page), before);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].name === "Icon/01-Box 3");
+    assert.equal((await documentState(page)).nodes[2].name, "Icon/02-Box 2");
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].name === "Box 2");
+    assert.deepEqual(await documentState(page), before);
+    check("F2 focuses bulk rename immediately, previews without editing, numbers layers in stacking order and undoes once");
 }
