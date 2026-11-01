@@ -756,7 +756,7 @@ impl EditorShell {
             "ActionsButton",
             "PresentButton",
             "PagesViewport",
-            "LayersViewport",
+            "LayersViewport", "LayerSearch", "ClearLayerSearch", "CollapseLayersButton", "EmptyLayers",
             "InspectorViewport",
             "DesignTab", "PrototypeTab", "InspectTab", "PrototypeInspector", "InspectInspector",
             "PageInspector", "DesignInspector", "PageBackgroundField", "PageBackgroundSwatch",

@@ -162,6 +162,29 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     await importFixture(page, isolatedDocument(reference, hierarchy, "Native hierarchy navigation"));
     await click({ x: 48, y: 48 }, [], [2]);
     const beforeNavigation = await snapshot();
+    const unfilteredRowCount = (await state(page)).layerRowCount;
+    await page.keyboard.press("Control+f");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.LayerSearch.focused);
+    await page.keyboard.insertText("locked child");
+    await page.waitForFunction(() => {
+        const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+        return view.layerRowCount === 3 && view.chrome.ClearLayerSearch.visible && !view.chrome.CollapseLayersButton.visible;
+    });
+    await captureNativeScreenshot(mode + "-layer-search", { controls: ["LayerSearch", "ClearLayerSearch", "LayersViewport"] });
+    await page.keyboard.press("Control+a");
+    await page.keyboard.insertText("absent layer");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.EmptyLayers.visible);
+    await clickNative(page, "ClearLayerSearch");
+    await page.waitForFunction(expected => {
+        const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+        return view.layerRowCount === expected && view.chrome.LayerSearch.focused && !view.chrome.ClearLayerSearch.visible;
+    }, unfilteredRowCount);
+    await page.keyboard.press("Escape");
+    assert.equal((await state(page)).chrome.CanvasHost.focusWithin, true);
+    await unchanged(beforeNavigation, "Find in Layers");
+    assert.deepEqual((await state(page)).selection, [2]);
+    check("Find in Layers reveals the matching ancestor path, clears an empty result and restores native canvas focus, tree disclosure and the selection");
+
     await press("Enter", [8, 3]);
     await press("Tab", [8]);
     await press("Tab", [3]);
