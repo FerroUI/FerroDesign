@@ -119,7 +119,7 @@ mod tests {
         canvas.snap.set(false);
         canvas.editor.borrow_mut().selection = vec![id];
         let press = Point::new(80.0, 21.0);
-        assert_eq!(canvas.handle_at(press), Some(2));
+        assert_eq!(canvas.handle_at(press).unwrap().handle, resize::Handle::Corner(2));
         let source = canvas.editor.borrow().document.nodes[&id].clone();
         let drag = EndpointDrag::new(&canvas.editor.borrow(), source, false, press).unwrap();
         canvas

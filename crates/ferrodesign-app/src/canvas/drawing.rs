@@ -182,13 +182,6 @@ pub(super) fn constrained_delta(delta: Point, line: bool) -> Point {
     Point::new(extent.copysign(delta.x), extent.copysign(delta.y))
 }
 
-pub(super) fn resize_anchor(corner: usize, width: f64, height: f64, centered: bool) -> Point {
-    if centered {
-        return Point::new(width * 0.5, height * 0.5);
-    }
-    Rect::new(0.0, 0.0, width, height).corners()[(corner + 2) % 4]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

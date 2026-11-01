@@ -1,6 +1,6 @@
 //! Uniform scale uses a world-space selection box shared by hit testing and feedback.
 use super::*;
-use ferroui_base::input::{Cursor, StandardCursorType};
+use ferroui_base::input::StandardCursorType;
 
 pub(crate) fn anchor(bounds: Rect, index: usize) -> Point {
     Point::new(
@@ -158,9 +158,7 @@ impl DesignCanvas {
             Some(3 | 5) => Some(StandardCursorType::SizeWestEast),
             _ => None,
         };
-        if self.scale_cursor.replace(kind) != kind {
-            self.set_cursor(kind.map(Cursor::new));
-        }
+        self.set_handle_feedback(kind, None);
     }
 
     pub(super) fn render_scale_handles(

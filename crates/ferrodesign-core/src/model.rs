@@ -960,9 +960,13 @@ impl Node {
         Rect::new(0.0, 0.0, self.width, self.height)
     }
     pub fn local_transform(&self) -> Transform {
-        let cx = self.width / 2.0;
-        let cy = self.height / 2.0;
-        Transform::translation(self.x + cx, self.y + cy)
+        self.local_transform_for_bounds(self.bounds())
+    }
+    /// Evaluate the existing rotation, flips and affine residual at proposed parent-space bounds.
+    pub fn local_transform_for_bounds(&self, bounds: Rect) -> Transform {
+        let cx = bounds.width / 2.0;
+        let cy = bounds.height / 2.0;
+        Transform::translation(bounds.x + cx, bounds.y + cy)
             * Transform::rotation(self.rotation)
             * Transform::scale(
                 if self.flip_x { -1.0 } else { 1.0 },
