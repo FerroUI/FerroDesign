@@ -189,9 +189,51 @@ impl ResizeDrag {
     }
 }
 
+pub(super) fn dimensions(width: f64, height: f64) -> String {
+    let width = format!("{width:.2}");
+    let height = format!("{height:.2}");
+    format!("{} × {}", width.trim_end_matches('0').trim_end_matches('.'),
+        height.trim_end_matches('0').trim_end_matches('.'))
+}
+
+fn badge_rect(bounds: Rect, view: Viewport, width: f64, height: f64) -> Option<Rect> {
+    const MARGIN: f64 = 4.0;
+    const GAP: f64 = 8.0;
+    let visible = bounds.intersection(Rect::new(0.0, 0.0, view.width, view.height))?;
+    if width + 2.0 * MARGIN > view.width || height + 2.0 * MARGIN > view.height { return None; }
+    let x = (visible.center().x - width * 0.5).clamp(MARGIN, view.width - width - MARGIN);
+    let below = bounds.bottom() + GAP;
+    // If the outside label would be clipped, bring it just inside the visible lower edge.
+    let y = if below + height + MARGIN <= view.height { below }
+        else { (visible.bottom() - GAP - height).max(MARGIN) };
+    Some(Rect::new(x, y, width, height))
+}
+
+pub(super) fn draw_badge(ctx: &mut DrawingContext, text: &str, bounds: Rect, view: Viewport) {
+    let label = FormattedText::new(text, CultureInfo::invariant_culture(), FlowDirection::LeftToRight,
+        Typeface::from_name("fonts:Inter#Inter"), 11.0, Some(brush("#FFFFFF")));
+    let Some(body) = badge_rect(bounds, view, label.width().ceil() + 14.0, label.height().ceil() + 6.0) else {
+        return;
+    };
+    ctx.draw_rectangle(Some(&brush("#096DAE")), None, rect(body), 4.0, 4.0, &BoxShadows::default());
+    ctx.draw_text(&label, ui(Point::new(body.x + 7.0, body.y + 3.0)));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resize_badge_preserves_fractional_dimensions_and_stays_with_visible_artwork() {
+        assert_eq!(dimensions(100.0, 64.5), "100 × 64.5");
+        assert_eq!(dimensions(19.1251, 7.004), "19.13 × 7");
+        let view = Viewport { width: 200.0, height: 140.0, ..Viewport::default() };
+        let partial = Rect::new(-30.0, 15.0, 55.0, 50.0);
+        assert_eq!(badge_rect(partial, view, 70.0, 20.0), Some(Rect::new(4.0, 73.0, 70.0, 20.0)));
+        let clipped = Rect::new(140.0, 95.0, 180.0, 180.0);
+        assert_eq!(badge_rect(clipped, view, 70.0, 20.0), Some(Rect::new(126.0, 112.0, 70.0, 20.0)));
+        assert_eq!(badge_rect(Rect::new(210.0, 0.0, 80.0, 100.0), view, 70.0, 20.0), None);
+    }
 
     #[test]
     fn resize_edges_preserve_affine_anchors_and_exact_unedited_dimensions() {

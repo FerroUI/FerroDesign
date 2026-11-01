@@ -2225,27 +2225,10 @@ impl VisualImpl for DesignCanvas {
                 let rotate = top + direction * (24.0 / length);
                 ctx.draw_line(&blue, ui(top), ui(rotate));
                 ctx.draw_ellipse_at(Some(&white), Some(&blue), ui(rotate), 3.0, 3.0);
-                if let Some(b) = doc.world_bounds(id) {
-                    let p = v.world_to_screen(Point::new(b.x + b.width / 2.0, b.bottom()));
-                    let value = format!("{} × {}", n.width.round(), n.height.round());
-                    let width = value.len() as f64 * 6.2 + 16.0;
-                    let fill = brush("#0D99FF");
-                    ctx.draw_rectangle(
-                        Some(&fill),
-                        None,
-                        UiRect::new(p.x - width / 2.0, p.y + 9.0, width, 22.0),
-                        4.0,
-                        4.0,
-                        &BoxShadows::default(),
-                    );
-                    label(
-                        ctx,
-                        &value,
-                        Point::new(p.x - width / 2.0 + 8.0, p.y + 13.0),
-                        10.0,
-                        "#FFFFFF",
-                    );
-                }
+                let bounds = Rect::from_points(corners[0], corners[2])
+                    .union(Rect::from_points(corners[1], corners[3]));
+                let value = resize::dimensions(n.width, n.height);
+                resize::draw_badge(ctx, &value, bounds, v);
                 this.render_corner_radius(ctx, &editor, id);
             }
         }

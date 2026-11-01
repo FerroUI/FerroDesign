@@ -198,25 +198,8 @@ impl DesignCanvas {
             );
         }
         if let Gesture::Scale(drag) = &*self.gesture.borrow() {
-            let p = view.world_to_screen(anchor(bounds, 7));
-            let text = format!("{:.1}%", drag.factor * 100.0);
-            let width = text.len() as f64 * 7.0 + 12.0;
-            let fill = brush("#0878CC");
-            ctx.draw_rectangle(
-                Some(&fill),
-                None,
-                UiRect::new(p.x - width / 2.0, p.y + 8.0, width, 20.0),
-                4.0,
-                4.0,
-                &BoxShadows::default(),
-            );
-            label(
-                ctx,
-                &text,
-                Point::new(p.x - width / 2.0 + 6.0, p.y + 11.0),
-                11.0,
-                "#FFFFFF",
-            );
+            let screen = Rect::new(top.x, top.y, bounds.width * view.zoom, bounds.height * view.zoom);
+            resize::draw_badge(ctx, &format!("{:.1}%", drag.factor * 100.0), screen, view);
         }
     }
 }
