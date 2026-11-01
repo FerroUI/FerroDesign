@@ -1146,13 +1146,18 @@ impl Editor {
         if self.has_active_transaction() {
             return Err(DocumentError::Invalid("Finish the active edit before resizing layers.".into()));
         }
+        let binding = match dimension { LayerDimension::Width => "width", LayerDimension::Height => "height" };
+        let mut bound_overrides = Vec::new();
         let mut ids = Vec::with_capacity(values.len());
         for (&id, &value) in values {
             if !(1.0..=1.0e7).contains(&value) {
                 return Err(DocumentError::Invalid("Layer dimensions must be between 1 and 10,000,000.".into()));
             }
-            if !self.document.nodes.contains_key(&id) { return Err(DocumentError::MissingNode(id)); }
-            if !self.document.effective_locked(id) { ids.push(id); }
+            let node = self.document.nodes.get(&id).ok_or(DocumentError::MissingNode(id))?;
+            if self.document.effective_locked(id) { continue; }
+            let original = match dimension { LayerDimension::Width => node.width, LayerDimension::Height => node.height };
+            if original != value && node.variable_bindings.contains_key(binding) { bound_overrides.push(id); }
+            ids.push(id);
         }
         if ids.is_empty() { return Ok(()); }
         if ids.iter().any(|id| !self.document.nodes[id].children.is_empty()) {
@@ -1168,17 +1173,17 @@ impl Editor {
         for id in ids {
             let node = &self.document.nodes[&id];
             let value = values[&id];
-            let (width, height, binding) = match dimension {
-                LayerDimension::Width => (value, node.height, "width"),
-                LayerDimension::Height => (node.width, value, "height"),
+            let (width, height) = match dimension {
+                LayerDimension::Width => (value, node.height),
+                LayerDimension::Height => (node.width, value),
             };
             if width == node.width && height == node.height { continue; }
             if !self.apply_resize(id, width, height, None) {
                 self.cancel_transaction();
                 return Err(DocumentError::Invalid("The new size would exceed the limits of the vector geometry.".into()));
             }
-            self.document.nodes.get_mut(&id).unwrap().variable_bindings.remove(binding);
         }
+        for id in bound_overrides { self.document.nodes.get_mut(&id).unwrap().variable_bindings.remove(binding); }
         self.commit_transaction();
         Ok(())
     }
