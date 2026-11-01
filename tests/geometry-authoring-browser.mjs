@@ -141,6 +141,28 @@ export async function geometryAuthoringRegressions(page, reference, check, helpe
     check("The native frame preset picker creates a selected, clipped and editable frame on the active page, fits it in view, and supports complete undo/redo");
 
     await scaleAndSliceRegressions(page, reference, check, helpers);
+
+    await importFixture(page, isolatedDocument(reference, [
+        fixtureNode(reference, 2, { kind: "rectangle", name: "Edge resize", x: 20, y: 30,
+            width: 100, height: 64.5, corner_radius: 0 }),
+    ], "Move tool resize"));
+    await clickNative(page, "SelectTool");
+    await page.keyboard.press("v");
+    await clickWorld(page, 65, 62);
+    assert.deepEqual((await state(page)).selection, [2]);
+    const edgeBefore = await documentState(page), edgeDepth = (await state(page)).historyLength;
+    // Grab the right stroke away from its midpoint, then move diagonally.
+    await moveWorld(page, 120, 54);
+    await page.mouse.down();
+    await moveWorld(page, 145, 70);
+    await page.mouse.up();
+    await frames(page);
+    const edgeAfter = await documentState(page);
+    near(edgeAfter.nodes[2].width, 125, "Dragged edge width");
+    assert.deepEqual([edgeAfter.nodes[2].x, edgeAfter.nodes[2].y, edgeAfter.nodes[2].height],
+        [20, 30, 64.5], "Side resize must preserve the fixed edge and fractional inactive axis");
+    await history(edgeBefore, edgeAfter, edgeDepth, "Move-tool side resize");
+    check("Dragging anywhere along a selected side resizes one axis, preserves its opposite edge and fractional height, and undoes in one step");
 }
 
 async function scaleAndSliceRegressions(page, reference, check, helpers) {
@@ -215,26 +237,4 @@ async function scaleAndSliceRegressions(page, reference, check, helpers) {
     assert.deepEqual([...png.data.subarray(inside, inside + 4)], [30, 110, 210, 255]);
     assert.deepEqual(await documentState(page), sliced);
     check("S drags an export slice across artwork; the native export button downloads the named 60×40 PNG with transparent padding and clipped artwork");
-    await importFixture(page, isolatedDocument(reference, [
-        fixtureNode(reference, 2, { kind: "rectangle", name: "Edge resize", x: 20, y: 30,
-            width: 100, height: 64.5, corner_radius: 0 }),
-    ], "Move tool resize"));
-    await clickNative(page, "SelectTool");
-    await page.keyboard.press("v");
-    await clickWorld(page, 65, 62);
-    assert.deepEqual((await state(page)).selection, [2]);
-    const edgeBefore = await documentState(page), edgeDepth = (await state(page)).historyLength;
-    // Grab the right stroke away from its midpoint, then move diagonally.
-    await moveWorld(page, 120, 54);
-    await page.mouse.down();
-    await moveWorld(page, 145, 70);
-    await page.mouse.up();
-    await frames(page);
-    const edgeAfter = await documentState(page);
-    near(edgeAfter.nodes[2].width, 125, "Dragged edge width");
-    assert.deepEqual([edgeAfter.nodes[2].x, edgeAfter.nodes[2].y, edgeAfter.nodes[2].height],
-        [20, 30, 64.5], "Side resize must preserve the fixed edge and fractional inactive axis");
-    await history(edgeBefore, edgeAfter, edgeDepth, "Move-tool side resize");
-    check("Dragging anywhere along a selected side resizes one axis, preserves its opposite edge and fractional height, and undoes in one step");
-
 }
