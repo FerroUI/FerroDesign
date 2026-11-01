@@ -59,12 +59,19 @@ impl ActionResults {
         // Keep the same native Button instances, names and click handlers while
         // making visual, keyboard and automation order agree.
         let children = self.list.children();
-        for (position, &index) in matches.iter().enumerate() {
+        let mut position = 0;
+        for &index in &matches {
+            // Collapsed rows occupy no layout space. Leave them in place to avoid
+            // logical and visual tree moves on a filter that only narrows the list.
+            while !children.get(position).is_visible() {
+                position += 1;
+            }
             let control = self.rows[index].button.clone().upcast::<Control>();
             if children.get(position) != control {
                 let old = children.index_of(&control).expect("action row belongs to the list");
                 children.move_item(old, position);
             }
+            position += 1;
         }
         self.empty.set_is_visible(matches.is_empty());
         let noun = if matches.len() == 1 { "action" } else { "actions" };

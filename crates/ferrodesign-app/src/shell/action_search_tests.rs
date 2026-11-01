@@ -61,10 +61,13 @@ fn quick_actions_keep_search_stationary_while_filtering_on_a_short_viewport() {
     let initial = origin();
     assert!(viewport.bounds().height > 0.0);
     assert!(initial.y > 0.0 && initial.y < 370.0);
+    let list = fixture.shell.control::<StackPanel>("ModalContent").children().get(0).cast::<StackPanel>().unwrap();
+    let original_order = list.children().to_vec();
     search.set_text(Some("Export SVG"));
     Dispatcher::ui_thread().run_jobs(None);
     fixture.window.capture_rendered_frame().unwrap();
     assert_eq!(displayed(&fixture.shell).len(), 1);
+    assert_eq!(list.children().to_vec(), original_order, "narrowing to one match need not move any native rows");
     assert_eq!(origin(), initial);
     search.set_text(Some("zzzz"));
     Dispatcher::ui_thread().run_jobs(None);
