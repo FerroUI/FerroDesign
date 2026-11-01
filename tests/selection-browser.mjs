@@ -100,6 +100,18 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     assert.deepEqual((await state(page)).selection, [2]);
     check("F2 selects the native layer name, Enter creates one rename, and Escape preserves undo and selection");
 
+    await page.keyboard.press("Control+Slash");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.ActionSearch?.focused === true);
+    await page.keyboard.insertText("R");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => {
+        const editor = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+        return editor.tool === "Rectangle" && editor.chrome.CanvasHost.focusWithin;
+    });
+    await unchanged(undone, "Discovering a drawing tool by shortcut");
+    await page.keyboard.press("v");
+    check("Ctrl+/ focuses Quick actions and an immediate R, Enter selects Rectangle without a document or history change");
+
     await importFixture(page, isolatedDocument(reference, [
         rectangle(2, { name: "Back overlap", fills: [fill(255, 180, 50)] }),
         rectangle(3, { name: "Middle overlap", fills: [fill(40, 180, 100)] }),

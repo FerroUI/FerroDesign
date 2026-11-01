@@ -77,7 +77,7 @@ Select one or several layers and drag between layout frames, ordinary frames or 
 | Select inverse | `Ctrl`/`Cmd+Shift+A` |
 | Cycle overlapping layers | `Alt`+click / `Shift+Alt`+click, or `Alt+[` / `Alt+]` |
 | Deep selection with Select groups enabled | `Ctrl`/`Cmd`+click; double-click descends one group |
-| Quick actions | `Ctrl`/`Cmd+/` or `Ctrl`/`Cmd+K`. Type search words, use ↑/↓ to choose, Enter to run, or Esc to dismiss. |
+| Quick actions | Open with `Ctrl`/`Cmd+/` or `Ctrl`/`Cmd+K`. Search tools, file actions and layer commands by name or shortcut. Typing `R` puts Rectangle first. Use ↑/↓ to choose, Enter to run, and Esc to dismiss. |
 | Save / open | `Ctrl`/`Cmd+S` / `Ctrl`/`Cmd+O` |
 | Cancel gesture / leave presentation | `Escape` |
 

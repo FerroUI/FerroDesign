@@ -222,7 +222,7 @@ impl EditorShell {
         let search_ref = search.downgrade();
         let filtered = results.clone();
         search.text_changed(move |_, _| {
-            if let Some(field) = search_ref.upgrade() {
+            if let Some(field) = search_ref.upgrade().filter(|field| field.is_attached_to_visual_tree()) {
                 filtered.filter(&field.text().unwrap_or_default());
             }
         });
