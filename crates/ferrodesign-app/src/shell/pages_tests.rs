@@ -138,3 +138,98 @@ fn native_pages_dismiss_blank_names_and_never_retarget_a_pending_rename() {
     assert_eq!(f.json(), original);
     assert_eq!(shell.editor.borrow().history_len(), 0);
 }
+
+#[test]
+fn native_page_cameras_restore_on_navigation_and_history_and_keep_world_center_after_resize() {
+    let f = Fixture::new(false);
+    let shell = &f.shell;
+    let render = || { f.window.capture_rendered_frame().unwrap(); };
+    render();
+    let first = shell.editor.borrow().active_page;
+    shell.canvas.set_zoom(0.375);
+    let camera_one = shell.canvas.viewport.get();
+    let original = f.json();
+    let width = shell.field("WidthField");
+    assert!(width.focus());
+    width.set_text(Some("1/0"));
+    assert!(!shell.command("add-page"));
+    assert_eq!(shell.editor.borrow().active_page, first);
+    assert_eq!(shell.canvas.viewport.get(), camera_one);
+    assert!(width.focus());
+    f.key(&width, Key::Escape);
+    assert!(shell.command("add-page"));
+    render();
+    let second = shell.editor.borrow().active_page;
+    assert_ne!(first, second);
+    assert_eq!(shell.canvas.viewport.get().zoom, core::Viewport::default().zoom);
+    let two_pages = f.json();
+    shell.canvas.set_zoom(4.0);
+    let camera_two = shell.canvas.viewport.get();
+
+    assert!(row_at(&f, 1).focus());
+    press(&f, Key::Home, PhysicalKey::Home);
+    render();
+    assert_eq!(shell.canvas.viewport.get(), camera_one);
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    f.window.set_width(1240.0);
+    render();
+    press(&f, Key::End, PhysicalKey::End);
+    render();
+    let restored = shell.canvas.viewport.get();
+    let center = |v: core::Viewport| v.screen_to_world(Point::new(v.width / 2.0, v.height / 2.0));
+    assert_ne!(restored.width, camera_two.width);
+    assert_eq!(restored.zoom, camera_two.zoom);
+    assert_eq!(center(restored), center(camera_two));
+    assert_eq!(f.json(), two_pages);
+
+    assert!(shell.command("undo"));
+    render();
+    assert_eq!(shell.editor.borrow().active_page, first);
+    assert_eq!(shell.canvas.viewport.get().zoom, camera_one.zoom);
+    assert_eq!(f.json(), original);
+    assert!(shell.command("redo"));
+    render();
+    assert_eq!(shell.editor.borrow().active_page, second, "Redo reopens the added page");
+    assert_eq!(shell.canvas.viewport.get(), restored, "Redo reopens that same page's camera");
+    assert_eq!(f.json(), two_pages);
+    // Undo may release the page ID for a different page on a new history branch.
+    shell.canvas.set_zoom(3.5);
+    assert!(shell.command("undo"));
+    render();
+    assert!(shell.command("add-page"));
+    render();
+    assert_eq!(shell.editor.borrow().active_page, second);
+    assert_eq!(shell.canvas.viewport.get().zoom, core::Viewport::default().zoom);
+}
+
+#[test]
+fn native_page_cameras_reset_on_same_id_document_import_and_history_crossings() {
+    let f = Fixture::new(false);
+    let shell = &f.shell;
+    let render = || { f.window.capture_rendered_frame().unwrap(); };
+    render();
+    let authored_fit = shell.canvas.viewport.get();
+    let mut imported = shell.editor.borrow().document.clone();
+    imported.name = "Different file, same IDs".into();
+    let shape = imported.nodes.get_mut(&f.id).unwrap();
+    shape.x += 4000.0;
+    shape.width *= 3.0;
+
+    shell.canvas.set_zoom(0.25);
+    let manual = shell.canvas.viewport.get();
+    assert!(!shell.import_document("{", "broken"));
+    render();
+    assert_eq!(shell.canvas.viewport.get(), manual);
+    assert!(shell.import_document(&imported.to_json().unwrap(), "imported"));
+    render();
+    let imported_fit = shell.canvas.viewport.get();
+    assert_ne!(imported_fit, manual);
+    assert_ne!(imported_fit, authored_fit);
+    shell.canvas.set_zoom(2.5);
+    assert!(shell.command("undo"));
+    render();
+    assert_eq!(shell.canvas.viewport.get(), authored_fit);
+    assert!(shell.command("redo"));
+    render();
+    assert_eq!(shell.canvas.viewport.get(), imported_fit);
+}

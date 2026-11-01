@@ -59,11 +59,36 @@ export async function pageInspectorRegressions(page, reference, check, helpers, 
     assert.equal(view.chrome.DesignInspector.visible, false);
     check("Empty selection exposes native page background and local resources; native color edits change canvas pixels, validate atomically, and undo exactly");
 
+    const setPercent = async percent => {
+        await clickNative(page, "ZoomValueButton");
+        await page.keyboard.type(String(percent));
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(value => JSON.parse(globalThis.ferroDesign.ferroDesignState()).zoom === value, percent / 100);
+    };
+    const camera = ({ zoom, pan }) => ({ zoom, pan });
+    const activateRow = async (row, id) => {
+        await page.mouse.click(row.x + row.width / 2, row.y + row.height / 2);
+        await page.waitForFunction(value => JSON.parse(globalThis.ferroDesign.ferroDesignState()).activePage === value, id);
+        await frames(page);
+    };
+    await setPercent(37.5);
+    const firstPage = await state(page);
     await clickNative(page, "AddPageButton");
     await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).pageCount === 2);
     const beforePages = await documentState(page);
     const current = (await state(page)).activePage;
     const depth = (await state(page)).historyLength;
+    await frames(page);
+    assert.notEqual((await state(page)).zoom, firstPage.zoom, "An empty page begins with its own view");
+    await setPercent(162.5);
+    const secondPage = await state(page);
+    await activateRow(firstPage.chrome.ActivePage, firstPage.activePage);
+    assert.deepEqual(camera(await state(page)), camera(firstPage));
+    await activateRow(secondPage.chrome.ActivePage, secondPage.activePage);
+    assert.deepEqual(camera(await state(page)), camera(secondPage));
+    assert.deepEqual(await documentState(page), beforePages);
+    assert.equal((await state(page)).historyLength, depth);
+    check("Page row navigation restores independent zoom and pan without changing artwork or undo history");
     await clickNative(page, "PageActionsButton");
     await clickNative(page, "PageRename");
     await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.PageRenameEditor?.focused);

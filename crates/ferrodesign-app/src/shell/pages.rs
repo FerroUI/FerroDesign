@@ -9,6 +9,8 @@ pub(super) struct PageList {
     rows: Vec<PageRow>,
     active: Option<NodeId>,
     title: String,
+    source: Option<core::EditorRenderToken>,
+    cameras: BTreeMap<NodeId, core::Viewport>,
 }
 
 struct PageRow {
@@ -34,16 +36,45 @@ impl EditorShell {
         });
     }
 
+    pub(super) fn add_workspace_page(&self) {
+        let mut editor = self.editor.borrow_mut();
+        let name = format!("Page {}", editor.document.pages.len() + 1);
+        let id = editor.add_page(name);
+        // Undo can release this numeric ID. A freshly authored page starts with
+        // a fresh camera even when a redo branch once held a page with that ID.
+        self.page_list.borrow_mut().cameras.remove(&id);
+    }
+
     pub(super) fn refresh_pages(self: &Rc<Self>) {
+        // The player owns its temporary camera and may navigate across pages.
+        if self.prototype.is_active() { return; }
         let editor = self.editor.borrow();
         let pages = &editor.document.pages;
         let active = editor.active_page;
         let mut list = self.page_list.take();
         let names_changed = !list.rows.iter().map(|row| (row.id, &row.name))
             .eq(pages.iter().map(|page| (page.id, &page.name)));
-        let active_changed = list.active.replace(active) != Some(active);
+        let replaced = list.source.as_ref().is_none_or(|source| !editor.owns_render_token(source));
+        let previous = list.active.replace(active);
+        let active_changed = previous != Some(active);
+        if replaced {
+            list.source = Some(editor.render_change_token());
+            list.cameras.clear();
+        } else if active_changed {
+            if let (Some(id), Some(camera)) = (previous, self.canvas.page_camera()) {
+                if editor.document.page(id).is_some() || editor.can_redo() {
+                    list.cameras.insert(id, camera);
+                }
+            }
+        }
+        // A removed page can reappear through Redo. Once that history branch
+        // closes, retain only views belonging to pages still present.
+        if names_changed && !editor.can_redo() && !list.cameras.is_empty() {
+            let live: BTreeSet<_> = pages.iter().map(|page| page.id).collect();
+            list.cameras.retain(|id, _| live.contains(id));
+        }
         let title_changed = list.title != editor.document.name;
-        if !active_changed && !names_changed && !title_changed {
+        if !replaced && !active_changed && !names_changed && !title_changed {
             self.page_list.replace(list);
             return;
         }
@@ -58,6 +89,10 @@ impl EditorShell {
         self.text("CanvasCaption", &format!("{title} / {page}"));
         self.text("CompactPageTitle", page);
         drop(editor);
+        if replaced || active_changed {
+            self.canvas.restore_page_camera(list.cameras.remove(&active));
+            self.sync_zoom();
+        }
 
         if let Some(entries) = entries {
             let children = self.control::<StackPanel>("PagesHost").children();
@@ -174,13 +209,7 @@ impl EditorShell {
         if !self.flush_inspector_drafts() { return false; }
         self.finish_inline_text(true);
         self.canvas.cancel_active_edit();
-        let mut editor = self.editor.borrow_mut();
-        if editor.document.page(id).is_none() { return false; }
-        editor.active_page = id;
-        editor.selection.clear();
-        editor.refresh();
-        drop(editor);
-        self.canvas.reset_fit();
+        if !self.editor.borrow_mut().set_active_page(id) { return false; }
         self.refresh();
         true
     }

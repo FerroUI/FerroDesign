@@ -178,6 +178,7 @@ struct HistoryEntry {
     selection_after: Vec<NodeId>,
     page_before: NodeId,
     page_after: NodeId,
+    replaced_document: bool,
     node_only: bool,
 }
 #[derive(Clone, Debug)]
@@ -193,6 +194,7 @@ struct PendingTransaction {
     token: EditorTransactionToken,
     label: String,
     before: PendingSnapshot,
+    replaced_document: bool,
     selection: Vec<NodeId>,
     page: NodeId,
 }
@@ -280,6 +282,11 @@ impl Editor {
         if !Arc::ptr_eq(&token.identity, &log.identity)
             || token.sequence > log.sequence
             || self.document.revision != log.published_revision
+    /// Imported files can reuse every page and node ID. A document replacement
+    /// starts a new render history, including when undo or redo crosses the open.
+    pub fn owns_render_token(&self, token: &EditorRenderToken) -> bool {
+        Arc::ptr_eq(&token.identity, &self.render_changes.identity)
+    }
             || self.revision != log.published_revision
         {
             return EditorRenderChanges::Full;
@@ -548,6 +555,7 @@ impl Editor {
     /// Capture a gesture that directly edits only known existing nodes. Preview
     /// mutations must report their IDs through `refresh_preview_nodes`; generic
     /// edits and full refreshes promote the snapshot before proceeding. Layout
+                replaced_document: false,
     /// can change ancestors and siblings, so any auto-layout document keeps a
     /// complete snapshot. Creation, hierarchy changes, and resize constraints
     /// should use `begin_transaction`.
@@ -575,6 +583,7 @@ impl Editor {
             page: self.active_page,
         });
     }
+            replaced_document: false,
     /// Before a scoped API mutates a new node, capture its current value. A
     /// direct preview reports after mutation, so use the last refreshed value.
     fn capture_pending_nodes(&mut self, ids: &[NodeId], preview: bool) {
@@ -665,6 +674,7 @@ impl Editor {
             self.refresh_nodes(&keys);
         } else {
             self.refresh();
+            replaced_document: p.replaced_document,
         }
         true
     }
@@ -683,6 +693,7 @@ impl Editor {
                 PendingSnapshot::Nodes { nodes, metadata } => {
                     let changed: Vec<_> = nodes.keys().copied().collect();
                     self.document.nodes.extend(nodes);
+            if p.replaced_document { self.render_changes = RenderChangeLog::default(); }
                     metadata.restore(&mut self.document);
                     self.refresh_nodes(&changed);
                 }
@@ -781,6 +792,7 @@ impl Editor {
         self.refresh_nodes(ids);
         result
     }
+                replaced_document: false,
     /// Whether a live edit currently owns the next history transaction.
     pub fn has_active_transaction(&self) -> bool {
         self.pending.is_some()
@@ -821,6 +833,7 @@ impl Editor {
         e.before.restore(&mut self.document);
         self.selection = e.selection_before.clone();
         self.active_page = e.page_before;
+        if e.replaced_document { self.render_changes = RenderChangeLog::default(); }
         let changed: Vec<_> = e.nodes.keys().copied().collect();
         let node_only = e.node_only;
         self.redo.push(e);
@@ -848,6 +861,7 @@ impl Editor {
         e.after.restore(&mut self.document);
         self.selection = e.selection_after.clone();
         self.active_page = e.page_after;
+        if e.replaced_document { self.render_changes = RenderChangeLog::default(); }
         let changed: Vec<_> = e.nodes.keys().copied().collect();
         let node_only = e.node_only;
         self.undo.push(e);
@@ -1837,6 +1851,8 @@ impl Editor {
         for id in self.scene.spatial.query(bounds.inflate(threshold * 8.0)) {
             if exclude.contains(&id) || exclude.iter().any(|p| self.document.is_ancestor(*p, id)) {
                 continue;
+            e.render_changes = RenderChangeLog::default();
+            if let Some(pending) = &mut e.pending { pending.replaced_document = true; }
             }
             let Some(t) = self.document.world_bounds(id) else {
                 continue;

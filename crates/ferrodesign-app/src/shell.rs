@@ -942,9 +942,6 @@ impl EditorShell {
         match result {
             Ok(_) => {
                 self.expanded.borrow_mut().clear();
-                if !is_svg {
-                    self.canvas.reset_fit();
-                }
                 self.canvas.invalidate_scene();
                 self.changed();
                 self.close_modal();
@@ -1786,7 +1783,7 @@ impl EditorShell {
         self.canvas.finish_network_bucket();
         self.canvas.finish_stroke_width_edit();
         self.finish_inline_text(true);
-        if matches!(command, "new" | "open" | "import-json" | "save" | "export-json" | "export-svg" | "export-png" | "export-xaml")
+        if matches!(command, "new" | "add-page" | "open" | "import-json" | "save" | "export-json" | "export-svg" | "export-png" | "export-xaml")
             && !self.flush_inspector_drafts() {
             self.toast("Correct the inspector value or press Escape before continuing.");
             return false;
@@ -2292,20 +2289,10 @@ impl EditorShell {
                 });
             }
             "flip" => self.modify("Flip horizontal", |n| n.flip_x = !n.flip_x),
-            "add-page" => {
-                let mut editor = self.editor.borrow_mut();
-                let name = format!("Page {}", editor.document.pages.len() + 1);
-                let id = editor.transact("Add page", |doc| doc.add_page(name));
-                editor.active_page = id;
-                editor.selection.clear();
-                editor.refresh();
-                drop(editor);
-                self.canvas.reset_fit();
-            }
+            "add-page" => self.add_workspace_page(),
             "new" => {
                 let document = core::Document::new("Untitled");
                 *self.editor.borrow_mut() = Editor::new(document);
-                self.canvas.reset_fit();
                 self.expanded.borrow_mut().clear();
             }
             "auto-layout" => {

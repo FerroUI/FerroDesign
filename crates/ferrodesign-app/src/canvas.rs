@@ -363,6 +363,25 @@ impl DesignCanvas {
     }
     pub fn reset_fit(&self) {
         self.clear_measurement();
+    pub(crate) fn page_camera(&self) -> Option<Viewport> {
+        self.initialized.get().then(|| self.viewport.get())
+    }
+
+    pub(crate) fn restore_page_camera(&self, camera: Option<Viewport>) {
+        self.reset_fit();
+        let current = self.viewport.get();
+        let mut restored = camera.unwrap_or_default();
+        if camera.is_some() {
+            // After a window or phone rotation, keep the same world point at center.
+            restored.pan.x += (current.width - restored.width) * 0.5;
+            restored.pan.y += (current.height - restored.height) * 0.5;
+            self.initialized.set(true);
+        }
+        restored.width = current.width;
+        restored.height = current.height;
+        self.viewport.set(restored);
+    }
+
         self.cancel_linear_gradient_gesture();
         self.clear_gradient_hover();
         self.cancel_corner_radius_gesture();
