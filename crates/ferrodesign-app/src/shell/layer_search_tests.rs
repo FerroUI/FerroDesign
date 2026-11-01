@@ -74,6 +74,22 @@ fn native_layer_search_is_scoped_reversible_and_preserves_other_page_disclosure(
     assert!(search.is_focused());
     assert_eq!(rows(), [component]);
     assert_eq!(*shell.expanded.borrow(), BTreeSet::from([component]));
+    fixture.window.set_width(390.0);
+    fixture.window.set_height(844.0);
+    settle();
+    assert!(shell.canvas.focus());
+    press(Key::F, RawInputModifiers::META, PhysicalKey::F);
+    assert!(search.is_focused());
+    assert!(shell.control::<Border>("LeftPanel").is_effectively_visible());
+    search.set_text(Some("title"));
+    settle();
+    press(Key::Escape, RawInputModifiers::NONE, PhysicalKey::Escape);
+    assert!(search.is_focused());
+    assert_eq!(rows(), [frame]);
+    press(Key::Escape, RawInputModifiers::NONE, PhysicalKey::Escape);
+    assert!(!shell.control::<Border>("LeftPanel").is_effectively_visible());
+    assert!(shell.canvas.is_focused());
+    assert_eq!(shell.editor.borrow().selection, [title]);
     assert_eq!(fixture.json(), initial);
     assert_eq!(shell.editor.borrow().history_len(), 0);
 }
