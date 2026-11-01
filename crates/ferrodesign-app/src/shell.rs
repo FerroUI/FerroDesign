@@ -239,6 +239,7 @@ impl EditorShell {
         });
     }
     fn wire(self: &Rc<Self>) {
+        self.wire_action_dialog();
         self.wire_inline_text();
         self.wire_zoom();
         self.wire_panels();

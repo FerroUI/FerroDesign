@@ -59,7 +59,8 @@ fn quick_actions_keep_search_stationary_while_filtering_on_a_short_viewport() {
     fixture.window.capture_rendered_frame().unwrap();
     let origin = || search.translate_point(ferroui_base::Point::new(0.0, 0.0), &fixture.window).unwrap();
     let initial = origin();
-    assert!(viewport.bounds().height > 0.0);
+    let full_height = viewport.bounds().height;
+    assert!(full_height > 0.0);
     assert!(initial.y > 0.0 && initial.y < 370.0);
     let list = fixture.shell.control::<StackPanel>("ModalContent").children().get(0).cast::<StackPanel>().unwrap();
     let original_order = list.children().to_vec();
@@ -69,10 +70,34 @@ fn quick_actions_keep_search_stationary_while_filtering_on_a_short_viewport() {
     assert_eq!(displayed(&fixture.shell).len(), 1);
     assert_eq!(list.children().to_vec(), original_order, "narrowing to one match need not move any native rows");
     assert_eq!(origin(), initial);
+    assert!(viewport.bounds().height < full_height, "the palette shrinks to its displayed results");
     search.set_text(Some("zzzz"));
     Dispatcher::ui_thread().run_jobs(None);
     fixture.window.capture_rendered_frame().unwrap();
     assert_eq!(origin(), initial);
     fixture.key(&search, Key::Escape);
-    assert!(!viewport.classes().contains("action-palette"));
+    assert!(!fixture.shell.control::<Border>("ModalBackdrop").is_visible());
+}
+
+#[test]
+fn quick_actions_cycle_native_tab_focus_and_dismiss_from_close() {
+    use ferroui_base::input::PhysicalKey;
+
+    let fixture = Fixture::new(false);
+    let search = open(&fixture);
+    fixture.window.capture_rendered_frame().unwrap();
+    let close = fixture.shell.button("CloseModalButton");
+    let press = |key, physical, modifiers| {
+        fixture.window.key_press(key, modifiers, physical, None);
+        fixture.window.key_release(key, modifiers, physical, None);
+    };
+    press(Key::Tab, PhysicalKey::Tab, RawInputModifiers::NONE);
+    assert!(close.is_focused());
+    press(Key::Tab, PhysicalKey::Tab, RawInputModifiers::NONE);
+    assert!(search.is_focused());
+    press(Key::Tab, PhysicalKey::Tab, RawInputModifiers::SHIFT);
+    assert!(close.is_focused());
+    press(Key::Escape, PhysicalKey::Escape, RawInputModifiers::NONE);
+    assert!(!fixture.shell.control::<Border>("ModalBackdrop").is_visible());
+    assert!(fixture.shell.canvas.is_focused());
 }

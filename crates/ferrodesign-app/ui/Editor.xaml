@@ -69,7 +69,7 @@
       <Setter Property="Height" Value="29"/>
       <Setter Property="CornerRadius" Value="4"/>
     </Style>
-    <Style Selector="ScrollViewer.action-palette"><Setter Property="Height" Value="470"/></Style>
+    <Style Selector="Border.action-dialog"><Setter Property="KeyboardNavigation.TabNavigation" Value="Cycle"/></Style>
     <Style Selector="Button.action-result">
       <Setter Property="Height" Value="32"/><Setter Property="Padding" Value="5,3,10,3"/>
     </Style>
@@ -613,7 +613,7 @@
         <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
           <Grid Name="ModalHeader" ColumnDefinitions="*,32" Background="Transparent" ToolTip.Tip="Drag to move the editor">
             <TextBlock Name="ModalTitle" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <Button Name="CloseModalButton" Grid.Column="1" Content="×" FontSize="18"/>
+            <Button Name="CloseModalButton" Grid.Column="1" Content="×" FontSize="18" AutomationProperties.Name="Close dialog" ToolTip.Tip="Close dialog"/>
           </Grid>
           <TextBlock Name="ModalDescription" Grid.Row="1" Margin="0,8,0,16" TextWrapping="Wrap" Foreground="#777777"/>
           <Border Name="DialogSearchHost" Grid.Row="2" Margin="0,0,0,8" IsVisible="False"/>

@@ -1,7 +1,9 @@
 //! Keyboard and pointer activation share the editor command dispatcher.
 use super::*;
-use ferroui_base::interactivity::RoutingStrategies;
+use ferroui_base::{input::{KeyboardNavigation, KeyboardNavigationMode}, interactivity::RoutingStrategies};
 use ferroui_controls::{automation::AutomationProperties, ScrollViewer};
+
+pub(super) const QUICK_ACTIONS_TITLE: &str = "Quick actions";
 
 struct ActionRow {
     label: String,
@@ -121,10 +123,18 @@ impl EditorShell {
         let mut seen = BTreeSet::new();
         let actions: Vec<_> = ACTIONS.iter().chain(FILE_ACTIONS).chain(LAYER_ACTIONS)
             .copied().filter(|&(_, id)| seen.insert(id)).collect();
-        self.action_dialog("Quick actions", "Find a tool, file action, or layer command.", &actions);
-        if self.control::<Border>("DialogSearchHost").is_visible() {
-            self.control::<ScrollViewer>("ModalViewport").classes().add("action-palette");
-        }
+        self.action_dialog(QUICK_ACTIONS_TITLE, "Find a tool, file action, or layer command.", &actions);
+    }
+
+    pub(super) fn wire_action_dialog(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.button("CloseModalButton").add_handler(InputElement::key_down_event(), move |_, event| {
+            if event.key != Key::Escape || !event.key_modifiers.is_empty() { return; }
+            if let Some(shell) = weak.upgrade().filter(|s| s.control::<Border>("DialogSearchHost").is_visible()) {
+                shell.close_modal();
+                event.set_handled(true);
+            }
+        });
     }
 
     pub(super) fn reset_action_search(&self) {
@@ -132,7 +142,7 @@ impl EditorShell {
         if host.is_visible() {
             host.set_is_visible(false);
             host.set_child(None);
-            self.control::<ScrollViewer>("ModalViewport").classes().remove("action-palette");
+            self.control::<Border>("ModalPanel").classes().remove("action-dialog");
         }
     }
 
@@ -144,6 +154,7 @@ impl EditorShell {
     ) {
         if !self.flush_inspector_drafts() { return; }
         self.modal(title, description);
+        self.control::<Border>("ModalPanel").classes().add("action-dialog");
         let host = self.control::<StackPanel>("ModalContent");
         let search = TextBox::new();
         search.set_name(Some("ActionSearch".into()));
@@ -159,6 +170,7 @@ impl EditorShell {
         header.set_is_visible(true);
 
         let list = StackPanel::new();
+        KeyboardNavigation::set_tab_navigation(&list, KeyboardNavigationMode::None);
         list.set_spacing(2.0);
         host.children().add(list.clone());
         let mut rows = Vec::with_capacity(actions.len());
