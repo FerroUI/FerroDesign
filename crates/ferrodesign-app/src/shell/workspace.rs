@@ -54,6 +54,7 @@ impl EditorShell {
             // The desktop rail and panels reserve 584 DIPs beside the canvas.
             // Switch to drawers before they squeeze the full tool dock.
             let compact = size.width < 970.0;
+            dialog.classes().set("phone", compact && size.width.min(size.height) <= 480.0);
             shell.size_tool_dock(size.width < 440.0);
             if shell.compact.replace(compact) != compact {
                 shell.compact_panel.set(CompactPanel::Canvas);

@@ -331,3 +331,42 @@ fn bulk_rename_tab_cycles_and_native_actions_cancel_or_apply_one_edit() {
     assert!(shell.command("undo"));
     assert_eq!(f.ui.json(), before);
 }
+
+#[test]
+fn bulk_rename_phone_targets_and_scroll_keep_actions_reachable_as_the_window_resizes() {
+    use ferroui_controls::ScrollViewer;
+    let f = BatchFixture::new();
+    let replace = f.open();
+    replace.set_text(Some("Navigation / $nn · $&"));
+    let point = |control: &Control| control.translate_point(ferroui_base::Point::default(), &f.ui.window).unwrap();
+    let scroll = f.ui.shell.control::<ScrollViewer>("ModalViewport");
+    let form = f.ui.shell.control::<Border>("ModalPanel");
+    let render = || { f.ui.window.capture_rendered_frame().unwrap(); };
+    for (width, height) in [(390.0, 844.0), (844.0, 390.0), (320.0, 568.0)] {
+        f.ui.window.set_width(width);
+        f.ui.window.set_height(height);
+        render();
+        assert!(point(&form).x >= 0.0 && point(&form).x + form.bounds().width <= width);
+        for name in ["RenameMatch", "RenameReplacement", "RenameStart", "RenameCurrent",
+                     "RenameAscending", "RenameDescending", "RenameApply", "RenameCancel", "CloseModalButton"] {
+            let control = f.control::<Control>(name);
+            let bounds = control.bounds();
+            assert!(bounds.width >= 44.0 && bounds.height >= 44.0, "{name} at {width}: {bounds:?}");
+        }
+        let apply = f.control::<Button>("RenameApply");
+        let footer = point(&apply);
+        assert!(footer.y >= point(&scroll).y + scroll.bounds().height);
+        assert!(footer.y + apply.bounds().height <= height);
+        if width == 320.0 {
+            assert!(scroll.extent().height > scroll.viewport().height);
+            scroll.scroll_to_end();
+            render();
+            let preview = f.control::<TextBlock>("RenamePreview");
+            assert!(point(&preview).y + preview.bounds().height <= footer.y);
+            assert_eq!(point(&apply), footer);
+            f.ui.click_button(&apply, RawInputModifiers::NONE);
+            assert!(f.ui.shell.canvas.is_focused());
+            assert_eq!(f.ui.shell.editor.borrow().history_len(), 1);
+        }
+    }
+}

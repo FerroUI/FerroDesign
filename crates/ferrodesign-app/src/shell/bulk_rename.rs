@@ -1,5 +1,5 @@
 //! Preview batch layer names in Layers-panel order, then commit one scoped edit.
-use super::styles::style_label;
+
 use super::*;
 use ferroui_base::interactivity::RoutingStrategies;
 use ferroui_controls::automation::AutomationProperties;
@@ -201,11 +201,18 @@ impl EditorShell {
             .classes()
             .add("keyboard-dialog");
         let host = self.control::<StackPanel>("ModalContent");
-        let field = |label: &str, name: &str, placeholder: &str, value: &str| {
-            host.children().add(style_label(label));
+        let label = |caption: &str| {
+            let label = TextBlock::new();
+            label.classes().add("rename-label");
+            label.set_text(Some(caption));
+            host.children().add(label);
+        };
+        let field = |caption: &str, name: &str, placeholder: &str, value: &str| {
+            label(caption);
             let field = TextBox::new();
+            field.classes().add("rename-field");
             field.set_name(Some(name.to_owned()));
-            AutomationProperties::set_name(&field, Some(label));
+            AutomationProperties::set_name(&field, Some(caption));
             field.set_placeholder_text(Some(placeholder));
             field.set_text(Some(value));
             host.children().add(field.clone());
@@ -221,10 +228,10 @@ impl EditorShell {
         let tokens = Grid::new();
         tokens.set_column_definitions(ColumnDefinitions::parse("*,*,*").unwrap());
         tokens.set_column_spacing(4.0);
-        for (i, (caption, token, name)) in [
-            ("Match / name", "$&", "RenameCurrent"),
-            ("Number ↑", "$n", "RenameAscending"),
-            ("Number ↓", "$N", "RenameDescending"),
+        for (i, (caption, token, name, accessible)) in [
+            ("Match", "$&", "RenameCurrent", "Insert matched text or layer name"),
+            ("Number ↑", "$n", "RenameAscending", "Insert ascending number"),
+            ("Number ↓", "$N", "RenameDescending", "Insert descending number"),
         ]
         .into_iter()
         .enumerate()
@@ -236,19 +243,27 @@ impl EditorShell {
                     field.focus();
                 }
             });
+            button.classes().add("rename-token");
+            AutomationProperties::set_name(&button, Some(accessible));
+            ferroui_controls::ToolTip::set_tip(&button, Some(Rc::new(accessible.to_string())));
             Grid::set_column(&button, i as i32);
             tokens.children().add(button);
         }
         host.children().add(tokens);
         let start = field(
-            "Start ascending / end descending at",
+            "Number range starts at",
             "RenameStart",
             "1",
             "1",
         );
-        let preview = style_label("");
+        label("Preview");
+        let surface = Border::new();
+        surface.classes().add("rename-preview");
+        let preview = TextBlock::new();
+        preview.classes().add("rename-preview");
         preview.set_name(Some("RenamePreview".into()));
-        host.children().add(preview.clone());
+        surface.set_child(preview.clone());
+        host.children().add(surface);
         let actions = self.control::<StackPanel>("ModalActions");
         actions
             .children()

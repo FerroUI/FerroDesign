@@ -124,6 +124,34 @@
       <Setter Property="Padding" Value="8,4"/><Setter Property="CornerRadius" Value="5"/>
       <Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="#F5F5F5"/>
     </Style>
+    <Style Selector="Button.dialog-close"><Setter Property="MinWidth" Value="32"/></Style>
+    <Style Selector="TextBlock.rename-label">
+      <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="#374151"/>
+    </Style>
+    <Style Selector="TextBox.rename-field"><Setter Property="FontSize" Value="13"/></Style>
+    <Style Selector="Button.rename-token">
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="MinHeight" Value="32"/>
+      <Setter Property="BorderThickness" Value="1"/><Setter Property="BorderBrush" Value="#D9DFE5"/>
+      <Setter Property="Background" Value="#F5F7F9"/><Setter Property="Foreground" Value="#344452"/>
+      <Setter Property="FontSize" Value="12"/><Setter Property="Padding" Value="3,2"/>
+    </Style>
+    <Style Selector="Border.rename-preview">
+      <Setter Property="CornerRadius" Value="6"/><Setter Property="Background" Value="#F5F7F9"/>
+      <Setter Property="Padding" Value="10,8"/>
+    </Style>
+    <Style Selector="TextBlock.rename-preview">
+      <Setter Property="TextWrapping" Value="Wrap"/><Setter Property="FontSize" Value="13"/>
+      <Setter Property="LineHeight" Value="20"/><Setter Property="Foreground" Value="#24313B"/>
+    </Style>
+    <Style Selector="Border.rename-dialog.phone TextBox.rename-field">
+      <Setter Property="MinHeight" Value="44"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Border.rename-dialog.phone Button">
+      <Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="FontSize" Value="13"/>
+      <Setter Property="MinHeight" Value="44"/><Setter Property="MinWidth" Value="44"/>
+    </Style>
     <Style Selector="TextBlock.label"><Setter Property="Foreground" Value="#626262"/><Setter Property="FontSize" Value="11"/></Style>
     <Style Selector="TextBlock.field-prefix">
       <Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="8,0,0,0"/>
@@ -682,9 +710,9 @@
     <Border Name="ModalBackdrop" Grid.ColumnSpan="4" Background="#55000000" IsVisible="False">
       <Border Name="ModalPanel" Width="620" MaxHeight="660" Background="White" CornerRadius="12" Padding="24" HorizontalAlignment="Center" VerticalAlignment="Center" BoxShadow="0 12 48 0 #30000000">
         <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
-          <Grid Name="ModalHeader" ColumnDefinitions="*,32" Background="Transparent" ToolTip.Tip="Drag to move the editor">
+          <Grid Name="ModalHeader" ColumnDefinitions="*,Auto" Background="Transparent" ToolTip.Tip="Drag to move the editor">
             <TextBlock Name="ModalTitle" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <Button Name="CloseModalButton" Grid.Column="1" Content="×" FontSize="18" AutomationProperties.Name="Close dialog" ToolTip.Tip="Close dialog"/>
+            <Button Name="CloseModalButton" Classes="dialog-close" Grid.Column="1" Content="×" FontSize="18" AutomationProperties.Name="Close dialog" ToolTip.Tip="Close dialog"/>
           </Grid>
           <TextBlock Name="ModalDescription" Grid.Row="1" Margin="0,8,0,16" TextWrapping="Wrap" Foreground="#777777"/>
           <Border Name="DialogSearchHost" Grid.Row="2" Margin="0,0,0,8" IsVisible="False"/>

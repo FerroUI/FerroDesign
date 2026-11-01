@@ -147,6 +147,7 @@ impl EditorShell {
         *self.panel_state.context.borrow_mut() = (editor.active_page, editor.selection.clone());
         drop(editor);
         let panel = self.control::<Border>("ModalPanel");
+        panel.classes().set("rename-dialog", title == "Rename layers");
         self.control::<Border>("ModalBackdrop")
             .set_background(if floating {
                 None
