@@ -159,3 +159,70 @@ fn free_move_commits_final_pointer_position_and_modifiers_once() {
     assert_eq!(shell.editor.borrow().history_len(), 0);
     assert!(shell.editor.borrow().can_redo());
 }
+
+#[test]
+fn option_drag_creates_no_layer_before_drop_and_cancels_without_consuming_redo() {
+    let fixture = Fixture::with_kind(false, NodeKind::Rectangle);
+    let shell = &fixture.shell;
+    let canvas = &shell.canvas;
+    fixture.window.capture_rendered_frame().unwrap();
+    let view = core::Viewport { zoom: 1.0, pan: Point::new(70.0, 70.0), ..canvas.viewport.get() };
+    canvas.viewport.set(view);
+    canvas.snap.set(false);
+    canvas.invalidate_visual();
+    fixture.window.capture_rendered_frame().unwrap();
+    let screen = |x, y| {
+        let p = view.world_to_screen(Point::new(x, y));
+        canvas.translate_point(ferroui_base::Point::new(p.x, p.y), &fixture.window).unwrap()
+    };
+    let start = screen(80.0, 80.0);
+    let end = screen(128.0, 89.0);
+    let before = fixture.json();
+    fixture.window.mouse_down(start, MouseButton::Left, RawInputModifiers::ALT);
+    fixture.window.mouse_move(end, RawInputModifiers::ALT | RawInputModifiers::LEFT_MOUSE_BUTTON);
+    assert_eq!(fixture.json(), before);
+    assert!(!shell.editor.borrow().has_active_transaction());
+    fixture.window.mouse_up(end, MouseButton::Left, RawInputModifiers::ALT | RawInputModifiers::SHIFT);
+    let id = shell.editor.borrow().selection[0];
+    assert_ne!(id, fixture.id);
+    assert_eq!(shell.editor.borrow().document.nodes[&id].bounds(), core::Rect::new(68.0, 20.0, 120.0, 120.0));
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+    for cancel in [false, true] {
+        fixture.window.mouse_down(start, MouseButton::Left, RawInputModifiers::ALT);
+        if cancel {
+            fixture.window.mouse_move(end, RawInputModifiers::ALT | RawInputModifiers::LEFT_MOUSE_BUTTON);
+            let mut event = KeyEventArgs::new();
+            event.set_routed_event(Some(InputElement::key_down_event()));
+            event.key = Key::Escape;
+            canvas.raise_event(&event);
+        }
+        fixture.window.mouse_up(screen(81.0, 80.0), MouseButton::Left, RawInputModifiers::ALT);
+        assert_eq!(fixture.json(), before);
+        assert!(shell.editor.borrow().can_redo());
+    }
+    // Letting go of Option before the pointer drops switches back to Move.
+    fixture.window.mouse_down(start, MouseButton::Left, RawInputModifiers::ALT);
+    fixture.window.mouse_move(end, RawInputModifiers::ALT | RawInputModifiers::LEFT_MOUSE_BUTTON);
+    fixture.window.mouse_up(end, MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(shell.editor.borrow().selection, [fixture.id]);
+    assert_eq!(shell.editor.borrow().document.nodes.len(), 1);
+    assert_eq!(shell.editor.borrow().document.nodes[&fixture.id].bounds(), core::Rect::new(68.0, 29.0, 120.0, 120.0));
+
+    assert!(shell.command("undo"));
+    fixture.window.mouse_down(start, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.mouse_move(end, RawInputModifiers::LEFT_MOUSE_BUTTON);
+    assert_ne!(fixture.json(), before);
+    let mut alt = KeyEventArgs::new();
+    alt.set_routed_event(Some(InputElement::key_down_event()));
+    alt.key = Key::LeftAlt;
+    alt.key_modifiers = ferroui_base::input::KeyModifiers::ALT;
+    canvas.raise_event(&alt);
+    assert!(alt.handled());
+    assert_eq!(fixture.json(), before, "engaging Option restores the original before previewing the copy");
+    fixture.window.mouse_up(end, MouseButton::Left, RawInputModifiers::ALT);
+    assert_ne!(shell.editor.borrow().selection, [fixture.id]);
+    assert_eq!(shell.editor.borrow().document.nodes.len(), 2);
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+}

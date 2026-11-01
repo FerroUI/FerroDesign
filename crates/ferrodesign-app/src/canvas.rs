@@ -1,5 +1,6 @@
 //! Interactive retained-mode surface. Artwork uses only FerroUI's public DrawingContext API.
 mod drawing;
+mod drag_copy;
 mod measure;
 mod resize;
 mod line_endpoint;
@@ -143,6 +144,7 @@ enum Gesture {
         angle: f64,
     },
     Marquee(selection::Marquee),
+    AltDrag(Box<drag_copy::AltDrag>),
     Draw(drawing::ShapeDrag),
     LineEndpoint(line_endpoint::EndpointDrag),
     Pencil {
@@ -361,8 +363,6 @@ impl DesignCanvas {
         self.invalidate_visual();
         self.emit(CanvasEvent::Tool);
     }
-    pub fn reset_fit(&self) {
-        self.clear_measurement();
     pub(crate) fn page_camera(&self) -> Option<Viewport> {
         self.initialized.get().then(|| self.viewport.get())
     }
@@ -382,6 +382,8 @@ impl DesignCanvas {
         self.viewport.set(restored);
     }
 
+    pub fn reset_fit(&self) {
+        self.clear_measurement();
         self.cancel_linear_gradient_gesture();
         self.clear_gradient_hover();
         self.cancel_corner_radius_gesture();
@@ -568,8 +570,11 @@ impl DesignCanvas {
     }
     pub fn cancel(&self) {
         self.clear_measurement();
-        if matches!(*self.gesture.borrow(), Gesture::Marquee(_)) {
+        if matches!(*self.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_)) {
             *self.gesture.borrow_mut() = Gesture::None;
+            self.set_resize_hover(None);
+            self.snap_guides.set((None, None));
+            self.layout_grids.borrow_mut().clear_snap();
             self.invalidate_visual();
             return;
         }
@@ -927,7 +932,7 @@ impl InputElementImpl for DesignCanvas {
                 if !scaling && this.corner_radius_press(world, e.key_modifiers()) { return; }
                 this.clear_corner_radius_hover();
                 let handle = if scaling || deep { None } else { this.handle_at(world) };
-                if handle.is_none() && this.cycle_pointer_click(world, e.key_modifiers()) { return; }
+                if handle.is_none() && this.press_alt_drag(world, screen, e.key_modifiers()) { return; }
                 if this.vector_press(world, e.click_count(), additive) {
                     return;
                 }
@@ -1156,6 +1161,7 @@ impl InputElementImpl for DesignCanvas {
                 }
                 editor.refresh_preview_nodes(&[node.id]);
             }
+            Gesture::AltDrag(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::Marquee(drag) => { drag.update(&this.editor.borrow(), world, e.key_modifiers()); }
             Gesture::Draw(drag) => drag.update(this, world, e.key_modifiers(), false),
             Gesture::LineEndpoint(drag) => drag.update(this, world, e.key_modifiers()),
@@ -1355,6 +1361,7 @@ impl InputElementImpl for DesignCanvas {
                     this.select_at_pointer(world, modifiers, clicks, None);
                 }
             }
+            Gesture::AltDrag(drag) => drag.finish(this, this.world(release_screen), e.key_modifiers()),
             Gesture::Marquee(mut drag) => {
                 let mut editor = this.editor.borrow_mut();
                 if drag.update(&editor, this.world(release_screen), e.key_modifiers())
@@ -1475,7 +1482,7 @@ impl InputElementImpl for DesignCanvas {
     fn on_lost_focus(this: &Self, e: &FocusChangedEventArgs) {
         Self::parent_on_lost_focus(this, e);
         this.clear_measurement();
-        if matches!(*this.gesture.borrow(), Gesture::Marquee(_)) {
+        if matches!(*this.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_)) {
             this.cancel();
         }
         // KeyUp is routed to the new focus owner.
@@ -1492,7 +1499,7 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
-        if this.marquee_modifier(e, true) {
+        if this.marquee_modifier(e, true) || this.alt_drag_modifier(e, true) {
             e.set_handled(true);
             return;
         }
@@ -1682,7 +1689,7 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_key_up(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_up(this, e);
-        if this.marquee_modifier(e, false) {
+        if this.marquee_modifier(e, false) || this.alt_drag_modifier(e, false) {
             e.set_handled(true);
             return;
         }
@@ -2005,6 +2012,9 @@ impl VisualImpl for DesignCanvas {
             painter.set_raster_scale(v.zoom * display_scale);
             if prototype_scene.is_none() && this.presentation.get().is_none() {
                 painter.render_editor(ctx, &editor, roots, v.visible_rect());
+                if let Gesture::AltDrag(drag) = &*this.gesture.borrow() {
+                    drag.render(ctx, &editor, v.visible_rect(), v.zoom * display_scale);
+                }
             } else {
                 painter.render(ctx, doc, roots, v.visible_rect());
             }
@@ -2107,7 +2117,11 @@ impl VisualImpl for DesignCanvas {
             _ => None,
         };
         if scale_mode && marquee.is_none() { this.render_scale_handles(ctx, &editor, v); }
-        let selection = marquee.map_or(editor.selection.as_slice(), |drag| drag.preview.as_slice());
+        let selection = match &*gesture {
+            Gesture::Marquee(drag) => drag.preview.as_slice(),
+            Gesture::AltDrag(drag) if drag.is_previewing(&editor) => &[],
+            _ => editor.selection.as_slice(),
+        };
         for &id in selection {
             let Some(n) = doc.nodes.get(&id) else {
                 continue;
@@ -2215,6 +2229,7 @@ impl VisualImpl for DesignCanvas {
                 &BoxShadows::default(),
             );
         }
+        if let Gesture::AltDrag(drag) = &*gesture { drag.draw_guides(ctx, &editor, v); }
         this.render_layout_drag(ctx, v);
         this.draw_measurements(ctx, &editor, v);
         for comment in &doc.comments {

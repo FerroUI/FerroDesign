@@ -204,6 +204,14 @@ pub struct Clipboard {
     pub nodes: BTreeMap<NodeId, Node>,
     pub bounds: Option<Rect>,
 }
+struct DuplicatePlacement {
+    token: EditorRenderToken,
+    page: NodeId,
+    selection: Vec<NodeId>,
+    grab: Point,
+    delta: Point,
+}
+
 /// Committed history is a node delta. A gesture captures once, updates at pointer
 /// frequency, and commits a single undo step with stable selection identities.
 pub struct Editor {
@@ -227,6 +235,7 @@ pub struct Editor {
     layout_node_count: usize,
     history_limit: usize,
     paste_count: u32,
+    duplicate_placement: Option<DuplicatePlacement>,
     render_changes: RenderChangeLog,
 }
 impl Default for Editor {
@@ -258,6 +267,7 @@ impl Editor {
             layout_node_count: 0,
             history_limit: 100,
             paste_count: 0,
+            duplicate_placement: None,
             render_changes: RenderChangeLog::default(),
         };
         e.refresh();
@@ -272,6 +282,11 @@ impl Editor {
             sequence: self.render_changes.sequence,
         }
     }
+    /// Imported files can reuse every page and node ID. A document replacement
+    /// starts a new render history, including when undo or redo crosses the open.
+    pub fn owns_render_token(&self, token: &EditorRenderToken) -> bool {
+        Arc::ptr_eq(&token.identity, &self.render_changes.identity)
+    }
     /// Return every dependency changed since `token`, or request a full scene
     /// preparation. Consumers never need to assert that their own dirty list is
     /// complete. As with the spatial index, arbitrary public document writes
@@ -282,11 +297,6 @@ impl Editor {
         if !Arc::ptr_eq(&token.identity, &log.identity)
             || token.sequence > log.sequence
             || self.document.revision != log.published_revision
-    /// Imported files can reuse every page and node ID. A document replacement
-    /// starts a new render history, including when undo or redo crosses the open.
-    pub fn owns_render_token(&self, token: &EditorRenderToken) -> bool {
-        Arc::ptr_eq(&token.identity, &self.render_changes.identity)
-    }
             || self.revision != log.published_revision
         {
             return EditorRenderChanges::Full;
@@ -545,6 +555,7 @@ impl Editor {
                 token: EditorTransactionToken { identity: Arc::new(()) },
                 label: label.into(),
                 before: PendingSnapshot::Document(self.document.clone()),
+                replaced_document: false,
                 selection: self.selection.clone(),
                 page: self.active_page,
             })
@@ -555,7 +566,6 @@ impl Editor {
     /// Capture a gesture that directly edits only known existing nodes. Preview
     /// mutations must report their IDs through `refresh_preview_nodes`; generic
     /// edits and full refreshes promote the snapshot before proceeding. Layout
-                replaced_document: false,
     /// can change ancestors and siblings, so any auto-layout document keeps a
     /// complete snapshot. Creation, hierarchy changes, and resize constraints
     /// should use `begin_transaction`.
@@ -573,6 +583,7 @@ impl Editor {
         self.pending = Some(PendingTransaction {
             token: EditorTransactionToken { identity: Arc::new(()) },
             label: label.into(),
+            replaced_document: false,
             before: PendingSnapshot::Nodes {
                 nodes: ids.iter().filter_map(|id| {
                     self.document.nodes.get(id).map(|node| (*id, node.clone()))
@@ -583,7 +594,6 @@ impl Editor {
             page: self.active_page,
         });
     }
-            replaced_document: false,
     /// Before a scoped API mutates a new node, capture its current value. A
     /// direct preview reports after mutation, so use the last refreshed value.
     fn capture_pending_nodes(&mut self, ids: &[NodeId], preview: bool) {
@@ -664,6 +674,7 @@ impl Editor {
             selection_after: self.selection.clone(),
             page_before: p.page,
             page_after: self.active_page,
+            replaced_document: p.replaced_document,
             node_only,
         });
         if self.undo.len() > self.history_limit {
@@ -674,7 +685,6 @@ impl Editor {
             self.refresh_nodes(&keys);
         } else {
             self.refresh();
-            replaced_document: p.replaced_document,
         }
         true
     }
@@ -683,6 +693,7 @@ impl Editor {
             self.promote_node_transaction(true);
         }
         if let Some(p) = self.pending.take() {
+            if p.replaced_document { self.render_changes = RenderChangeLog::default(); }
             self.selection = p.selection;
             self.active_page = p.page;
             match p.before {
@@ -693,7 +704,6 @@ impl Editor {
                 PendingSnapshot::Nodes { nodes, metadata } => {
                     let changed: Vec<_> = nodes.keys().copied().collect();
                     self.document.nodes.extend(nodes);
-            if p.replaced_document { self.render_changes = RenderChangeLog::default(); }
                     metadata.restore(&mut self.document);
                     self.refresh_nodes(&changed);
                 }
@@ -782,6 +792,7 @@ impl Editor {
                 selection_after: self.selection.clone(),
                 page_before,
                 page_after: self.active_page,
+                replaced_document: false,
                 node_only: true,
             });
             if self.undo.len() > self.history_limit {
@@ -792,7 +803,6 @@ impl Editor {
         self.refresh_nodes(ids);
         result
     }
-                replaced_document: false,
     /// Whether a live edit currently owns the next history transaction.
     pub fn has_active_transaction(&self) -> bool {
         self.pending.is_some()
@@ -823,6 +833,7 @@ impl Editor {
         let Some(e) = self.undo.pop() else {
             return false;
         };
+        if e.replaced_document { self.render_changes = RenderChangeLog::default(); }
         for (id, (before, _)) in &e.nodes {
             if let Some(n) = before {
                 self.document.nodes.insert(*id, n.clone());
@@ -833,7 +844,6 @@ impl Editor {
         e.before.restore(&mut self.document);
         self.selection = e.selection_before.clone();
         self.active_page = e.page_before;
-        if e.replaced_document { self.render_changes = RenderChangeLog::default(); }
         let changed: Vec<_> = e.nodes.keys().copied().collect();
         let node_only = e.node_only;
         self.redo.push(e);
@@ -851,6 +861,7 @@ impl Editor {
         let Some(e) = self.redo.pop() else {
             return false;
         };
+        if e.replaced_document { self.render_changes = RenderChangeLog::default(); }
         for (id, (_, after)) in &e.nodes {
             if let Some(n) = after {
                 self.document.nodes.insert(*id, n.clone());
@@ -861,7 +872,6 @@ impl Editor {
         e.after.restore(&mut self.document);
         self.selection = e.selection_after.clone();
         self.active_page = e.page_after;
-        if e.replaced_document { self.render_changes = RenderChangeLog::default(); }
         let changed: Vec<_> = e.nodes.keys().copied().collect();
         let node_only = e.node_only;
         self.undo.push(e);
@@ -1373,7 +1383,26 @@ impl Editor {
             roots
         }))
     }
+    pub(crate) fn remember_duplicate_placement(&mut self, grab: Point, delta: Point) {
+        self.duplicate_placement = Some(DuplicatePlacement {
+            token: self.render_change_token(), page: self.active_page,
+            selection: self.selection.clone(), grab, delta,
+        });
+    }
+
     pub fn duplicate_selection(&mut self) -> Vec<NodeId> {
+        if let Some(last) = self.duplicate_placement.take().filter(|last| {
+            !self.has_active_transaction() && last.page == self.active_page
+                && last.token == self.render_change_token() && last.selection == self.selection
+        }) {
+            if let Some(&anchor) = self.selection.first() {
+                if let Ok(session) = LayoutTransferSession::for_copy(&self.document, &self.selection, anchor, last.grab) {
+                    if let Some(target) = session.repeat_copy_target(last.grab + last.delta) {
+                        return self.commit_drag_copy(&session, target).unwrap_or_default();
+                    }
+                }
+            }
+        }
         self.edit("Duplicate layers", |e| {
             let roots = e.root_selection();
             let source = e.document.nodes.clone();
@@ -1822,6 +1851,8 @@ impl Editor {
     pub fn load_json(&mut self, json: &str) -> Result<(), DocumentError> {
         let d = Document::from_json(json)?;
         self.edit("Open document", |e| {
+            e.render_changes = RenderChangeLog::default();
+            if let Some(pending) = &mut e.pending { pending.replaced_document = true; }
             e.active_page = d.pages[0].id;
             e.document = d;
             e.selection.clear()
@@ -1851,8 +1882,6 @@ impl Editor {
         for id in self.scene.spatial.query(bounds.inflate(threshold * 8.0)) {
             if exclude.contains(&id) || exclude.iter().any(|p| self.document.is_ancestor(*p, id)) {
                 continue;
-            e.render_changes = RenderChangeLog::default();
-            if let Some(pending) = &mut e.pending { pending.replaced_document = true; }
             }
             let Some(t) = self.document.world_bounds(id) else {
                 continue;
@@ -2347,7 +2376,7 @@ mod performance_tests {
 fn assign_transform(n: &mut Node, t: Transform) {
     n.set_local_transform(t)
 }
-fn clone_tree_into(
+pub(crate) fn clone_tree_into(
     d: &mut Document,
     source: &BTreeMap<NodeId, Node>,
     roots: &[NodeId],

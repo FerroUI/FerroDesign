@@ -167,6 +167,15 @@ impl DesignCanvas {
         }
     }
 
+    pub(super) fn drag_copy_origin(&self) -> Option<(NodeId, Point, Point)> {
+        let editor = self.editor.borrow();
+        if let Some(probe) = self.free_layout_probe.borrow().as_ref().filter(|probe| probe.owns(&editor)) {
+            return Some((probe.session.child(), probe.start_world, probe.start_screen));
+        }
+        self.layout_drag.borrow().as_ref().filter(|drag| drag.owns(&editor))
+            .map(|drag| (drag.session.child(), drag.start_world, drag.start_screen))
+    }
+
     pub fn cancel_layout_drag(&self) -> bool {
         let active = self.layout_drag.borrow_mut().take().is_some();
         let probe = self.free_layout_probe.borrow_mut().take();
@@ -213,32 +222,8 @@ impl DesignCanvas {
         let mut editor = self.editor.borrow_mut();
         self.snap_guides.set((None, None));
         self.layout_grids.borrow_mut().clear_snap();
-        if self.snap.get() {
-            if let Some(bounds) = bounds {
-                let proposed = Rect::new(
-                    bounds.x + delta.x,
-                    bounds.y + delta.y,
-                    bounds.width,
-                    bounds.height,
-                );
-                // An axis-constrained drag must stay on its original axis.
-                let snap_x = !shift || delta.x != 0.0;
-                let snap_y = !shift || delta.y != 0.0;
-                let direction = shift.then_some(if snap_x { Point::new(1.0, 0.0) } else { Point::new(0.0, 1.0) });
-                let guide = self.layout_grids.borrow_mut().snap_bounds(&editor, proposed,
-                    5.0 / self.viewport.get().zoom, exclude, direction);
-                if let Some(guide) = guide {
-                    delta = delta + guide.delta;
-                } else {
-                    let snap = editor.smart_snap(proposed, 5.0 / self.viewport.get().zoom, exclude);
-                    if snap_x { delta.x += snap.delta.x; }
-                    if snap_y { delta.y += snap.delta.y; }
-                    self.snap_guides.set((
-                        if snap_x { snap.vertical_guide } else { None },
-                        if snap_y { snap.horizontal_guide } else { None },
-                    ));
-                }
-            }
+        if let Some(bounds) = bounds.filter(|_| self.snap.get()) {
+            delta = self.snap_move_delta(&editor, bounds, delta, shift, exclude, exclude);
         }
         let mut changed = false;
         for original in nodes.iter() {
@@ -268,6 +253,26 @@ impl DesignCanvas {
             probe.record_revision(editor.revision);
         }
         *moved = true;
+    }
+
+    pub(super) fn snap_move_delta(
+        &self, editor: &Editor, bounds: Rect, mut delta: Point, shift: bool,
+        grid_exclude: &[NodeId], object_exclude: &[NodeId],
+    ) -> Point {
+        let proposed = Rect::new(bounds.x + delta.x, bounds.y + delta.y, bounds.width, bounds.height);
+        let tolerance = 5.0 / self.viewport.get().zoom;
+        let snap_x = !shift || delta.x != 0.0;
+        let snap_y = !shift || delta.y != 0.0;
+        let direction = shift.then_some(if snap_x { Point::new(1.0, 0.0) } else { Point::new(0.0, 1.0) });
+        if let Some(guide) = self.layout_grids.borrow_mut().snap_bounds(editor, proposed, tolerance, grid_exclude, direction) {
+            delta = delta + guide.delta;
+        } else {
+            let snap = editor.smart_snap(proposed, tolerance, object_exclude);
+            if snap_x { delta.x += snap.delta.x; }
+            if snap_y { delta.y += snap.delta.y; }
+            self.snap_guides.set((snap.vertical_guide.filter(|_| snap_x), snap.horizontal_guide.filter(|_| snap_y)));
+        }
+        delta
     }
 
     pub(super) fn layout_drag_move(&self, world: Point, screen: Point) -> bool {

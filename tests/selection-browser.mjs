@@ -407,4 +407,47 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     await unchanged(arrow, "Canceling a captured shape drag");
     check("Native shape shortcuts place a 100 × 100 ellipse, create a direction-preserving centered Shift-arrow, commit one undo record, and cancel a held drag atomically");
 
+    await importFixture(page, isolatedDocument(reference, hierarchy, "Drag to duplicate"));
+    await click({ x: 51, y: 155 }, [], [2]);
+    const copyBase = await snapshot();
+    await page.keyboard.down("Alt");
+    try {
+        await moveWorld(page, 51, 155);
+        await page.mouse.down();
+        await moveWorld(page, 81, 169);
+        await unchanged(copyBase, "Transient duplicate artwork");
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await selected([2]);
+        await unchanged(copyBase, "Cancel duplicate");
+        await moveWorld(page, 51, 155);
+        await page.mouse.down();
+        await moveWorld(page, 81, 169);
+        await page.mouse.up();
+    } finally {
+        await page.keyboard.up("Alt");
+    }
+    const copyView = await state(page), copy = (await documentState(page)).nodes[copyView.selection[0]];
+    assert.notEqual(copy.id, 2);
+    assert.equal(copy.kind, "frame");
+    assert.notDeepEqual(copy.children, [3, 8]);
+    assert.equal(copy.children.length, 2);
+    assert.equal(copyView.historyLength, copyBase.history + 1);
+    await page.keyboard.press("Control+d");
+    await page.waitForFunction(previous => {
+        const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+        return view.selection.length === 1 && view.selection[0] !== previous;
+    }, copy.id);
+    const repeatedView = await state(page);
+    const repeated = (await documentState(page)).nodes[repeatedView.selection[0]];
+    assert.deepEqual([repeated.x - copy.x, repeated.y - copy.y], [copy.x - 40, copy.y - 40]);
+    assert.equal(repeated.parent, copy.parent);
+    assert.equal(repeatedView.historyLength, copyBase.history + 2);
+    await page.keyboard.press("Control+z");
+    await selected([copy.id]);
+    await page.keyboard.press("Control+z");
+    await selected([2]);
+    assert.deepEqual(await documentState(page), copyBase.document);
+    check("Option-drag previews and duplicates a frame, Ctrl+D repeats its spacing, and Escape and Undo restore every layer");
+
 }
