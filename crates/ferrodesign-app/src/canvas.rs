@@ -134,6 +134,7 @@ enum Gesture {
         moved: bool,
     },
     Scale(scale::ScaleDrag),
+    EdgePress { hit: resize::Hit, world: Point, screen: Point, modifiers: KeyModifiers, clicks: i32 },
     Resize(resize::ResizeDrag),
     Rotate {
         node: Node,
@@ -528,6 +529,11 @@ impl DesignCanvas {
         active
     }
     pub fn cancel(&self) {
+        if matches!(*self.gesture.borrow(), Gesture::EdgePress { .. }) {
+            *self.gesture.borrow_mut() = Gesture::None;
+            self.set_resize_hover(None);
+            return;
+        }
         if self.cancel_scale_drag() { return; }
         self.layout_grids.borrow_mut().clear_snap();
         if self.cancel_linear_gradient_gesture() { return; }
@@ -876,10 +882,7 @@ impl InputElementImpl for DesignCanvas {
                 if !scaling && this.corner_radius_press(world, e.key_modifiers()) { return; }
                 this.clear_corner_radius_hover();
                 let handle = if scaling || deep { None } else { this.handle_at(world) };
-                if !scaling && handle.is_none() && e.key_modifiers().contains(KeyModifiers::ALT) && !deep && this.vector_node.get().is_none() {
-                    this.cycle_selection_at(world, if additive { core::SelectionCycle::InFront } else { core::SelectionCycle::Behind });
-                    return;
-                }
+                if handle.is_none() && this.cycle_pointer_click(world, e.key_modifiers()) { return; }
                 if this.vector_press(world, e.click_count(), additive) {
                     return;
                 }
@@ -906,69 +909,16 @@ impl InputElementImpl for DesignCanvas {
                             center,
                             angle,
                         };
+                    } else if matches!(hit.handle, resize::Handle::Edge(_)) {
+                        *this.gesture.borrow_mut() = Gesture::EdgePress {
+                            hit, world, screen, modifiers: e.key_modifiers(), clicks: e.click_count(),
+                        };
                     } else if let Some(drag) = resize::ResizeDrag::new(node, hit, world) {
                         editor.begin_node_transaction(&[id], "Resize");
                         *this.gesture.borrow_mut() = Gesture::Resize(drag);
                     }
-                } else if let Some(id) = this.pick_with_modifiers(world, e.key_modifiers(), e.click_count() == 2) {
-                    let mut editor = this.editor.borrow_mut();
-                    if additive {
-                        if editor.selection.contains(&id) {
-                            editor.selection.retain(|x| *x != id);
-                        } else {
-                            editor.selection.push(id);
-                        }
-                    } else if !editor.selection.contains(&id) {
-                        editor.selection = vec![id];
-                    }
-                    if !scaling && e.click_count() == 2 && editor.document.nodes[&id].kind == NodeKind::Text {
-                        drop(editor);
-                        this.emit(CanvasEvent::EditText(id));
-                        return;
-                    }
-                    if !scaling && e.click_count() == 2 && editor.document.nodes[&id].kind == NodeKind::Vector {
-                        drop(editor);
-                        this.edit_vector();
-                        return;
-                    }
-                    if this.layout_drag_press(&editor, id, world, screen) {
-                        drop(editor);
-                        this.emit(CanvasEvent::Selection);
-                        this.invalidate_visual();
-                        return;
-                    }
-                    let exclude = editor.root_selection();
-                    let bounds = exclude
-                        .iter()
-                        .filter_map(|&id| editor.document.world_bounds(id))
-                        .reduce(|a, b| a.union(b));
-                    let nodes = exclude
-                        .iter()
-                        .filter_map(|id| editor.document.nodes.get(id).cloned())
-                        .collect();
-                    editor.begin_node_transaction(&exclude, "Move layers");
-                    if let Some(probe) = this.free_layout_probe.borrow_mut().as_mut() {
-                        probe.record_transaction(&editor);
-                    }
-                    *this.gesture.borrow_mut() = Gesture::Move {
-                        start: world,
-                        nodes,
-                        bounds,
-                        exclude,
-                        moved: false,
-                    };
-                    drop(editor);
-                    this.emit(CanvasEvent::Selection);
                 } else {
-                    if !additive {
-                        this.editor.borrow_mut().selection.clear();
-                    }
-                    *this.gesture.borrow_mut() = Gesture::Marquee {
-                        start: world,
-                        current: world,
-                        additive,
-                    };
-                    this.emit(CanvasEvent::Selection);
+                    this.select_at_pointer(world, e.key_modifiers(), e.click_count(), Some(screen));
                 }
             }
             Tool::Pen => {
@@ -1140,7 +1090,9 @@ impl InputElementImpl for DesignCanvas {
             }
         }
         let mut gesture = this.gesture.borrow_mut();
+        this.activate_edge_drag(&mut gesture, position);
         match &mut *gesture {
+            Gesture::EdgePress { .. } => return,
             Gesture::None => {
                 let hover = this.pick_with_modifiers(world, e.key_modifiers(), false);
                 if this.hover.replace(hover) != hover {
@@ -1418,6 +1370,7 @@ impl InputElementImpl for DesignCanvas {
             return;
         }
         let mut gesture = std::mem::replace(&mut *this.gesture.borrow_mut(), Gesture::None);
+        this.activate_edge_drag(&mut gesture, Point::new(release_screen.x, release_screen.y));
         // Hosts may coalesce the last move into the release event.
         match &mut gesture {
             Gesture::Scale(drag) => drag.update(&mut this.editor.borrow_mut(), this.world(release_screen), e.key_modifiers().contains(KeyModifiers::ALT)),
@@ -1431,6 +1384,12 @@ impl InputElementImpl for DesignCanvas {
         // Clear the gesture before releasing capture: capture-lost is synchronous.
         e.pointer().capture(None);
         match gesture {
+            Gesture::EdgePress { world, modifiers, clicks, .. } => {
+                this.set_resize_hover(None);
+                if !this.cycle_pointer_click(world, modifiers) {
+                    this.select_at_pointer(world, modifiers, clicks, None);
+                }
+            }
             Gesture::Marquee {
                 start,
                 current,

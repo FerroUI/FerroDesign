@@ -42,3 +42,75 @@ fn move_tool_edge_resize_commits_coalesced_release_and_cancels_with_escape() {
     assert_eq!(fixture.json(), before);
     assert!(shell.editor.borrow().can_redo());
 }
+
+#[test]
+fn transparent_star_edge_clicks_pick_geometry_while_drags_resize_the_selection() {
+    let fixture = Fixture::with_kind(false, NodeKind::Star);
+    let shell = &fixture.shell;
+    let canvas = &shell.canvas;
+    let mut doc = core::Document::new("Rounded star edge hit testing");
+    let mut back = Node::new(NodeKind::Rectangle, "Behind the tip", 20.0, 20.0, 400.0, 250.0).with_fill(core::Color::WHITE);
+    back.visible = false;
+    let back = doc.insert_node(1, back).unwrap();
+    // The affine star and the rounded-away tip are the browser polygon-corners fixture.
+    let mut star = Node::new(NodeKind::Star, "Rounded star", 100.0, 60.0, 160.0, 140.0)
+        .with_fill(core::Color::WHITE).with_radius(20.25);
+    star.rotation = 17.0;
+    star.flip_x = true;
+    star.polygon_sides = 5;
+    star.affine_transform = Some(core::Transform { a: 1.0, b: 0.15, c: 0.2, d: 0.9, e: 0.0, f: 0.0 });
+    let transform = star.local_transform();
+    let star = doc.insert_node(1, star).unwrap();
+    let mut editor = Editor::new(doc);
+    editor.selection = vec![star];
+    *shell.editor.borrow_mut() = editor;
+    shell.refresh();
+    fixture.window.capture_rendered_frame().unwrap();
+    let view = core::Viewport { zoom: 2.0, pan: Point::new(40.0, 40.0), ..canvas.viewport.get() };
+    canvas.viewport.set(view);
+    canvas.invalidate_visual();
+    fixture.window.capture_rendered_frame().unwrap();
+    let screen = |local_x, local_y| {
+        let p = view.world_to_screen(transform.apply(Point::new(local_x, local_y)));
+        canvas.translate_point(ferroui_base::Point::new(p.x, p.y), &fixture.window).unwrap()
+    };
+    let tip = screen(80.0, 1.0);
+    let before = fixture.json();
+    fixture.window.mouse_move(tip, RawInputModifiers::NONE);
+    assert!(canvas.cursor().is_some(), "the transparent tip is in the rotated side's resize target");
+    fixture.window.mouse_down(tip, MouseButton::Left, RawInputModifiers::NONE);
+    assert!(!shell.editor.borrow().has_active_transaction());
+    let jitter = ferroui_base::Point::new(tip.x + 1.0, tip.y);
+    fixture.window.mouse_move(jitter, RawInputModifiers::LEFT_MOUSE_BUTTON);
+    fixture.window.mouse_up(jitter, MouseButton::Left, RawInputModifiers::NONE);
+    assert!(shell.editor.borrow().selection.is_empty());
+    assert_eq!(shell.editor.borrow().history_len(), 0);
+    assert_eq!(fixture.json(), before);
+
+    shell.editor.borrow_mut().update_node(back, "Show backdrop", |n| n.visible = true);
+    let before = fixture.json();
+    let depth = shell.editor.borrow().history_len();
+    shell.editor.borrow_mut().select(star, false);
+    shell.refresh();
+    fixture.window.mouse_down(tip, MouseButton::Left, RawInputModifiers::SHIFT);
+    fixture.window.mouse_up(tip, MouseButton::Left, RawInputModifiers::SHIFT);
+    assert_eq!(shell.editor.borrow().selection, [star, back]);
+    shell.editor.borrow_mut().select(star, false);
+    shell.refresh();
+    fixture.window.mouse_down(tip, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.mouse_up(tip, MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(shell.editor.borrow().selection, [back]);
+    assert_eq!(shell.editor.borrow().history_len(), depth);
+    assert_eq!(fixture.json(), before);
+
+    shell.editor.borrow_mut().select(star, false);
+    shell.refresh();
+    fixture.window.mouse_down(tip, MouseButton::Left, RawInputModifiers::NONE);
+    // Coalesced drag crosses the same transparent side without a prior move event.
+    fixture.window.mouse_up(screen(80.0, -11.0), MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(shell.editor.borrow().selection, [star]);
+    assert!(shell.editor.borrow().document.nodes[&star].height > 150.0);
+    assert_eq!(shell.editor.borrow().history_len(), depth + 1);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+}

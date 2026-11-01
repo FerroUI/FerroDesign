@@ -49,6 +49,20 @@ impl Hit {
 }
 
 impl DesignCanvas {
+    // An unpainted side can cross a rounded corner, a star cutout, or another layer.
+    // Keep the press eligible for ordinary picking until the pointer becomes a drag.
+    pub(super) fn activate_edge_drag(&self, gesture: &mut Gesture, pointer: Point) {
+        let Gesture::EdgePress { hit, world, screen, .. } = *gesture else { return; };
+        if pointer.distance(screen) < 3.0 { return; }
+        let mut editor = self.editor.borrow_mut();
+        if editor.selection.as_slice() != [hit.id] || editor.document.effective_locked(hit.id) { return; }
+        let Some(node) = editor.document.nodes.get(&hit.id) else { return; };
+        if let Some(drag) = ResizeDrag::new(node, hit, world) {
+            editor.begin_node_transaction(&[hit.id], "Resize");
+            *gesture = Gesture::Resize(drag);
+        }
+    }
+
     pub(super) fn set_resize_hover(&self, hit: Option<Hit>) {
         let edge = hit.and_then(|h| match h.handle {
             Handle::Edge(i) => Some((h.id, i)),

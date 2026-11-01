@@ -58,6 +58,55 @@ impl DesignCanvas {
         )
     }
 
+    pub(super) fn cycle_pointer_click(&self, world: Point, modifiers: KeyModifiers) -> bool {
+        if self.tool.get() == Tool::Scale || self.vector_node.get().is_some() || !modifiers.contains(KeyModifiers::ALT)
+            || modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META) {
+            return false;
+        }
+        let direction = if modifiers.contains(KeyModifiers::SHIFT) {
+            core::SelectionCycle::InFront
+        } else {
+            core::SelectionCycle::Behind
+        };
+        self.cycle_selection_at(world, direction);
+        true
+    }
+
+    pub(super) fn select_at_pointer(
+        &self, world: Point, modifiers: KeyModifiers, clicks: i32, drag_origin: Option<Point>,
+    ) {
+        let additive = modifiers.contains(KeyModifiers::SHIFT);
+        let scaling = self.tool.get() == Tool::Scale;
+        let hit = self.pick_with_modifiers(world, modifiers, clicks == 2);
+        let mut editor = self.editor.borrow_mut();
+        if let Some(id) = hit {
+            if additive || !editor.selection.contains(&id) { editor.select(id, additive); }
+            if !scaling && clicks == 2 {
+                match editor.document.nodes[&id].kind {
+                    NodeKind::Text => { drop(editor); self.emit(CanvasEvent::EditText(id)); return; }
+                    NodeKind::Vector => { drop(editor); self.edit_vector(); return; }
+                    _ => {}
+                }
+            }
+            if drag_origin.is_some_and(|screen| !self.layout_drag_press(&editor, id, world, screen)) {
+                let exclude = editor.root_selection();
+                let bounds = exclude.iter().filter_map(|&id| editor.document.world_bounds(id)).reduce(Rect::union);
+                let nodes = exclude.iter().filter_map(|id| editor.document.nodes.get(id).cloned()).collect();
+                editor.begin_node_transaction(&exclude, "Move layers");
+                if let Some(probe) = self.free_layout_probe.borrow_mut().as_mut() { probe.record_transaction(&editor); }
+                *self.gesture.borrow_mut() = Gesture::Move { start: world, nodes, bounds, exclude, moved: false };
+            }
+        } else {
+            if !additive { editor.clear_selection(); }
+            if drag_origin.is_some() {
+                *self.gesture.borrow_mut() = Gesture::Marquee { start: world, current: world, additive };
+            }
+        }
+        drop(editor);
+        self.emit(CanvasEvent::Selection);
+        self.invalidate_visual();
+    }
+
     pub(super) fn pick(&self, point: Point) -> Option<NodeId> {
         self.pick_with_modifiers(point, KeyModifiers::empty(), false)
     }
