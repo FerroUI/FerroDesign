@@ -74,6 +74,7 @@ pub struct EditorShell {
     inline_layout: RefCell<Option<text::InlineLayout>>,
     inline_updating: Cell<bool>,
     inline_draft_dirty: Cell<bool>,
+    geometry_readouts: geometry_fields::GeometryReadouts,
     geometry_scrub: RefCell<Option<geometry_scrub::Scrub>>,
     inspector_drafts: RefCell<Vec<std::rc::Weak<fields::InspectorDraft>>>,
     panel_state: panels::PanelState,
@@ -142,6 +143,7 @@ impl EditorShell {
             inline_layout: RefCell::new(None),
             inline_updating: Cell::new(false),
             inline_draft_dirty: Cell::new(false),
+            geometry_readouts: Default::default(),
             geometry_scrub: RefCell::new(None),
             inspector_drafts: RefCell::new(Vec::new()),
             panel_state: panels::PanelState::default(),
@@ -655,6 +657,7 @@ impl EditorShell {
     fn canvas_event(self: &Rc<Self>, event: CanvasEvent) {
         match event {
             CanvasEvent::Document => self.changed(),
+            CanvasEvent::ResizePreview => self.queue_resize_readouts(),
             CanvasEvent::Draft => {
                 self.sync_document_draft_dirty();
                 // A no-op stroke still needs to resume a previous edit's

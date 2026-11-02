@@ -31,8 +31,14 @@ fn move_tool_edge_resize_commits_coalesced_release_and_cancels_with_escape() {
     assert_eq!(fixture.json(), before);
     fixture.window.mouse_move(press, RawInputModifiers::NONE);
     fixture.window.mouse_down(press, MouseButton::Left, RawInputModifiers::NONE);
+    let height = shell.field("HeightField");
+    height.set_text(Some("unfinished expression"));
     fixture.window.mouse_move(release, RawInputModifiers::LEFT_MOUSE_BUTTON);
+    fixture.window.capture_rendered_frame().unwrap();
     assert_ne!(bounds(), original);
+    assert_eq!(shell.field("WidthField").text().as_deref(), Some(number(bounds().width).as_str()));
+    assert_eq!(height.text().as_deref(), Some("unfinished expression"), "Preview preserves an unrelated dirty field");
+    height.set_text(Some(&number(original.height)));
     let mut event = KeyEventArgs::new();
     event.set_routed_event(Some(InputElement::key_down_event()));
     event.key = Key::Escape;
@@ -40,6 +46,8 @@ fn move_tool_edge_resize_commits_coalesced_release_and_cancels_with_escape() {
     assert!(event.handled());
     fixture.window.mouse_up(release, MouseButton::Left, RawInputModifiers::NONE);
     assert_eq!(fixture.json(), before);
+    fixture.window.capture_rendered_frame().unwrap();
+    assert_eq!(shell.field("WidthField").text().as_deref(), Some(number(original.width).as_str()));
     assert!(shell.editor.borrow().can_redo());
 }
 
@@ -279,4 +287,31 @@ fn multi_resize_shared_move_handle_uses_final_pointer_sample_and_one_history_ent
     fixture.window.mouse_up(end, MouseButton::Left, RawInputModifiers::NONE);
     assert_eq!(fixture.json(),before);
     assert!(shell.editor.borrow().can_redo());
+
+    // Two equal widths must continue to show their common live value.
+    // Position and height stay mixed, just as they are in the full inspector.
+    shell.editor.borrow_mut().update_node(b, "Set equal widths", |node| node.width = 60.0);
+    shell.refresh();
+    let before_live = fixture.json();
+    let depth = shell.editor.borrow().history_len();
+    let width = shell.field("WidthField");
+    assert_eq!(width.text().as_deref(), Some("60"));
+    let edge = screen(200.0, 60.0);
+    let end = screen(236.0, 60.0);
+    fixture.window.mouse_move(edge, RawInputModifiers::NONE);
+    fixture.window.mouse_down(edge, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.mouse_move(end, RawInputModifiers::LEFT_MOUSE_BUTTON);
+    fixture.window.capture_rendered_frame().unwrap();
+    assert_eq!(bounds(a).width, 72.0);
+    assert_eq!(bounds(b).width, 72.0);
+    assert_eq!(width.text().as_deref(), Some("72"));
+    assert_eq!(shell.field("XField").placeholder_text().as_deref(), Some("Mixed"));
+    assert_eq!(shell.field("HeightField").placeholder_text().as_deref(), Some("Mixed"));
+    assert_eq!(shell.editor.borrow().history_len(), depth);
+    assert!(canvas.cancel_active_edit());
+    fixture.window.mouse_up(end, MouseButton::Left, RawInputModifiers::NONE);
+    fixture.window.capture_rendered_frame().unwrap();
+    assert_eq!(fixture.json(), before_live);
+    assert_eq!(width.text().as_deref(), Some("60"));
+    assert_eq!(shell.editor.borrow().history_len(), depth);
 }

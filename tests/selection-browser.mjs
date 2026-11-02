@@ -483,6 +483,33 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     await selected([2, 3]);
     check("Dragging the shared Move edge resizes both selected layers and their spacing about the fixed opposite edge; one Undo restores the document");
 
+    // The equal-width selection mirrors the two phone frames in the editor.
+    // Read live values from the native TextBox while the pointer is still held.
+    await clickNative(page, "WidthField", "InspectorViewport");
+    await page.keyboard.insertText("60");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 60);
+    const beforePreview = await snapshot();
+    const projection = (await state(page)).layerProjectionBuilds;
+    await moveWorld(page, 200, 60);
+    await page.mouse.down();
+    await moveWorld(page, 236, 60);
+    await page.waitForFunction(() => {
+        const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+        const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        const width = nodes[2].width;
+        return width > 65 && Math.abs(nodes[3].width - width) < 1e-7 &&
+            Math.abs(Number(view.chrome.WidthField.text) - width) <= 0.0051;
+    });
+    assert.equal((await state(page)).layerProjectionBuilds, projection);
+    assert.equal((await state(page)).historyLength, beforePreview.history);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.WidthField.text === "60");
+    assert.deepEqual(await documentState(page), beforePreview.document);
+    assert.equal((await state(page)).historyLength, beforePreview.history);
+    check("Holding a shared edge updates both widths and their native inspector readout before release; Escape restores the original width and history");
+
     await layerTreeDrag(page, reference, check, helpers);
 
 }

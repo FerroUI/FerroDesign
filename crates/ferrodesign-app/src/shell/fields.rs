@@ -131,6 +131,12 @@ impl EditorShell {
             }
             let value = field.text().unwrap_or_default();
             *editing.confirmed.borrow_mut() = value.clone();
+            // Live resize readouts only replace clean fields. Their projected
+            // text becomes the new baseline without creating a user draft.
+            if shell.geometry_readouts.writing.get() {
+                *editing.committed.borrow_mut() = value;
+                return;
+            }
             if shell.updating.get() {
                 *editing.committed.borrow_mut() = value;
             }

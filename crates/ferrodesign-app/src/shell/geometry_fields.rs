@@ -8,6 +8,19 @@ use std::borrow::Cow;
 #[derive(Clone, Copy)]
 pub(super) enum GeometryField { X, Y, Width, Height, Rotation }
 
+struct GeometryReadout {
+    property: GeometryField,
+    field: Ref<TextBox>,
+    committed: Rc<RefCell<String>>,
+}
+
+#[derive(Default)]
+pub(super) struct GeometryReadouts {
+    fields: RefCell<Vec<GeometryReadout>>,
+    queued: Cell<bool>,
+    pub(super) writing: Cell<bool>,
+}
+
 impl GeometryField {
     pub(super) fn named(name: &str) -> Option<Self> {
         match name {
@@ -127,6 +140,47 @@ fn checked_value(value: f64) -> Result<f64, String> {
 }
 
 impl EditorShell {
+    /// Pointer and modifier samples may arrive faster than display refresh.
+    /// Read the latest document on the frame, so cancellation, a new selection
+    /// or a hidden drawer cannot replay old geometry.
+    pub(super) fn queue_resize_readouts(self: &Rc<Self>) {
+        let readouts = &self.geometry_readouts;
+        if readouts.queued.get() || !self.control::<Control>("DesignInspector").is_effectively_visible() {
+            return;
+        }
+        let Some(top) = TopLevel::get_top_level(Some(&self.root)) else { return };
+        readouts.queued.set(true);
+        let weak = Rc::downgrade(self);
+        top.request_animation_frame(move |_| {
+            if let Some(shell) = weak.upgrade() {
+                shell.geometry_readouts.queued.set(false);
+                shell.update_resize_readouts();
+            }
+        });
+    }
+
+    fn update_resize_readouts(&self) {
+        if self.updating.get() || !self.control::<Control>("DesignInspector").is_effectively_visible() {
+            return;
+        }
+        let editor = self.editor.borrow();
+        let selection = fields::InspectorSelection::new(&editor);
+        let readouts = &self.geometry_readouts;
+        readouts.writing.set(true);
+        for readout in readouts.fields.borrow().iter() {
+            let field = &readout.field;
+            if !field.is_effectively_visible() || field.is_composing_text() { continue; }
+            let current = field.text().unwrap_or_default();
+            if current != *readout.committed.borrow() { continue; }
+            let text = selection.common(|node| readout.property.read(node)).map(number);
+            let mixed = text.is_none() && selection.first.is_some();
+            if current == text.as_deref().unwrap_or_default()
+                && field.placeholder_text().as_deref() == mixed.then_some("Mixed") { continue; }
+            selection.show(field, text.as_deref(), None);
+        }
+        readouts.writing.set(false);
+    }
+
     pub(super) fn apply_geometry_field(
         self: &Rc<Self>, name: &str, field: GeometryField, input: Option<&str>, step: f64,
     ) -> bool {
@@ -144,6 +198,9 @@ impl EditorShell {
         self: &Rc<Self>, name: &'static str, property: GeometryField, committed: Rc<RefCell<String>>,
     ) {
         let field = self.field(name);
+        self.geometry_readouts.fields.borrow_mut().push(GeometryReadout {
+            property, field: field.clone(), committed: committed.clone(),
+        });
         let weak_field = field.downgrade();
         let weak_shell = Rc::downgrade(self);
         field.add_handler_with(InputElement::key_down_event(), move |_, event| {
