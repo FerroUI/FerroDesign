@@ -669,6 +669,16 @@ fn native_workspace_visibility_keeps_artwork_anchored_and_restores_minimized_ins
     assert!(visible("LeftPanel") && visible("RightPanel") && !visible("RestoreUiButton"));
     assert_eq!(shell.canvas.viewport.get(), camera);
 
+    let radius = shell.field("RadiusField");
+    assert!(radius.focus());
+    radius.set_text(Some("invalid"));
+    shortcut(ctrl);
+    assert_eq!(shell.workspace_ui.name(), "expanded");
+    assert!(radius.is_focused());
+    assert_eq!(radius.text().as_deref(), Some("invalid"));
+    assert_eq!(fixture.json(), authored);
+    fixture.key(&radius, Key::Escape);
+
     // A valid focused field commits normally when a shortcut hides its panel.
     let width = shell.field("WidthField");
     assert!(width.focus());
@@ -694,6 +704,10 @@ fn minimized_phone_keeps_selection_on_canvas_and_restores_drawer_after_hiding() 
     fixture.window.set_height(568.0);
     render();
     click("CompactLayers");
+    for id in ["MinimizeUiButton", "FileActionsButton"] {
+        let bounds = shell.button(id).bounds();
+        assert!(bounds.width >= 44.0 && bounds.height >= 44.0);
+    }
     click("MinimizeUiButton");
     assert!(visible("MinimizedInspectorButton") && visible("Toolbar"));
     assert!(!visible("LeftPanel") && !visible("RightPanel"));

@@ -180,6 +180,10 @@
       <Setter Property="CornerRadius" Value="6"/><Setter Property="BorderThickness" Value="0"/>
       <Setter Property="FontSize" Value="11"/><Setter Property="Background" Value="Transparent"/>
     </Style>
+    <Style Selector="StackPanel.file-heading"><Setter Property="Margin" Value="16,19,12,0"/></Style>
+    <Style Selector="Button.file-heading-action"><Setter Property="Width" Value="30"/><Setter Property="Height" Value="28"/></Style>
+    <Style Selector="Border.phone-sidebar StackPanel.file-heading"><Setter Property="Margin" Value="12,6,8,0"/></Style>
+    <Style Selector="Border.phone-sidebar Button.file-heading-action"><Setter Property="Width" Value="44"/><Setter Property="Height" Value="44"/></Style>
     <Style Selector="Path.drawer-icon"><Setter Property="Stroke" Value="#555555"/></Style>
     <Style Selector="ToggleButton.drawer-toggle:checked Path.drawer-icon"><Setter Property="Stroke" Value="White"/></Style>
   </UserControl.Styles>
@@ -209,15 +213,15 @@
     </Border>
     <Border Name="LeftPanel" Grid.Column="1" Background="White" BorderBrush="#D9D9D9" BorderThickness="0,0,1,0">
       <Grid RowDefinitions="78,Auto,Auto,*,32">
-        <StackPanel Margin="16,19,12,0" Spacing="8">
-          <Grid ColumnDefinitions="*,30,30">
+        <StackPanel Classes="file-heading" Spacing="8">
+          <Grid ColumnDefinitions="*,Auto,Auto">
             <TextBlock Name="FileTitle" Text="Orbit · Mobile banking" TextTrimming="CharacterEllipsis" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <Button Name="MinimizeUiButton" Grid.Column="1" Padding="6" AutomationProperties.Name="Minimize editor UI"
+            <Button Name="MinimizeUiButton" Grid.Column="1" Classes="file-heading-action" Padding="6" AutomationProperties.Name="Minimize editor UI"
                     ToolTip.Tip="Minimize UI (Ctrl/Cmd+Shift+&#92;)">
               <Path Width="14" Height="14" Stretch="Uniform" Stroke="#484848" StrokeThickness="1.5"
                     Data="M2,3 H18 V17 H2 Z M8,3 V17 M14,7 L11,10 L14,13"/>
             </Button>
-            <Button Name="FileActionsButton" Grid.Column="2" Content="•••" Padding="0" ToolTip.Tip="File actions"/>
+            <Button Name="FileActionsButton" Grid.Column="2" Classes="file-heading-action" AutomationProperties.Name="File actions" Content="•••" Padding="0" ToolTip.Tip="File actions"/>
           </Grid>
           <TextBlock Text="Drafts / FerroDesign" Classes="label"/>
         </StackPanel>
@@ -638,7 +642,7 @@
         <Path Width="17" Height="17" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.5"
               Data="M2,3 H18 V17 H2 Z M8,3 V17 M11,7 L14,10 L11,13"/>
       </Button>
-      <Button Name="MinimizedInspectorButton" Height="44" MinWidth="64" Padding="10,0" CornerRadius="9" Background="White"
+      <ToggleButton Name="MinimizedInspectorButton" ToolTip.Tip="Show or dismiss selected layer properties" Height="44" MinWidth="64" Padding="10,0" CornerRadius="9" Background="White"
               BorderBrush="#D7D7D7" BorderThickness="1" Content="Inspect" FontSize="12" AutomationProperties.Name="Inspect selected layers"/>
     </StackPanel>
     <TextBlock Name="CanvasCaption" Grid.Column="2" Text="" FontSize="10" Foreground="#868686" Margin="24,25" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"/>

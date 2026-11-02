@@ -22,6 +22,10 @@ pub(super) struct WorkspaceUi {
 }
 
 impl WorkspaceUi {
+    fn is_expanded(&self) -> bool {
+        !self.hidden.get() && !self.minimized.get()
+    }
+
     pub(super) fn name(&self) -> &'static str {
         if self.hidden.get() { "hidden" }
         else if self.minimized.get() { "minimized" }
@@ -40,6 +44,8 @@ impl EditorShell {
                 if shell.flush_inspector_drafts() {
                     shell.workspace_ui.inspect_on_phone.set(!showing);
                     shell.layout_workspace();
+                } else {
+                    shell.control::<ToggleButton>("MinimizedInspectorButton").set_is_checked(Some(showing));
                 }
             }
         });
@@ -123,15 +129,21 @@ impl EditorShell {
         }
         // Changing chrome cannot splice a held canvas gesture or an IME session.
         // A completed inspector edit uses its ordinary commit/validation path.
-        if self.canvas.has_pointer_gesture()
+        if self.canvas.has_pointer_gesture() || self.has_layer_drag()
             || self.editor.borrow().has_active_transaction() && self.inline_text.get().is_none()
             || self.inline_text.get().is_some() && self.field("InlineTextBox").is_composing_text()
         {
             return false;
         }
+        let field = TopLevel::get_top_level(Some(&self.root))
+            .and_then(|top| top.focus_manager().get_focused_element())
+            .and_then(|focused| focused.cast::<TextBox>());
         self.finish_inline_text(true);
-        if !self.flush_inspector_drafts() { return false; }
-        let was_expanded = self.workspace_ui.name() == "expanded";
+        if !self.flush_inspector_drafts() {
+            if let Some(field) = field { field.focus(); }
+            return false;
+        }
+        let was_expanded = self.workspace_ui.is_expanded();
         match command {
             "toggle-ui" => self.workspace_ui.hidden.set(!self.workspace_ui.hidden.get()),
             "restore-ui" if self.workspace_ui.hidden.get() => self.workspace_ui.hidden.set(false),
@@ -148,7 +160,7 @@ impl EditorShell {
     }
 
     fn apply_workspace_mode(&self, was_expanded: bool) {
-        let expanded = self.workspace_ui.name() == "expanded";
+        let expanded = self.workspace_ui.is_expanded();
         // On desktop the canvas origin moves by the widths of the rail and left
         // panel. Keep artwork at the same window coordinates through that move.
         if !self.compact.get() && expanded != was_expanded {
@@ -161,7 +173,7 @@ impl EditorShell {
     }
 
     pub(super) fn show_layers_panel(&self) {
-        let expanded = self.workspace_ui.name() == "expanded";
+        let expanded = self.workspace_ui.is_expanded();
         self.workspace_ui.hidden.set(false);
         self.workspace_ui.minimized.set(false);
         self.workspace_ui.inspect_on_phone.set(false);
@@ -207,6 +219,7 @@ impl EditorShell {
         let expanded = !present && !hidden && !minimized;
         let minimal = !present && !hidden && minimized;
         let selected = !self.editor.borrow().selection.is_empty();
+        if !selected { self.workspace_ui.inspect_on_phone.set(false); }
         let layers = expanded && (!compact || panel == CompactPanel::Layers);
         let properties = if minimal {
             selected && (!compact || self.workspace_ui.inspect_on_phone.get())
@@ -225,6 +238,8 @@ impl EditorShell {
         self.visible("DrawerBackdrop", drawer);
         self.visible("CanvasControls", !present && (hidden || minimized));
         self.visible("MinimizedInspectorButton", minimal && compact && selected);
+        self.control::<ToggleButton>("MinimizedInspectorButton").set_is_checked(Some(minimal && compact && properties));
+        self.control::<Border>("LeftPanel").classes().set("phone-sidebar", compact);
         self.sync_drawer_toggles(panel);
         let columns = match (layers, properties) {
             (true, true) => "48,248,*,288",
