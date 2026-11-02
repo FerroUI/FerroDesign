@@ -2698,3 +2698,7 @@ mod render_change_tests {
         assert_eq!(editor.render_changes.sequence, 1);
     }
 }
+
+#[path = "selection_resize.rs"]
+mod selection_resize;
+pub use selection_resize::SelectionResize;
