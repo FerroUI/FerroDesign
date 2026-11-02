@@ -436,6 +436,9 @@ fn geometry_scrub_click_escape_capture_loss_and_save_respect_history_boundaries(
     f.window.mouse_move(p(12.0, 60.0), drag);
     assert_eq!(shell.editor.borrow().document.nodes[&f.id].x, 26.0, "down one speed tier halves the delta");
     f.key(&field, Key::Escape);
+    assert!(!shell.geometry_scrub_active(), "Escape releases the gesture before pointer-up");
+    assert!(saved_pointer.borrow().as_ref().unwrap().captured().is_none());
+    assert_eq!(f.json(), before, "Escape must immediately restore the authored geometry");
     f.window.mouse_up(p(12.0,60.0), MouseButton::Left, RawInputModifiers::NONE);
     assert_eq!(f.json(), before);
     down();

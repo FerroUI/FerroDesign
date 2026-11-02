@@ -443,6 +443,7 @@ impl EditorShell {
         self.wire_playback_focus();
         self.wire_scale();
         self.wire_workspace();
+        self.wire_geometry_scrub_keys();
         self.wire_page_menu();
         for (name, command) in [
             ("MenuButton", "menu"),

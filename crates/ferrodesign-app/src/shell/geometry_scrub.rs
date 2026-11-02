@@ -263,12 +263,20 @@ impl EditorShell {
                 }
             }
         });
+    }
+
+    pub(super) fn wire_geometry_scrub_keys(self: &Rc<Self>) {
+        // The focused TextBox also handles Escape for ordinary text drafts.
+        // The shell owns a captured drag and must cancel it before that handler.
         let weak = Rc::downgrade(self);
-        field.add_handler_with(
+        self.root.add_handler_with(
             InputElement::key_down_event(),
             move |_, e| {
                 let Some(shell) = weak.upgrade() else { return };
-                if shell.geometry_scrub.borrow().is_none() {
+                let Some(name) = shell.geometry_scrub.borrow().as_ref().map(|drag| drag.name) else {
+                    return;
+                };
+                if shell.field(name).is_composing_text() {
                     return;
                 }
                 match e.key {
