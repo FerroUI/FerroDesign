@@ -1233,6 +1233,10 @@ impl Editor {
             else { self.begin_node_transaction(&ids, "Resize layers"); }
         } else if has_children {
             self.promote_node_transaction(false);
+        } else {
+            // Capture every requested leaf before the first mutation. A later
+            // invalid vector can roll the transaction back before a render refresh.
+            self.capture_pending_nodes(&ids, false);
         }
         for &id in &ids {
             let node = &self.document.nodes[&id];
