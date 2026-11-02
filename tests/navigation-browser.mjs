@@ -76,7 +76,14 @@ export async function navigationRegressions(page, reference, check, helpers) {
     const normal = await state(page);
     const waitUi = (mode, left, right, dock) => page.waitForFunction(expected => {
         const view = JSON.parse(globalThis.ferroDesign.ferroDesignState()), c = view.chrome;
+        // Visibility changes synchronously. The next layout pass moves the
+        // canvas and updates its bounds, which subsequent pointer input uses.
+        const desktop = window.innerWidth >= 970;
+        const origin = desktop && expected.left ? 296 : 0;
+        const rightPanel = desktop && expected.right ? 288 : 0;
+        const width = window.innerWidth - origin - rightPanel;
         return view.workspaceUi === expected.mode && c.CanvasHost.arrangeValid &&
+            c.CanvasHost.x === origin && c.CanvasHost.width === width && view.canvas.width === width &&
             c.LeftPanel.visible === expected.left && c.RightPanel.visible === expected.right &&
             c.Toolbar.visible === expected.dock;
     }, { mode, left, right, dock });
