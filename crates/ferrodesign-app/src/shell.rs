@@ -33,7 +33,7 @@ use ferroui_base::layout::{Orientation, VerticalAlignment};
 use ferroui_base::media::{FontWeight, TextWrapping};
 use ferroui_base::metadata::from_markup_value;
 use ferroui_base::utilities::{Uri, UriKind};
-use ferroui_base::reactive::IDisposable;
+use ferroui_base::reactive::{IDisposable, Subscription};
 use ferroui_base::threading::{DispatcherPriority, DispatcherTimer};
 use std::time::{Duration, Instant};
 use ferroui_base::{BoxedValue, ObjectType, Ref, Thickness, WeakRef};
@@ -72,7 +72,7 @@ pub struct EditorShell {
     prototype_targets: RefCell<Vec<NodeId>>,
     prototype: Rc<PrototypeRuntime>,
     pending_save: Cell<bool>,
-    pending_save_timer: RefCell<Option<Rc<dyn IDisposable>>>,
+    pending_save_timer: RefCell<Option<Subscription>>,
     save_serializations: Cell<u64>,
     last_serialization_ms: Cell<f64>,
     scene_frames: Cell<u64>,

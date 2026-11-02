@@ -51,7 +51,7 @@ impl ApplicationImpl for App {
                 if let Some(shell) = weak.upgrade() {
                     if !shell.command("commit-edit") { event.set_cancel(true); }
                 }
-            });
+            }).detach();
             desktop.set_main_window(Some(window));
         }
         SHELL.with(|slot| *slot.borrow_mut() = Some(shell));
