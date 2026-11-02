@@ -576,6 +576,12 @@ impl Editor {
             self.begin_transaction(label);
             return;
         }
+        self.begin_scoped_node_transaction(ids, label);
+    }
+
+    /// The caller has enumerated every existing node that this operation can
+    /// change, including layout participants. Hierarchy and metadata stay fixed.
+    fn begin_scoped_node_transaction(&mut self, ids: &[NodeId], label: impl Into<String>) {
         if self.pending.is_some() {
             self.capture_pending_nodes(ids, false);
             return;

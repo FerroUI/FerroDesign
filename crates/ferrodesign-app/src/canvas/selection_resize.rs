@@ -149,6 +149,44 @@ impl MultiResize {
             };
             f = Point::new(uniform, uniform);
         }
+        let mut grids = canvas.layout_grids.borrow_mut();
+        grids.clear_snap();
+        if canvas.snap.get() && f != Point::new(1.0, 1.0) {
+            let point = pivot + Point::new(ray.x * f.x, ray.y * f.y);
+            let uniform = modifiers.contains(KeyModifiers::SHIFT);
+            let direction = (uniform || ray.x == 0.0 || ray.y == 0.0).then_some(ray);
+            if let Some(snap) = grids.snap(
+                &editor,
+                &[point],
+                5.0 / canvas.viewport.get().zoom,
+                &self.selected,
+                direction,
+            ) {
+                let mut corrected = f;
+                if ray.x != 0.0 {
+                    corrected.x += snap.delta.x / ray.x;
+                }
+                if ray.y != 0.0 {
+                    corrected.y += snap.delta.y / ray.y;
+                }
+                if uniform {
+                    let factor = if ray.x.abs() >= ray.y.abs() {
+                        corrected.x
+                    } else {
+                        corrected.y
+                    };
+                    corrected = Point::new(factor, factor);
+                }
+                if bounds.width * corrected.x >= bounds.width.min(1.0)
+                    && bounds.height * corrected.y >= bounds.height.min(1.0)
+                {
+                    f = corrected;
+                } else {
+                    grids.clear_snap();
+                }
+            }
+        }
+        drop(grids);
         if session.preview(&mut editor, pivot, f) {
             self.visible = Rect::new(
                 pivot.x + (bounds.x - pivot.x) * f.x,
@@ -164,6 +202,7 @@ impl MultiResize {
             session.cancel(&mut canvas.editor.borrow_mut());
         }
         canvas.set_resize_hover(None);
+        canvas.layout_grids.borrow_mut().clear_snap();
         canvas.invalidate_visual();
         canvas.emit(CanvasEvent::Selection);
     }

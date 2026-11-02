@@ -139,7 +139,7 @@ impl Editor {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        self.begin_node_transaction(&affected, "Resize selection");
+        self.begin_scoped_node_transaction(&affected, "Resize selection");
         Some(SelectionResize {
             token: self.active_transaction_token()?,
             version: self.render_change_token(),
@@ -288,8 +288,15 @@ impl SelectionResize {
             self.cancel(editor);
             return false;
         }
+        let originals = match &editor.pending.as_ref().unwrap().before {
+            PendingSnapshot::Document(doc) => &doc.nodes,
+            PendingSnapshot::Nodes { nodes, .. } => nodes,
+        };
         for root in &self.roots {
             let n = editor.document.nodes.get_mut(&root.id).unwrap();
+            if n.component_source.is_some() && n.layout != originals[&n.id].layout {
+                n.overridden_properties.insert("layout".into());
+            }
             for (key, changed) in [
                 ("width", n.width != root.size.x),
                 ("height", n.height != root.size.y),
@@ -408,5 +415,27 @@ mod tests {
         assert_eq!(e.document.nodes[&child].width, 20.0);
         assert_eq!(e.selection, [peer]);
         assert_eq!(e.history_len(), 0);
+    }
+    #[test]
+    fn multi_resize_on_a_page_with_auto_layout_snapshots_only_affected_geometry() {
+        let mut d = Document::new("Scoped multi resize");
+        let first = d
+            .insert_node(1, Node::new(NodeKind::Rectangle, "A", 0.0, 0.0, 80.0, 40.0))
+            .unwrap();
+        let second = d
+            .insert_node(1, Node::new(NodeKind::Rectangle, "B", 100.0, 0.0, 80.0, 40.0))
+            .unwrap();
+        let mut other = Node::new(NodeKind::Frame, "Unrelated layout", 280.0, 0.0, 160.0, 80.0);
+        other.layout = Some(AutoLayout::default());
+        d.insert_node(1, other).unwrap();
+        let mut e = Editor::new(d);
+        e.selection = vec![first, second];
+        let mut session = e.begin_multi_resize().unwrap();
+        assert!(
+            matches!(&e.pending.as_ref().unwrap().before, PendingSnapshot::Nodes { nodes,.. } if nodes.len()==2)
+        );
+        assert!(session.preview(&mut e, Point::default(), Point::new(2.0, 1.0)));
+        assert!(session.commit(&mut e));
+        assert!(e.undo.last().unwrap().node_only);
     }
 }
