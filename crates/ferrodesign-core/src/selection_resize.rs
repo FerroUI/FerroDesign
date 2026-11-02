@@ -43,6 +43,8 @@ impl Root {
     }
 }
 
+/// An undoable world-space resize. A preview is always evaluated from the
+/// original geometry, even after an earlier sample clamped a constrained child.
 pub struct SelectionResize {
     token: EditorTransactionToken,
     version: EditorRenderToken,
@@ -59,7 +61,9 @@ impl Editor {
         if self.selection.len() < 2 {
             return None;
         }
-        let ids = self.root_selection();
+        let mut ids = self.root_selection();
+        ids.sort_unstable();
+        ids.dedup();
         if ids.len() < 2 {
             return None;
         }
@@ -98,10 +102,12 @@ impl Editor {
             .collect()
     }
 
+    /// Shared authored bounds of at least two distinct, editable free roots.
     pub fn multi_resize_bounds(&self) -> Option<Rect> {
         bounds(&self.free_resize_roots()?)
     }
 
+    /// Capture exactly the nodes whose geometry can change during this gesture.
     pub fn begin_multi_resize(&mut self) -> Option<SelectionResize> {
         if self.has_active_transaction() {
             return None;
@@ -256,6 +262,8 @@ impl SelectionResize {
         true
     }
 
+    /// Apply positive axis factors around a world-space pivot. Invalid samples
+    /// leave the previous valid preview in place.
     pub fn preview(&mut self, editor: &mut Editor, pivot: Point, factors: Point) -> bool {
         if !self.valid(editor)
             || !pivot.x.is_finite()
@@ -429,6 +437,8 @@ mod tests {
         other.layout = Some(AutoLayout::default());
         d.insert_node(1, other).unwrap();
         let mut e = Editor::new(d);
+        e.selection = vec![first, first];
+        assert!(e.multi_resize_bounds().is_none());
         e.selection = vec![first, second];
         let mut session = e.begin_multi_resize().unwrap();
         assert!(
