@@ -72,4 +72,57 @@ export async function navigationRegressions(page, reference, check, helpers) {
     assert.equal((await state(page)).historyLength, initial.historyLength);
     assert.deepEqual(await documentState(page), document);
     check("The native zoom flyout applies fractional percentages and returns focus to the canvas for Shift+2; navigation preserves document and history");
+
+    const normal = await state(page);
+    const waitUi = (mode, left, right, dock) => page.waitForFunction(expected => {
+        const view = JSON.parse(globalThis.ferroDesign.ferroDesignState()), c = view.chrome;
+        return view.workspaceUi === expected.mode && c.CanvasHost.arrangeValid &&
+            c.LeftPanel.visible === expected.left && c.RightPanel.visible === expected.right &&
+            c.Toolbar.visible === expected.dock;
+    }, { mode, left, right, dock });
+    await clickNative(page, "MinimizeUiButton");
+    await waitUi("minimized", false, true, true);
+    const minimal = await state(page);
+    near(minimal.chrome.CanvasHost.x + minimal.pan.x, normal.chrome.CanvasHost.x + normal.pan.x);
+    assert.equal(minimal.zoom, normal.zoom);
+    await page.keyboard.press("Control+Backslash");
+    await waitUi("hidden", false, false, false);
+    const hidden = await state(page);
+    assert.equal(hidden.chrome.CanvasHost.width, page.viewportSize().width);
+    assert.deepEqual(hidden.selection, [2]);
+    await clickNative(page, "RestoreUiButton");
+    await waitUi("minimized", false, true, true);
+    await page.keyboard.press("Escape");
+    await waitUi("minimized", false, false, true);
+    await page.keyboard.press("v");
+    await clickWorld(page, 110, 70);
+    await waitUi("minimized", false, true, true);
+    assert.deepEqual((await state(page)).selection, [2]);
+    await page.keyboard.press("Control+Shift+Backslash");
+    await waitUi("expanded", true, true, true);
+    const restored = await state(page);
+    near(restored.pan.x, normal.pan.x);
+    near(restored.pan.y, normal.pan.y);
+    assert.deepEqual(await documentState(page), document);
+    assert.equal(restored.historyLength, normal.historyLength);
+    check("Minimize keeps the toolbar, properties follow selection, Hide leaves an editable canvas, and restoring the UI preserves the camera and undo history");
+
+    const size = page.viewportSize();
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.CompactLayers.visible);
+    await clickNative(page, "CompactLayers");
+    await clickNative(page, "MinimizeUiButton");
+    await waitUi("minimized", false, false, true);
+    const phone = await state(page);
+    assert.ok(phone.chrome.MinimizedInspectorButton.width >= 44 && phone.chrome.RestoreUiButton.height >= 44);
+    await clickNative(page, "MinimizedInspectorButton");
+    await waitUi("minimized", false, true, false);
+    await clickNative(page, "MinimizedInspectorButton");
+    await waitUi("minimized", false, false, true);
+    await clickNative(page, "RestoreUiButton");
+    await waitUi("expanded", true, false, false);
+    await page.setViewportSize(size);
+    await waitUi("expanded", true, true, true);
+    assert.deepEqual(await documentState(page), document);
+    check("On a 320-pixel phone, native recovery controls inspect a selection, return to the canvas, and reopen the previous drawer");
 }

@@ -623,3 +623,99 @@ fn native_initial_document_fit_waits_for_the_real_surface_extent() {
     fixture.window.mouse_up(click, MouseButton::Left, RawInputModifiers::NONE);
     assert_eq!(fixture.shell.editor.borrow().selection, [fixture.id]);
 }
+
+#[test]
+fn native_workspace_visibility_keeps_artwork_anchored_and_restores_minimized_inspector() {
+    use ferroui_base::input::PhysicalKey;
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let render = || { fixture.window.capture_rendered_frame().unwrap(); };
+    let visible = |id| shell.control::<Control>(id).is_effectively_visible();
+    let shortcut = |modifiers| {
+        fixture.window.key_press(Key::OemPipe, modifiers, PhysicalKey::Backslash, None);
+        fixture.window.key_release(Key::OemPipe, modifiers, PhysicalKey::Backslash, None);
+        render();
+    };
+    let ctrl = RawInputModifiers::CONTROL;
+    render();
+    let camera = shell.canvas.page_camera().unwrap();
+    let canvas = shell.control::<Grid>("CanvasHost");
+    let world_origin = canvas.bounds().x + camera.pan.x;
+    let authored = fixture.json();
+    let selected = shell.editor.borrow().selection.clone();
+    let history = shell.editor.borrow().history_len();
+    fixture.click_button(&shell.button("MinimizeUiButton"), RawInputModifiers::NONE);
+    render();
+    assert!(visible("RightPanel") && visible("Toolbar") && visible("RestoreUiButton"));
+    assert!(!visible("LeftPanel") && !visible("NavigationRail"));
+    assert!((canvas.bounds().x + shell.canvas.viewport.get().pan.x - world_origin).abs() < 1e-9);
+    shortcut(ctrl);
+    assert!(!visible("Toolbar") && !visible("LeftPanel") && !visible("RightPanel"));
+    assert!(visible("RestoreUiButton"));
+    assert_eq!(shell.canvas.viewport.get().zoom, camera.zoom);
+    assert_eq!(shell.editor.borrow().selection, selected);
+    assert_eq!(fixture.json(), authored);
+    assert_eq!(shell.editor.borrow().history_len(), history);
+    assert!(shell.command("actions"));
+    shortcut(ctrl);
+    assert_eq!(shell.workspace_ui.name(), "hidden");
+    assert!(visible("ModalBackdrop"));
+    shell.close_modal();
+    fixture.click_button(&shell.button("RestoreUiButton"), RawInputModifiers::NONE);
+    render();
+    assert_eq!(shell.workspace_ui.name(), "minimized");
+    assert!(visible("RightPanel") && visible("Toolbar"));
+    shortcut(ctrl | RawInputModifiers::SHIFT);
+    assert!(visible("LeftPanel") && visible("RightPanel") && !visible("RestoreUiButton"));
+    assert_eq!(shell.canvas.viewport.get(), camera);
+
+    // A valid focused field commits normally when a shortcut hides its panel.
+    let width = shell.field("WidthField");
+    assert!(width.focus());
+    width.set_text(Some("123"));
+    shortcut(ctrl);
+    assert_eq!(shell.editor.borrow().document.nodes[&fixture.id].width, 123.0);
+    assert_eq!(shell.editor.borrow().history_len(), history + 1);
+    assert!(shell.command("find-layers"));
+    render();
+    assert!(visible("LeftPanel") && shell.field("LayerSearch").is_focused());
+    assert_eq!(shell.workspace_ui.name(), "expanded");
+}
+
+#[test]
+fn minimized_phone_keeps_selection_on_canvas_and_restores_drawer_after_hiding() {
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let render = || { fixture.window.capture_rendered_frame().unwrap(); };
+    let visible = |id| shell.control::<Control>(id).is_effectively_visible();
+    let click = |id| { fixture.click_button(&shell.button(id), RawInputModifiers::NONE); render(); };
+    let before = fixture.json();
+    fixture.window.set_width(320.0);
+    fixture.window.set_height(568.0);
+    render();
+    click("CompactLayers");
+    click("MinimizeUiButton");
+    assert!(visible("MinimizedInspectorButton") && visible("Toolbar"));
+    assert!(!visible("LeftPanel") && !visible("RightPanel"));
+    for id in ["RestoreUiButton", "MinimizedInspectorButton"] {
+        let bounds = shell.button(id).bounds();
+        assert!(bounds.width >= 44.0 && bounds.height >= 44.0);
+    }
+    click("MinimizedInspectorButton");
+    assert!(visible("RightPanel") && visible("DrawerBackdrop"));
+    assert!(!visible("Toolbar"));
+    assert!(shell.command("toggle-ui"));
+    render();
+    assert!(!visible("RightPanel") && !visible("MinimizedInspectorButton") && !visible("Toolbar"));
+    click("RestoreUiButton");
+    assert!(visible("RightPanel"));
+    click("MinimizedInspectorButton");
+    assert!(!visible("RightPanel"));
+    shell.editor.borrow_mut().clear_selection();
+    shell.refresh_selection();
+    render();
+    assert!(!visible("MinimizedInspectorButton"));
+    click("RestoreUiButton");
+    assert!(visible("CompactHeader") && visible("LeftPanel"));
+    assert_eq!(fixture.json(), before);
+}

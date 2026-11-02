@@ -363,6 +363,10 @@ impl DesignCanvas {
         self.invalidate_visual();
         self.emit(CanvasEvent::Tool);
     }
+    pub(crate) fn has_pointer_gesture(&self) -> bool {
+        !matches!(*self.gesture.borrow(), Gesture::None)
+    }
+
     pub(crate) fn page_camera(&self) -> Option<Viewport> {
         self.initialized.get().then(|| self.viewport.get())
     }
@@ -405,7 +409,7 @@ impl DesignCanvas {
     pub fn zoom(&self, factor: f64) {
         self.set_zoom(self.viewport.get().zoom * factor);
     }
-    fn update_camera(&self, viewport: Viewport) {
+    pub(crate) fn update_camera(&self, viewport: Viewport) {
         if self.viewport.replace(viewport) != viewport {
             self.clear_measurement();
             self.set_resize_hover(None);

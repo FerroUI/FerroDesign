@@ -85,6 +85,7 @@ pub struct EditorShell {
     scale_anchor: Cell<usize>,
     compact: Cell<bool>,
     compact_panel: Cell<workspace::CompactPanel>,
+    workspace_ui: workspace::WorkspaceUi,
     prototype_targets: RefCell<Vec<NodeId>>,
     prototype: Rc<PrototypeRuntime>,
     pending_save: Cell<bool>,
@@ -150,6 +151,7 @@ impl EditorShell {
             scale_anchor: Cell::new(4),
             compact: Cell::new(false),
             compact_panel: Cell::default(),
+            workspace_ui: Default::default(),
             prototype_targets: RefCell::new(Vec::new()),
             prototype,
             pending_save: Cell::new(false),
@@ -746,7 +748,8 @@ impl EditorShell {
             state
         };
         let mut chrome: serde_json::Map<String, serde_json::Value> = [
-            "CanvasHost",
+            "CanvasHost", "MinimizeUiButton", "RestoreUiButton", "MinimizedInspectorButton",
+            "NavigationRail", "RightPanel", "LeftPanel",
             "Toolbar", "CompactLayers", "CompactProperties",
             "SelectTool",
             "FrameTool",
@@ -866,7 +869,7 @@ impl EditorShell {
             "prototypeSelectionIndex":self.canvas.prototype_selection_index_stats(),
             "zoomLabel":self.button("ZoomValueButton").content().and_then(|value| value.downcast_ref::<String>().cloned()),
             "canvas":{"x":canvas.x,"y":canvas.y,"width":canvas.width,"height":canvas.height},
-            "chrome":chrome,
+            "chrome":chrome,"workspaceUi":self.workspace_ui.name(),
             "layerRowCount":layer_row_count,
             "realizedLayerRows":self.layer_buttons.borrow().values().filter(|row| row.upgrade().is_some()).count(),
             "vectorNode":self.canvas.vector_node.get(),
@@ -1070,6 +1073,7 @@ impl EditorShell {
         self.refresh_layers();
         self.refresh_inspector();
         self.updating.set(false);
+        self.sync_context_inspector();
         self.refresh_open_panel();
     }
     fn refresh_selection(self: &Rc<Self>) {
@@ -1084,6 +1088,7 @@ impl EditorShell {
         self.refresh_layer_selection();
         self.refresh_inspector();
         self.updating.set(false);
+        self.sync_context_inspector();
         self.refresh_open_panel();
     }
     fn refresh_layer_selection(&self) {
@@ -1749,6 +1754,9 @@ impl EditorShell {
     }
 
     pub fn command(self: &Rc<Self>, command: &str) -> bool {
+        if matches!(command, "toggle-ui" | "minimize-ui" | "restore-ui") {
+            return self.change_workspace_ui(command);
+        }
         if command != "storage-status" && self.canvas.cancel_scale_drag() && matches!(command, "undo" | "redo") {
             return true;
         }
@@ -1824,10 +1832,7 @@ impl EditorShell {
         match command {
             "find-layers" => {
                 if !self.flush_inspector_drafts() { return false; }
-                if self.compact.get() {
-                    self.compact_panel.set(workspace::CompactPanel::Layers);
-                    self.layout_workspace();
-                }
+                self.show_layers_panel();
                 self.assets.set(false);
                 self.refresh_layers();
                 let search = self.field("LayerSearch");
@@ -1958,6 +1963,8 @@ impl EditorShell {
                 return true;
             }
             "file" | "layers" | "assets" => {
+                if !self.flush_inspector_drafts() { return false; }
+                self.show_layers_panel();
                 self.assets.set(command == "assets");
                 self.refresh_layers();
                 return true;
@@ -3283,6 +3290,8 @@ const ACTIONS: &[(&str, &str)] = &[
     ("Layout grid guides…", "layout-grid-settings"),
     ("Toggle rulers", "rulers"),
     ("Toggle pixel and object snapping", "snapping"),
+    ("Show or hide UI  Ctrl+\\", "toggle-ui"),
+    ("Minimize or expand UI  Ctrl+Shift+\\", "minimize-ui"),
     ("Zoom to 100%  Shift+0", "actual-size"),
     ("Zoom to fit  Shift+1", "fit"),
     ("Zoom to selection  Shift+2", "fit-selection"),

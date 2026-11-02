@@ -202,9 +202,14 @@
     <Border Name="LeftPanel" Grid.Column="1" Background="White" BorderBrush="#D9D9D9" BorderThickness="0,0,1,0">
       <Grid RowDefinitions="78,Auto,Auto,*,32">
         <StackPanel Margin="16,19,12,0" Spacing="8">
-          <Grid ColumnDefinitions="*,30">
+          <Grid ColumnDefinitions="*,30,30">
             <TextBlock Name="FileTitle" Text="Orbit · Mobile banking" TextTrimming="CharacterEllipsis" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <Button Name="FileActionsButton" Grid.Column="1" Content="•••" Padding="0" ToolTip.Tip="File actions"/>
+            <Button Name="MinimizeUiButton" Grid.Column="1" Padding="6" AutomationProperties.Name="Minimize editor UI"
+                    ToolTip.Tip="Minimize UI (Ctrl/Cmd+Shift+&#92;)">
+              <Path Width="14" Height="14" Stretch="Uniform" Stroke="#484848" StrokeThickness="1.5"
+                    Data="M2,3 H18 V17 H2 Z M8,3 V17 M14,7 L11,10 L14,13"/>
+            </Button>
+            <Button Name="FileActionsButton" Grid.Column="2" Content="•••" Padding="0" ToolTip.Tip="File actions"/>
           </Grid>
           <TextBlock Text="Drafts / FerroDesign" Classes="label"/>
         </StackPanel>
@@ -613,6 +618,17 @@
         </ToggleButton>
       </Grid>
     </Border>
+    <StackPanel Name="CanvasControls" Grid.ColumnSpan="4" IsVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top"
+                Orientation="Horizontal" Spacing="4" Margin="8">
+      <Button Name="RestoreUiButton" Width="44" Height="44" Padding="12" CornerRadius="9" Background="White"
+              BorderBrush="#D7D7D7" BorderThickness="1"
+              AutomationProperties.Name="Restore editor controls" ToolTip.Tip="Restore editor controls">
+        <Path Width="17" Height="17" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.5"
+              Data="M2,3 H18 V17 H2 Z M8,3 V17 M11,7 L14,10 L11,13"/>
+      </Button>
+      <Button Name="MinimizedInspectorButton" Height="44" MinWidth="64" Padding="10,0" CornerRadius="9" Background="White"
+              BorderBrush="#D7D7D7" BorderThickness="1" Content="Inspect" FontSize="12" AutomationProperties.Name="Inspect selected layers"/>
+    </StackPanel>
     <TextBlock Name="CanvasCaption" Grid.Column="2" Text="" FontSize="10" Foreground="#868686" Margin="24,25" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"/>
     <Border Name="Toolbar" Classes="editor-dock" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Bottom" Background="White" CornerRadius="13" BorderBrush="#D7D7D7" BorderThickness="1" BoxShadow="0 3 14 0 #20000000">
       <Border.Resources>

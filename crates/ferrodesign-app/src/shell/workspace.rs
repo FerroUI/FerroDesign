@@ -1,5 +1,6 @@
 //! Keep a usable artboard when the two desktop sidebars would consume the window.
 use super::*;
+use ferroui_base::input::KeyModifiers;
 use ferroui_base::interactivity::RoutingStrategies;
 use ferroui_controls::primitives::ToggleButton;
 
@@ -11,8 +12,49 @@ pub(super) enum CompactPanel {
     Properties,
 }
 
+/// Hiding can temporarily cover a minimized layout. Showing it again returns
+/// to the same sidebar policy and leaves the user's drawer choice intact.
+#[derive(Default)]
+pub(super) struct WorkspaceUi {
+    hidden: Cell<bool>,
+    minimized: Cell<bool>,
+    inspect_on_phone: Cell<bool>,
+}
+
+impl WorkspaceUi {
+    pub(super) fn name(&self) -> &'static str {
+        if self.hidden.get() { "hidden" }
+        else if self.minimized.get() { "minimized" }
+        else { "expanded" }
+    }
+}
+
 impl EditorShell {
     pub(super) fn wire_workspace(self: &Rc<Self>) {
+        self.hook("MinimizeUiButton", "minimize-ui");
+        self.hook("RestoreUiButton", "restore-ui");
+        let weak = Rc::downgrade(self);
+        self.button("MinimizedInspectorButton").click(move |_, _| {
+            if let Some(shell) = weak.upgrade() {
+                let showing = shell.workspace_ui.inspect_on_phone.get();
+                if shell.flush_inspector_drafts() {
+                    shell.workspace_ui.inspect_on_phone.set(!showing);
+                    shell.layout_workspace();
+                }
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.root.add_handler_with(InputElement::key_down_event(), move |_, event| {
+            if !matches!(event.key, Key::OemPipe | Key::OemBackslash)
+                && !matches!(event.key_symbol.as_deref(), Some("\\" | "|")) { return; }
+            let modifiers = event.key_modifiers - KeyModifiers::SHIFT;
+            if modifiers != KeyModifiers::CONTROL && modifiers != KeyModifiers::META { return; }
+            let Some(shell) = weak.upgrade() else { return };
+            // A modal owns its keyboard, and an authored prototype may bind the same chord.
+            if shell.prototype.is_active() || shell.control::<Border>("ModalBackdrop").is_visible() { return; }
+            shell.change_workspace_ui(if event.key_modifiers.contains(KeyModifiers::SHIFT) { "minimize-ui" } else { "toggle-ui" });
+            event.set_handled(true);
+        }, RoutingStrategies::TUNNEL, false);
         for (button, panel) in [
             ("CompactLayers", CompactPanel::Layers),
             ("CompactProperties", CompactPanel::Properties),
@@ -28,7 +70,7 @@ impl EditorShell {
         let weak = Rc::downgrade(self);
         self.control::<Border>("DrawerBackdrop").add_handler(InputElement::tapped_event(), move |_, event| {
             if let Some(shell) = weak.upgrade() {
-                shell.switch_compact_panel(CompactPanel::Canvas);
+                shell.close_compact_panel();
                 event.set_handled(true);
             }
         });
@@ -36,12 +78,12 @@ impl EditorShell {
         self.root.add_handler_with(InputElement::key_down_event(), move |_, event| {
             if event.key != Key::Escape || !event.key_modifiers.is_empty() { return; }
             let Some(shell) = weak.upgrade() else { return; };
-            if shell.prototype.is_active() || shell.compact_panel.get() == CompactPanel::Canvas
+            if !shell.control::<Border>("DrawerBackdrop").is_visible()
                 || shell.control::<Border>("ModalBackdrop").is_visible() { return; }
             // Give text and popup controls their own Escape. Canvas shortcuts
             // must not clear the selection underneath an open drawer.
             if event.route() == RoutingStrategies::TUNNEL && !shell.canvas.is_focused() { return; }
-            shell.switch_compact_panel(CompactPanel::Canvas);
+            shell.close_compact_panel();
             event.set_handled(true);
         }, RoutingStrategies::TUNNEL | RoutingStrategies::BUBBLE, false);
         let weak = Rc::downgrade(self);
@@ -58,9 +100,82 @@ impl EditorShell {
             shell.size_tool_dock(size.width < 440.0);
             if shell.compact.replace(compact) != compact {
                 shell.compact_panel.set(CompactPanel::Canvas);
+                shell.workspace_ui.inspect_on_phone.set(false);
                 shell.layout_workspace();
             }
         });
+    }
+
+    fn close_compact_panel(self: &Rc<Self>) {
+        if self.workspace_ui.minimized.get() {
+            if self.flush_inspector_drafts() {
+                self.workspace_ui.inspect_on_phone.set(false);
+                self.layout_workspace();
+            }
+        } else {
+            self.switch_compact_panel(CompactPanel::Canvas);
+        }
+    }
+
+    pub(super) fn change_workspace_ui(self: &Rc<Self>, command: &str) -> bool {
+        if self.prototype.is_active() || self.control::<Border>("ModalBackdrop").is_visible() {
+            return false;
+        }
+        // Changing chrome cannot splice a held canvas gesture or an IME session.
+        // A completed inspector edit uses its ordinary commit/validation path.
+        if self.canvas.has_pointer_gesture()
+            || self.editor.borrow().has_active_transaction() && self.inline_text.get().is_none()
+            || self.inline_text.get().is_some() && self.field("InlineTextBox").is_composing_text()
+        {
+            return false;
+        }
+        self.finish_inline_text(true);
+        if !self.flush_inspector_drafts() { return false; }
+        let was_expanded = self.workspace_ui.name() == "expanded";
+        match command {
+            "toggle-ui" => self.workspace_ui.hidden.set(!self.workspace_ui.hidden.get()),
+            "restore-ui" if self.workspace_ui.hidden.get() => self.workspace_ui.hidden.set(false),
+            "restore-ui" => self.workspace_ui.minimized.set(false),
+            "minimize-ui" => {
+                self.workspace_ui.hidden.set(false);
+                self.workspace_ui.minimized.set(!self.workspace_ui.minimized.get());
+                self.workspace_ui.inspect_on_phone.set(false);
+            }
+            _ => return false,
+        }
+        self.apply_workspace_mode(was_expanded);
+        true
+    }
+
+    fn apply_workspace_mode(&self, was_expanded: bool) {
+        let expanded = self.workspace_ui.name() == "expanded";
+        // On desktop the canvas origin moves by the widths of the rail and left
+        // panel. Keep artwork at the same window coordinates through that move.
+        if !self.compact.get() && expanded != was_expanded {
+            if let Some(mut camera) = self.canvas.page_camera() {
+                camera.pan.x += if expanded { -296.0 } else { 296.0 };
+                self.canvas.update_camera(camera);
+            }
+        }
+        self.layout_workspace();
+    }
+
+    pub(super) fn show_layers_panel(&self) {
+        let expanded = self.workspace_ui.name() == "expanded";
+        self.workspace_ui.hidden.set(false);
+        self.workspace_ui.minimized.set(false);
+        self.workspace_ui.inspect_on_phone.set(false);
+        if self.compact.get() { self.compact_panel.set(CompactPanel::Layers); }
+        if !expanded || self.compact.get() { self.apply_workspace_mode(expanded); }
+    }
+
+    pub(super) fn sync_context_inspector(&self) {
+        if self.workspace_ui.minimized.get() && !self.workspace_ui.hidden.get() && !self.prototype.is_active() {
+            let selected = !self.editor.borrow().selection.is_empty();
+            if !selected { self.workspace_ui.inspect_on_phone.set(false); }
+            let name = if self.compact.get() { "MinimizedInspectorButton" } else { "RightPanel" };
+            if self.control::<Control>(name).is_visible() != selected { self.layout_workspace(); }
+        }
     }
 
     fn switch_compact_panel(self: &Rc<Self>, next: CompactPanel) {
@@ -87,23 +202,35 @@ impl EditorShell {
         self.visible("PreviewControls", present);
         let compact = self.compact.get();
         let panel = self.compact_panel.get();
-        let layers = !present && (!compact || panel == CompactPanel::Layers);
-        let properties = !present && (!compact || panel == CompactPanel::Properties);
+        let hidden = self.workspace_ui.hidden.get();
+        let minimized = self.workspace_ui.minimized.get();
+        let expanded = !present && !hidden && !minimized;
+        let minimal = !present && !hidden && minimized;
+        let selected = !self.editor.borrow().selection.is_empty();
+        let layers = expanded && (!compact || panel == CompactPanel::Layers);
+        let properties = if minimal {
+            selected && (!compact || self.workspace_ui.inspect_on_phone.get())
+        } else {
+            expanded && (!compact || panel == CompactPanel::Properties)
+        };
         if !layers { self.canvas.preview_layer(None); }
         self.visible("NavigationRail", layers);
         self.visible("LeftPanel", layers);
         self.visible("RightPanel", properties);
         self.visible("ZoomPanel", properties);
-        self.visible("CanvasCaption", !present && !compact);
-        self.visible("Toolbar", !present && (!compact || panel == CompactPanel::Canvas));
-        self.visible("CompactHeader", !present && compact);
-        self.visible("DrawerBackdrop", !present && compact && panel != CompactPanel::Canvas);
+        self.visible("CanvasCaption", expanded && !compact);
+        let drawer = compact && (layers || properties);
+        self.visible("Toolbar", !present && !hidden && !drawer);
+        self.visible("CompactHeader", expanded && compact);
+        self.visible("DrawerBackdrop", drawer);
+        self.visible("CanvasControls", !present && (hidden || minimized));
+        self.visible("MinimizedInspectorButton", minimal && compact && selected);
         self.sync_drawer_toggles(panel);
-        let columns = match (present, compact, panel) {
-            (true, _, _) | (false, true, CompactPanel::Canvas) => "0,0,*,0",
-            (false, true, CompactPanel::Layers) => "48,248,*,0",
-            (false, true, CompactPanel::Properties) => "0,0,*,288",
-            (false, false, _) => "48,248,*,288",
+        let columns = match (layers, properties) {
+            (true, true) => "48,248,*,288",
+            (true, false) => "48,248,*,0",
+            (false, true) => "0,0,*,288",
+            (false, false) => "0,0,*,0",
         };
         self.control::<Grid>("Workspace").set_column_definitions(
             ColumnDefinitions::parse(columns).expect("workspace columns"),

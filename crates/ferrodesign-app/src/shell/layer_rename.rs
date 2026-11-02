@@ -36,10 +36,7 @@ impl EditorShell {
             (id, ancestors)
         };
 
-        if self.compact.get() && self.compact_panel.get() != workspace::CompactPanel::Layers {
-            self.compact_panel.set(workspace::CompactPanel::Layers);
-            self.layout_workspace();
-        }
+        self.show_layers_panel();
         self.assets.set(false);
         self.expanded.borrow_mut().extend(ancestors);
         self.refresh_layers();
