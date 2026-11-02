@@ -200,6 +200,8 @@ struct PendingTransaction {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Clipboard {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub guides: BTreeMap<NodeId, Vec<Guide>>,
     pub roots: Vec<NodeId>,
     pub nodes: BTreeMap<NodeId, Node>,
     pub bounds: Option<Rect>,
@@ -1262,6 +1264,8 @@ impl Editor {
         Ok(())
     }
 
+    /// Rotate each selected root in its local coordinate system. For a rigid
+    /// collective orbit, use `rotate_selection_about` with a world-space pivot.
     pub fn rotate_selection(&mut self, degrees: f64) {
         if !degrees.is_finite() {
             return;
@@ -1330,7 +1334,9 @@ impl Editor {
                 }
             }
         }
+        let guides = nodes.keys().filter_map(|id| self.document.guides.get(id).map(|v| (*id,v.clone()))).collect();
         self.clipboard = Some(Clipboard {
+            guides,
             roots,
             nodes,
             bounds: self.selection_bounds(),
@@ -1365,7 +1371,7 @@ impl Editor {
     }
     pub fn paste_clipboard(&mut self, c: &Clipboard, parent: NodeId, offset: Point) -> Vec<NodeId> {
         self.edit("Paste layers", |e| {
-            let roots = clone_tree_into(&mut e.document, &c.nodes, &c.roots, parent, offset, false);
+            let roots = clone_tree_into(&mut e.document, &c.nodes, &c.guides, &c.roots, parent, offset, false);
             e.selection = roots.clone();
             roots
         })
@@ -1404,6 +1410,7 @@ impl Editor {
             let roots = clone_tree_into(
                 &mut editor.document,
                 &imported.document.nodes,
+                &imported.document.guides,
                 &[imported.root],
                 editor.active_page,
                 offset,
@@ -1436,6 +1443,7 @@ impl Editor {
         self.edit("Duplicate layers", |e| {
             let roots = e.root_selection();
             let source = e.document.nodes.clone();
+            let guides = e.document.guides.clone();
             let mut out = Vec::new();
             for id in roots {
                 let Some(n) = source.get(&id) else { continue };
@@ -1443,6 +1451,7 @@ impl Editor {
                 let ids = clone_tree_into(
                     &mut e.document,
                     &source,
+                    &guides,
                     &[id],
                     parent,
                     Point::new(24.0, 24.0),
@@ -2409,6 +2418,7 @@ fn assign_transform(n: &mut Node, t: Transform) {
 pub(crate) fn clone_tree_into(
     d: &mut Document,
     source: &BTreeMap<NodeId, Node>,
+    source_guides: &BTreeMap<NodeId, Vec<Guide>>,
     roots: &[NodeId],
     parent: NodeId,
     offset: Point,
@@ -2439,6 +2449,7 @@ pub(crate) fn clone_tree_into(
         };
         let mut n = original.clone();
         n.id = remap[&old];
+        if let Some(guides) = source_guides.get(&old) { d.guides.insert(n.id, guides.clone()); }
         n.revision = 0;
         n.children = n
             .children
@@ -2746,3 +2757,8 @@ mod render_change_tests {
 #[path = "selection_resize.rs"]
 mod selection_resize;
 pub use selection_resize::SelectionResize;
+
+
+#[path = "selection_rotation.rs"]
+mod selection_rotation;
+pub use selection_rotation::{RotationBounds, SelectionRotation};

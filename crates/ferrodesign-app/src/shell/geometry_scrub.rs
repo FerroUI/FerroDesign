@@ -9,6 +9,7 @@ pub(super) struct Scrub {
     name: &'static str,
     property: GeometryField,
     pointer: Rc<dyn IPointer>,
+    host: crate::platform::ScrubPointer,
     origin: ferroui_base::Point,
     last_x: f64,
     gain: f64,
@@ -118,6 +119,13 @@ impl EditorShell {
         }
     }
 
+    /// A browser lock notification may arrive after a different gesture starts.
+    pub fn cancel_browser_pointer_scrub(self: &Rc<Self>, token: u32) {
+        if self.geometry_scrub.borrow().as_ref().is_some_and(|drag| drag.host.matches(token)) {
+            self.finish_geometry_scrub(false);
+        }
+    }
+
     pub(super) fn geometry_scrub_active(&self) -> bool {
         self.geometry_scrub
             .borrow()
@@ -194,6 +202,9 @@ impl EditorShell {
                     name,
                     property,
                     pointer: e.pointer().clone(),
+                    host: if e.pointer().type_() == PointerType::Mouse {
+                        crate::platform::ScrubPointer::arm(origin)
+                    } else { Default::default() },
                     origin,
                     last_x: origin.x,
                     gain: 1.0,
@@ -218,10 +229,13 @@ impl EditorShell {
             InputElement::pointer_moved_event(),
             move |_, e| {
                 if let Some(shell) = weak.upgrade().filter(|s| s.scrub_pointer(e.pointer())) {
-                    shell.sample_geometry_scrub(
-                        e.get_position(Some(&shell.root)),
-                        e.key_modifiers(),
-                    );
+                    if e.properties().is_left_button_pressed {
+                        shell.sample_geometry_scrub(
+                            e.get_position(Some(&shell.root)),
+                            e.key_modifiers(),
+                            true,
+                        );
+                    }
                     e.set_handled(true);
                 }
             },
@@ -236,6 +250,7 @@ impl EditorShell {
                     shell.sample_geometry_scrub(
                         e.get_position(Some(&shell.root)),
                         e.key_modifiers(),
+                        false,
                     );
                     shell.finish_geometry_scrub(true);
                     e.set_handled(true);
@@ -302,11 +317,15 @@ impl EditorShell {
         );
     }
 
-    fn sample_geometry_scrub(self: &Rc<Self>, point: ferroui_base::Point, keys: KeyModifiers) {
+    fn sample_geometry_scrub(self: &Rc<Self>, point: ferroui_base::Point, keys: KeyModifiers, can_request_lock: bool) {
         let Some(mut drag) = self.geometry_scrub.take() else {
             return;
         };
+        let was_armed = drag.owner.is_none();
+        let point = drag.host.point(point);
         let result = drag.sample(&mut self.editor.borrow_mut(), point, keys);
+        let request = (can_request_lock && was_armed && drag.owner.is_some() && result.is_ok())
+            .then_some(drag.host.token());
         let (name, property, delta, gain) = (drag.name, drag.property, drag.delta, drag.gain);
         self.geometry_scrub.replace(Some(drag));
         match result {
@@ -335,6 +354,11 @@ impl EditorShell {
                 self.finish_geometry_scrub(false);
                 self.toast(&message);
             }
+        }
+        // The host can lose focus while requesting a privileged capability.
+        // Publish the gesture and finish updating its UI before crossing into JS.
+        if let Some(token) = request {
+            crate::platform::ScrubPointer::request(token);
         }
     }
 

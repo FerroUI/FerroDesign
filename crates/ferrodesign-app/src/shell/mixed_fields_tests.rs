@@ -435,6 +435,9 @@ fn geometry_scrub_click_escape_capture_loss_and_save_respect_history_boundaries(
     down();
     f.window.mouse_move(p(12.0, 60.0), drag);
     assert_eq!(shell.editor.borrow().document.nodes[&f.id].x, 26.0, "down one speed tier halves the delta");
+    shell.cancel_browser_pointer_scrub(0);
+    shell.cancel_browser_pointer_scrub(u32::MAX);
+    assert!(shell.geometry_scrub_active(), "a late browser notification never cancels an unrelated native gesture");
     f.key(&field, Key::Escape);
     assert!(!shell.geometry_scrub_active(), "Escape releases the gesture before pointer-up");
     assert!(saved_pointer.borrow().as_ref().unwrap().captured().is_none());

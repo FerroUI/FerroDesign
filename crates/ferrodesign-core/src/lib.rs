@@ -18,6 +18,7 @@ mod layout_edit;
 mod layout_variables;
 mod layout_drag;
 mod model;
+mod ruler_guides;
 mod layer_tree;
 mod prototype;
 mod paragraphs;
@@ -54,6 +55,7 @@ pub use layout_variables::{LayoutVariableField, parse_layout_variable_binding,
     validate_layout_variable_target, validate_layout_variable};
 pub use layout_drag::*;
 pub use model::*;
+pub use ruler_guides::*;
 pub use layer_tree::*;
 pub use prototype::*;
 pub use paragraphs::{TextParagraph, ParagraphStylePatch, text_paragraph_ranges, validate_text_paragraphs};

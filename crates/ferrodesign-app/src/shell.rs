@@ -14,6 +14,7 @@ mod compositing;
 mod components;
 mod layout;
 mod layer_projection;
+mod layer_navigation;
 mod layer_drag;
 mod layer_rename;
 mod bulk_rename;
@@ -24,6 +25,7 @@ mod rich_text;
 mod text;
 mod variables;
 mod zoom;
+mod ruler_guides;
 mod toolbar;
 mod scale;
 mod workspace;
@@ -554,6 +556,16 @@ impl EditorShell {
             }
         });
         let weak = Rc::downgrade(self);
+        search.add_handler_with(InputElement::key_down_event(), move |_, event| {
+            if event.key == Key::Down && event.key_modifiers.is_empty() {
+                if let Some(shell) = weak.upgrade() {
+                    if !shell.field("LayerSearch").is_composing_text() && shell.enter_layer_rows() {
+                        event.set_handled(true);
+                    }
+                }
+            }
+        }, ferroui_base::interactivity::RoutingStrategies::TUNNEL, false);
+        let weak = Rc::downgrade(self);
         search.add_handler(InputElement::key_down_event(), move |_, event| {
             if event.key != Key::Escape || !event.key_modifiers.is_empty() { return; }
             let Some(shell) = weak.upgrade() else { return; };
@@ -856,7 +868,7 @@ impl EditorShell {
                 if let Some(control) = visual.cast::<Control>() {
                     if let Some(name) = control
                         .name()
-                        .filter(|name| ["Paint", "Effect", "Interaction", "RichText", "Paragraph", "StrokeWidth", "StrokeProfile", "Variable", "Guide", "Component", "Compositing", "Crop", "Layout", "Action", "SelectLayer", "SelectSame", "Affine", "FramePreset", "Style", "Rename"]
+                        .filter(|name| ["Paint", "Effect", "Interaction", "RichText", "Paragraph", "StrokeWidth", "StrokeProfile", "Variable", "Guide", "Component", "Compositing", "Crop", "Layout", "Action", "SelectLayer", "SelectSame", "Affine", "FramePreset", "Style", "Rename", "Ruler"]
                             .iter().any(|prefix| name.starts_with(prefix)))
                     {
                         chrome.insert(name, native_bounds(&control));
@@ -888,7 +900,7 @@ impl EditorShell {
         for group in [json!({
             "revision":editor.revision,"documentRevision":editor.document.revision,"nodeCount":editor.document.nodes.len(),
             "selectionCount":editor.selection.len(),"selection":editor.selection,"selectionBounds":selection_bounds,
-            "tool":self.canvas.tool.get().name(),"zoom":v.zoom,"pan":{"x":v.pan.x,"y":v.pan.y},
+            "tool":self.canvas.tool.get().name(),"rulersVisible": self.canvas.show_rulers.get(), "zoom":v.zoom,"pan":{"x":v.pan.x,"y":v.pan.y},
             "selectGroups":self.canvas.select_groups.get(),"measurementTarget":self.canvas.measurement_target(),
             "prototypeSelectionIndex":self.canvas.prototype_selection_index_stats(),
             "zoomLabel":self.button("ZoomValueButton").content().and_then(|value| value.downcast_ref::<String>().cloned()),
@@ -1111,6 +1123,7 @@ impl EditorShell {
         self.canvas.reconcile_vector_edit();
         self.sync_toolbar();
         self.refresh_layer_selection();
+        self.sync_tree_disclosure();
         self.refresh_inspector();
         self.updating.set(false);
         self.sync_context_inspector();
@@ -1133,7 +1146,10 @@ impl EditorShell {
         // Native class changes can apply styles synchronously. Keep the weak
         // registry unborrowed while updating this bounded set of realized rows.
         for (button, selected) in buttons {
-            button.classes().set("active", selected);
+            if button.classes().contains("active") != selected {
+                button.classes().set("active", selected);
+                ferroui_controls::automation::AutomationProperties::set_item_status(&button, selected.then_some("Selected"));
+            }
         }
     }
     fn refresh_layers(self: &Rc<Self>) {
@@ -1165,7 +1181,7 @@ impl EditorShell {
         let query = search.text().unwrap_or_default();
         self.visible("ClearLayerSearch", !query.is_empty());
         let filter = query.trim().to_lowercase();
-        let (items, empty, expanded) = {
+        let (items, empty) = {
             let editor = self.editor.borrow();
             let expanded = self.expanded.borrow();
             let mut projection = self.layer_projection.borrow_mut();
@@ -1174,21 +1190,11 @@ impl EditorShell {
                 projection.rows().iter().cloned()
                     .map(|row| Some(Rc::new(row) as BoxedValue)),
             ));
-            (items, projection.rows().is_empty(), projection.tree_expanded())
+            (items, projection.rows().is_empty())
         };
         // ItemsSource realization can synchronously call layer_row. No editor,
         // expansion or projection RefCell borrow crosses native control setters.
-        self.visible("CollapseLayersButton", expanded.is_some());
-        if let Some(open) = expanded {
-            self.visible("ExpandTreeIcon", !open);
-            self.visible("CollapseTreeIcon", open);
-            let label = if open { "Collapse all layers" } else { "Expand all layers" };
-            let button = self.button("CollapseLayersButton");
-            if ferroui_controls::automation::AutomationProperties::get_name(&button).as_deref() != Some(label) {
-                ferroui_controls::automation::AutomationProperties::set_name(&button, Some(label));
-                ferroui_controls::ToolTip::set_tip(&button, Some(Rc::new(label.to_owned())));
-            }
-        }
+        self.sync_tree_disclosure();
         self.visible("EmptyLayers", empty);
         self.text(
             "EmptyLayers",
@@ -1242,13 +1248,7 @@ impl EditorShell {
             let weak = Rc::downgrade(self);
             collapse.click(move |_, _| {
                 if let Some(s) = weak.upgrade() {
-                    {
-                        let mut expanded = s.expanded.borrow_mut();
-                        if !expanded.remove(&id) {
-                            expanded.insert(id);
-                        }
-                    }
-                    s.refresh_layers();
+                    s.disclose_layer(id, !open);
                 }
             });
             grid.children().add(collapse);
@@ -1257,9 +1257,13 @@ impl EditorShell {
         button.classes().add("layer");
         ferroui_controls::automation::AutomationProperties::set_name(&button, Some(&row.name));
         ferroui_controls::ToolTip::set_tip(&button, Some(Rc::new(row.name.clone())));
-        button
-            .classes()
-            .set("active", self.editor.borrow().selection.contains(&id));
+        let selected = self.editor.borrow().selection.contains(&id);
+        button.classes().set("active", selected);
+        ferroui_controls::automation::AutomationProperties::set_item_status(&button, selected.then_some("Selected"));
+        if let Some(open) = row.expanded {
+            let help = if open { "Expanded. Left arrow collapses this layer." } else { "Collapsed. Right arrow expands this layer." };
+            ferroui_controls::automation::AutomationProperties::set_help_text(&button, Some(help));
+        }
         if !row.visible {
             button.set_opacity(0.4);
         }
@@ -1299,7 +1303,10 @@ impl EditorShell {
         button.set_content(Some(Control::boxed(content)));
         Grid::set_column(&button, 1);
         self.wire_layer_activation(&button, id, row.assets);
-        if !row.assets { self.wire_layer_drag_source(&button, id); }
+        if !row.assets {
+            self.wire_layer_navigation(&button, id);
+            self.wire_layer_drag_source(&button, id);
+        }
         // Weak handles must not keep scrolled-out item controls alive.
         self.layer_buttons
             .borrow_mut()
@@ -2059,8 +2066,9 @@ impl EditorShell {
                 self.close_modal();
                 return true;
             }
+            "ruler-guide-settings" => { self.ruler_guides_dialog(0); return true; }
             "rulers" => {
-                self.canvas.show_rulers.set(!self.canvas.show_rulers.get());
+                self.canvas.set_rulers_visible(!self.canvas.show_rulers.get());
                 self.canvas.invalidate_visual();
                 self.close_modal();
                 return true;
@@ -2071,18 +2079,8 @@ impl EditorShell {
                 return true;
             }
             "collapse-layers" => {
-                let Some(open) = self.layer_projection.borrow().tree_expanded() else { return false; };
-                {
-                    let editor = self.editor.borrow();
-                    let Some(page) = editor.document.page(editor.active_page) else { return false; };
-                    let mut pending = page.children.clone();
-                    let mut expanded = self.expanded.borrow_mut();
-                    while let Some(id) = pending.pop() {
-                        let Some(node) = editor.document.nodes.get(&id) else { continue; };
-                        if node.children.is_empty() { continue; }
-                        if open { expanded.remove(&id); } else { expanded.insert(id); }
-                        pending.extend(node.children.iter().copied());
-                    }
+                if !self.layer_projection.borrow().toggle_tree(&self.editor.borrow(), &mut self.expanded.borrow_mut()) {
+                    return false;
                 }
                 self.refresh_layers();
                 return true;
@@ -3328,7 +3326,8 @@ const ACTIONS: &[(&str, &str)] = &[
     ("Local styles", "styles"),
     ("Toggle grid", "grid"),
     ("Layout grid guides…", "layout-grid-settings"),
-    ("Toggle rulers", "rulers"),
+    ("Toggle rulers  Shift+R", "rulers"),
+    ("Adjust ruler guides…", "ruler-guide-settings"),
     ("Toggle pixel and object snapping", "snapping"),
     ("Show or hide UI  Ctrl+\\", "toggle-ui"),
     ("Minimize or expand UI  Ctrl+Shift+\\", "minimize-ui"),

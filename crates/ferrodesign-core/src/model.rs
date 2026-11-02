@@ -1310,7 +1310,7 @@ pub struct CommentThread {
     pub resolved: bool,
     pub messages: Vec<CommentMessage>,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Guide {
     pub horizontal: bool,
     pub position: f64,
@@ -1575,6 +1575,7 @@ impl Document {
             }
         }
         let set: BTreeSet<_> = ids.iter().copied().collect();
+        self.guides.retain(|owner, _| !set.contains(owner));
         let removed: Vec<_> = ids.iter().filter_map(|id| self.nodes.remove(id)).collect();
         for n in self.nodes.values_mut() {
             n.interactions.retain(|i| match i.action {

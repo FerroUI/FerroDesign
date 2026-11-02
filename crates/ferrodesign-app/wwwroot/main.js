@@ -1,6 +1,7 @@
 import { FerroExports } from "./ferroui.js";
 import { loadModule } from "./ferroui-loader.js";
 import { openDocumentStorage } from "./document-store.js";
+import { installScrubPointer } from "./scrub-pointer.js";
 
 // The host only loads the native application. The editor and canvas are rendered by FerroUI.
 const splash = document.querySelector(".ferroui-splash");
@@ -34,6 +35,8 @@ try {
     message.textContent = "Preparing the design canvas";
     const runtime = await loaded.createRuntime();
     FerroExports.attach(runtime);
+    globalThis.ferroDesignScrubPointer = installScrubPointer(document.getElementById("out"),
+        token => runtime.ferroDesignCancelPointerScrub(token));
     globalThis.ferroDesign = runtime;
     globalThis.ferrodesign = runtime;
     globalThis.ferroDesignRenderPanics = () => [...FerroExports.renderThreadPanics];

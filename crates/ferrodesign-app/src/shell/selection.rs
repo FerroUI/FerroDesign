@@ -59,6 +59,8 @@ impl EditorShell {
                 shell.refresh_selection();
                 shell.canvas.invalidate_visual();
                 if rename && shell.reveal_selected_layer(true) { return; }
+                shell.focus_layer_row(id, ferroui_base::input::NavigationMethod::Unspecified);
+                return;
             }
             shell.canvas.focus();
         });

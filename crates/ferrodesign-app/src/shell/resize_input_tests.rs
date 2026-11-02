@@ -315,3 +315,53 @@ fn multi_resize_shared_move_handle_uses_final_pointer_sample_and_one_history_ent
     assert_eq!(width.text().as_deref(), Some("60"));
     assert_eq!(shell.editor.borrow().history_len(), depth);
 }
+
+#[test]
+fn selection_rotation_moves_the_origin_then_uses_one_keyboard_or_coalesced_pointer_edit() {
+    use ferroui_base::input::KeyModifiers;
+    let fixture=Fixture::with_kind(false,NodeKind::Rectangle);
+    let shell=&fixture.shell;
+    let canvas=&shell.canvas;
+    let mut doc=core::Document::new("Rotation input");
+    let a=doc.insert_node(1,Node::new(NodeKind::Rectangle,"A",40.,40.,40.,30.)).unwrap();
+    let b=doc.insert_node(1,Node::new(NodeKind::Rectangle,"B",130.,40.,40.,30.)).unwrap();
+    let mut e=Editor::new(doc);e.selection=vec![a,b];*shell.editor.borrow_mut()=e;
+    shell.refresh();fixture.window.capture_rendered_frame().unwrap();
+    let view=core::Viewport{zoom:1.,pan:Point::new(100.,100.),..canvas.viewport.get()};
+    canvas.viewport.set(view);canvas.invalidate_visual();fixture.window.capture_rendered_frame().unwrap();
+    let screen=|p:Point|{let s=view.world_to_screen(p);canvas.translate_point(ferroui_base::Point::new(s.x,s.y),&fixture.window).unwrap()};
+    let key=|k,mods|{
+        let mut event=KeyEventArgs::new();event.set_routed_event(Some(InputElement::key_down_event()));
+        event.key=k;event.key_modifiers=mods;canvas.raise_event(&event);assert!(event.handled());
+    };
+    let before=fixture.json();
+    let pivot=Point::new(40.,40.);let center=Point::new(105.,55.);
+    key(Key::R,KeyModifiers::ALT);
+    fixture.window.mouse_down(screen(center),MouseButton::Left,RawInputModifiers::NONE);
+    fixture.window.mouse_up(screen(pivot),MouseButton::Left,RawInputModifiers::NONE);
+    assert_eq!(fixture.json(),before);
+    assert_eq!(shell.editor.borrow().history_len(),0);
+    let check=|degrees|{
+        let orbit=core::Transform::translation(pivot.x,pivot.y)*core::Transform::rotation(degrees)*core::Transform::translation(-pivot.x,-pivot.y);
+        let e=shell.editor.borrow();
+        for (id,p) in [(a,Point::new(60.,55.)),(b,Point::new(150.,55.))] {
+            let node=&e.document.nodes[&id];
+            assert!(e.document.world_transform(id).unwrap().apply(node.local_bounds().center()).distance(orbit.apply(p))<1e-7);
+            assert!((node.rotation-degrees).abs()<1e-7);
+        }
+    };
+    key(Key::Down,KeyModifiers::CONTROL|KeyModifiers::ALT|KeyModifiers::SHIFT);
+    check(15.);assert_eq!(shell.editor.borrow().history_len(),1);
+    assert!(shell.command("undo"));assert_eq!(fixture.json(),before);
+    let grip=Point::new(105.,16.);
+    fixture.window.mouse_down(screen(grip),MouseButton::Left,RawInputModifiers::NONE);
+    fixture.window.mouse_up(screen(Point::new(64.,105.)),MouseButton::Left,RawInputModifiers::SHIFT);
+    check(90.);
+    assert!(shell.command("undo"));assert_eq!(fixture.json(),before);
+    fixture.window.mouse_down(screen(grip),MouseButton::Left,RawInputModifiers::NONE);
+    fixture.window.mouse_move(screen(Point::new(64.,105.)),RawInputModifiers::LEFT_MOUSE_BUTTON);
+    key(Key::Escape,KeyModifiers::NONE);
+    fixture.window.mouse_up(screen(Point::new(64.,105.)),MouseButton::Left,RawInputModifiers::NONE);
+    assert_eq!(fixture.json(),before);assert_eq!(shell.editor.borrow().selection,[a,b]);
+    assert!(shell.editor.borrow().can_redo());
+}

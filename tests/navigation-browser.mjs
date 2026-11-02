@@ -1,3 +1,4 @@
+import { rulerGuides } from "./ruler-guides-browser.mjs";
 import assert from "node:assert/strict";
 
 export async function navigationRegressions(page, reference, check, helpers) {
@@ -134,4 +135,5 @@ export async function navigationRegressions(page, reference, check, helpers) {
     await waitUi("expanded", true, true, true);
     assert.deepEqual(await documentState(page), document);
     check("On a 320-pixel phone, native recovery controls inspect a selection, return to the canvas, and reopen the previous drawer");
+    await rulerGuides(page, reference, check, helpers);
 }

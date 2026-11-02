@@ -13,6 +13,7 @@ import { vectorNetworkRegressions } from "./network-browser.mjs";
 import { componentAuthoringRegressions } from "./components-browser.mjs";
 import { imageCropRegressions } from "./image-crop-browser.mjs";
 import { compositingRegressions } from "./compositing-browser.mjs";
+import { figmaArtworkReference } from "./figma-artwork-browser.mjs";
 import { svgCompositingRegressions } from "./svg-compositing-browser.mjs";
 import { maskAuthoringRegressions } from "./masks-browser.mjs";
 import { pageInspectorRegressions } from "./page-inspector-browser.mjs";
@@ -24,6 +25,7 @@ import { effectAuthoringRegressions } from "./effects-browser.mjs";
 import { inspectorLifecycleRegressions } from "./inspector-lifecycle-browser.mjs";
 import { floatingPanelRegressions } from "./panels-browser.mjs";
 import { layoutTransferRegressions } from "./layout-transfer-browser.mjs";
+import { rotationRegressions } from "./rotation-browser.mjs";
 import { selectionRegressions } from "./selection-browser.mjs";
 import { matchingRegressions } from "./matching-browser.mjs";
 import { geometryAuthoringRegressions } from "./geometry-authoring-browser.mjs";
@@ -1167,6 +1169,9 @@ try {
                 nativeHelpers, output, mode));
             await scenario("compositing", () => compositingRegressions(page, svgDocument, check,
                 nativeHelpers, output, mode));
+            if (selectedScenarios?.has("figma-artwork")) {
+                await scenario("figma-artwork", () => figmaArtworkReference(page, svgDocument, check, nativeHelpers, output, mode));
+            }
             await scenario("svg-compositing", () => svgCompositingRegressions(page, svgDocument, check,
                 nativeHelpers, output, mode));
             await scenario("masks", () => maskAuthoringRegressions(page, svgDocument, check,
@@ -1192,6 +1197,11 @@ try {
                 nativeHelpers, output, mode));
             await scenario("selection", () => selectionRegressions(page, svgDocument, check,
                 nativeHelpers, output, mode));
+            // The selection suite includes rotation. An explicitly requested
+            // rotation-only run captures the same real input and pixels.
+            if (selectedScenarios?.has("rotation")) {
+                await scenario("rotation", () => rotationRegressions(page, svgDocument, check, nativeHelpers, mode));
+            }
             await scenario("matching", () => matchingRegressions(page, svgDocument, check,
                 nativeHelpers, output, mode));
             await scenario("geometry-authoring", () => geometryAuthoringRegressions(page, svgDocument, check,

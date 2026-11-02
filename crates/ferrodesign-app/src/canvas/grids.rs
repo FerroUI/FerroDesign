@@ -14,6 +14,7 @@ const MAX_FRAME_LINES: usize = 32_768;
 
 #[derive(Default)]
 pub(super) struct LayoutGridOverlay {
+    pub(super) rulers_visible: bool,
     grids: BTreeSet<NodeId>,
     token: Option<EditorRenderToken>,
     snap_index: snapping::GuideSnapIndex,

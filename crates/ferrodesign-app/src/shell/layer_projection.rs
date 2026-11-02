@@ -59,12 +59,21 @@ pub(super) struct LayerProjectionStats {
     pub(super) reuses: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TreeAction {
+    Expand,
+    Collapse,
+    CollapseOthers,
+    SelectionOnly,
+}
+
 #[derive(Default)]
 pub(super) struct LayerProjection {
     rows: Vec<LayerRow>,
     indices: BTreeMap<NodeId, usize>,
     context: Option<ProjectionContext>,
-    tree_expanded: Option<bool>,
+    open_branches: usize,
+    closed_branches: usize,
     stats: LayerProjectionStats,
 }
 
@@ -95,9 +104,56 @@ impl LayerProjection {
         self.indices.get(&id).copied()
     }
 
-    /// None for a flat list or search results, otherwise whether a visible branch is open.
-    pub(super) fn tree_expanded(&self) -> Option<bool> {
-        self.tree_expanded
+    /// Retain only disclosures already visible on the selected paths. An
+    /// individually folded branch stays folded even if its artwork is selected.
+    fn selected_disclosures(&self, editor: &Editor) -> BTreeSet<NodeId> {
+        let mut keep = BTreeSet::new();
+        for id in &editor.selection {
+            let Some(index) = self.index_of(*id) else { continue };
+            let mut current = if self.rows[index].expanded == Some(true) {
+                Some(*id)
+            } else {
+                editor.document.nodes.get(id).and_then(|node| node.parent)
+            };
+            while let Some(branch) = current {
+                if branch == editor.active_page || !keep.insert(branch) { break; }
+                current = editor.document.nodes.get(&branch).and_then(|node| node.parent);
+            }
+        }
+        keep
+    }
+
+    pub(super) fn tree_action(&self, editor: &Editor) -> Option<TreeAction> {
+        if self.open_branches == 0 {
+            return (self.closed_branches > 0).then_some(TreeAction::Expand);
+        }
+        let keep = self.selected_disclosures(editor).len();
+        Some(if keep == 0 { TreeAction::Collapse }
+            else if keep < self.open_branches { TreeAction::CollapseOthers }
+            else if self.closed_branches != 0 { TreeAction::Expand }
+            else { TreeAction::SelectionOnly })
+    }
+
+    pub(super) fn toggle_tree(&self, editor: &Editor, expanded: &mut BTreeSet<NodeId>) -> bool {
+        match self.tree_action(editor) {
+            Some(TreeAction::Expand) => {
+                let Some(page) = editor.document.page(editor.active_page) else { return false; };
+                let mut pending = page.children.clone();
+                while let Some(id) = pending.pop() {
+                    let Some(node) = editor.document.nodes.get(&id) else { continue; };
+                    if !node.children.is_empty() {
+                        expanded.insert(id);
+                        pending.extend(node.children.iter().copied());
+                    }
+                }
+            }
+            Some(TreeAction::Collapse | TreeAction::CollapseOthers) => {
+                let keep = self.selected_disclosures(editor);
+                expanded.retain(|id| keep.contains(id) || editor.document.page_of(*id) != Some(editor.active_page));
+            }
+            _ => return false,
+        }
+        true
     }
 
     pub(super) fn stats(&self) -> LayerProjectionStats {
@@ -125,7 +181,8 @@ impl LayerProjection {
         self.stats.builds = self.stats.builds.saturating_add(1);
         let changed = self.rows != rows;
         if changed {
-            self.tree_expanded = rows.iter().filter_map(|row| row.expanded).max();
+            self.open_branches = rows.iter().filter(|row| row.expanded == Some(true)).count();
+            self.closed_branches = rows.iter().filter(|row| row.expanded == Some(false)).count();
             self.indices = rows.iter().enumerate().map(|(index, row)| (row.id, index)).collect();
             self.rows = rows;
         }

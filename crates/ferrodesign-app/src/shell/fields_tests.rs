@@ -26,6 +26,8 @@ mod measure_input_tests;
 #[path = "preview_input_tests.rs"]
 mod preview_input_tests;
 
+#[path = "ruler_input_tests.rs"]
+mod ruler_input_tests;
 #[path = "resize_input_tests.rs"]
 mod resize_input_tests;
 

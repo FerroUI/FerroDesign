@@ -87,6 +87,9 @@
       <Setter Property="Height" Value="29"/>
       <Setter Property="CornerRadius" Value="4"/>
     </Style>
+    <Style Selector="Button.layer:focus-visible">
+      <Setter Property="BorderBrush" Value="#087AC4"/><Setter Property="BorderThickness" Value="1"/>
+    </Style>
     <Style Selector="Border.keyboard-dialog"><Setter Property="KeyboardNavigation.TabNavigation" Value="Cycle"/></Style>
     <Style Selector="Button.action-result">
       <Setter Property="Height" Value="32"/><Setter Property="Padding" Value="5,3,10,3"/>

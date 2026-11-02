@@ -3,11 +3,13 @@ mod drawing;
 mod drag_copy;
 mod measure;
 mod resize;
+mod rotation;
 mod selection_resize;
 mod line_endpoint;
 mod network;
 mod network_bucket;
 mod grids;
+mod rulers;
 mod image_crop;
 mod layout_drag;
 mod selection;
@@ -141,11 +143,8 @@ enum Gesture {
     EdgePress { hit: resize::Hit, world: Point, screen: Point, modifiers: KeyModifiers, clicks: i32 },
     Resize(resize::ResizeDrag),
     MultiResize(selection_resize::MultiResize),
-    Rotate {
-        node: Node,
-        center: Point,
-        angle: f64,
-    },
+    Rotate(rotation::Drag),
+    RotationOrigin(rotation::OriginDrag),
     Marquee(selection::Marquee),
     AltDrag(Box<drag_copy::AltDrag>),
     Draw(drawing::ShapeDrag),
@@ -182,6 +181,7 @@ pub struct DesignCanvas {
     size_badge: RefCell<Option<(resize::BadgeValue, FormattedText)>>,
     size_badge_obstacle: Cell<Option<Rect>>,
     scale_bounds: RefCell<Option<scale::CachedBounds>>,
+    rotation: rotation::RotationState,
     painter: RefCell<ScenePainter>,
     callback: RefCell<Option<Rc<dyn Fn(CanvasEvent)>>>,
     hover: Cell<Option<NodeId>>,
@@ -192,6 +192,7 @@ pub struct DesignCanvas {
     initialized: Cell<bool>,
     pub show_grid: Cell<bool>,
     pub show_rulers: Cell<bool>,
+    rulers: RefCell<rulers::Rulers>,
     pub dark: Cell<bool>,
     pub presentation: Cell<Option<NodeId>>,
     pub overlays: RefCell<Vec<(NodeId, Point)>>,
@@ -238,6 +239,7 @@ impl DesignCanvas {
             size_badge: RefCell::default(),
             size_badge_obstacle: Cell::default(),
             scale_bounds: RefCell::default(),
+            rotation: Default::default(),
             painter: RefCell::new(ScenePainter::default()),
             callback: RefCell::new(None),
             hover: Cell::new(None),
@@ -248,6 +250,7 @@ impl DesignCanvas {
             initialized: Cell::new(false),
             show_grid: Cell::new(false),
             show_rulers: Cell::new(false),
+            rulers: RefCell::default(),
             dark: Cell::new(false),
             presentation: Cell::new(None),
             overlays: RefCell::new(Vec::new()),
@@ -345,6 +348,7 @@ impl DesignCanvas {
     }
 
     pub fn set_tool(&self, tool: Tool) {
+        self.forget_selected_ruler();
         self.clear_measurement();
         self.leave_linear_gradient_edit();
         self.cancel_corner_radius_gesture();
@@ -369,7 +373,70 @@ impl DesignCanvas {
         self.emit(CanvasEvent::Tool);
     }
     pub(crate) fn has_pointer_gesture(&self) -> bool {
-        !matches!(*self.gesture.borrow(), Gesture::None)
+        self.guide_drag_active() || !matches!(*self.gesture.borrow(), Gesture::None)
+    }
+
+    pub(crate) fn editor_shortcut(&self, e: &KeyEventArgs) -> Option<&'static str> {
+        let command = e.key_modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META);
+        let shift = e.key_modifiers.contains(KeyModifiers::SHIFT);
+        let alt = e.key_modifiers.contains(KeyModifiers::ALT);
+        if command {
+            match e.key {
+                Key::Add | Key::OemPlus if !alt => Some("zoom-in"),
+                Key::Subtract | Key::OemMinus if !alt => Some("zoom-out"),
+                Key::Z => Some(if shift { "redo" } else { "undo" }),
+                Key::Y => Some("redo"),
+                Key::C => Some("copy"),
+                Key::X => Some("cut"),
+                Key::V => Some("paste"),
+                Key::D => Some("duplicate"),
+                Key::A => Some(if shift { "select-inverse" } else { "select-all" }),
+                Key::G => Some(if alt {
+                    "frame-selection"
+                } else if shift {
+                    "ungroup"
+                } else {
+                    "group"
+                }),
+                Key::S => Some("save"),
+                Key::O => Some("open"),
+                Key::F if !alt && !shift => Some("find-layers"),
+                Key::R if !alt && !shift => Some("rename-layer"),
+                Key::OemQuestion if !alt && !shift => Some("actions"),
+                Key::K => Some(if shift {
+                    "place-image"
+                } else if alt {
+                    "component"
+                } else {
+                    "actions"
+                }),
+                _ => None,
+            }
+        } else {
+            match e.key {
+                Key::Delete | Key::Back => Some("delete"),
+                Key::F2 => Some("rename-layer"),
+                Key::V => Some("select"),
+                Key::F => Some(if shift { "section" } else { "frame" }),
+                Key::R if !alt => Some(if shift { "rulers" } else { "rectangle" }),
+                Key::O => Some("ellipse"),
+                Key::L => Some(if shift { "arrow" } else { "line" }),
+                Key::P => Some(if shift { "pencil" } else { "pen" }),
+                Key::B if shift && self.vector_node.get().is_some() => Some("network-bucket"),
+                Key::T => Some("text"),
+                Key::H => Some("hand"),
+                Key::C => Some("comment"),
+                Key::A if shift => Some("auto-layout"),
+                Key::S => Some(if shift { "section" } else { "slice" }),
+                Key::Add | Key::OemPlus if !alt => Some("zoom-in"),
+                Key::Subtract | Key::OemMinus if !alt => Some("zoom-out"),
+                Key::D0 if shift && !alt => Some("actual-size"),
+                Key::D1 => Some("fit"),
+                Key::D2 => Some("fit-selection"),
+                Key::K if !shift && !alt => Some("scale"),
+                _ => None,
+            }
+        }
     }
 
     pub(crate) fn page_camera(&self) -> Option<Viewport> {
@@ -425,6 +492,7 @@ impl DesignCanvas {
     // Pointer movement and a modifier change at a stationary pointer must agree
     // on the target. Geometry handles own their hit area before layer measurement.
     fn hover_edit_handle(&self, world: Point, modifiers: KeyModifiers) -> bool {
+        if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META) && self.hover_rotation(world) { return true; }
         if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META) && self.multi_resize_hover(world) { return true; }
         let resize = (!modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META))
             .then(|| self.handle_at(world)).flatten();
@@ -561,6 +629,7 @@ impl DesignCanvas {
     /// Undo during a live pointer edit cancels that transaction and its gesture.
     /// Later pointer events must never continue writing after history restored it.
     pub fn cancel_active_edit(&self) -> bool {
+        if self.cancel_guide_drag() { return true; }
         if matches!(*self.gesture.borrow(), Gesture::Pan { .. }) {
             *self.gesture.borrow_mut() = Gesture::None;
             return true;
@@ -579,7 +648,17 @@ impl DesignCanvas {
         active
     }
     pub fn cancel(&self) {
+        if self.cancel_guide_drag() { return; }
         self.clear_measurement();
+        if matches!(*self.gesture.borrow(), Gesture::Rotate(_) | Gesture::RotationOrigin(_)) {
+            match self.gesture.replace(Gesture::None) {
+                Gesture::Rotate(drag) => drag.cancel(self),
+                Gesture::RotationOrigin(drag) => drag.cancel(self),
+                _ => unreachable!(),
+            }
+            self.set_resize_hover(None);
+            return;
+        }
         if matches!(*self.gesture.borrow(), Gesture::MultiResize(_)) {
             if let Gesture::MultiResize(drag) = self.gesture.replace(Gesture::None) { drag.cancel(self); }
             return;
@@ -908,8 +987,16 @@ impl InputElementImpl for DesignCanvas {
         let world = this.viewport.get().screen_to_world(screen);
         this.pointer_presses.borrow_mut().record(e, screen, world, this.viewport.get(),
             this.editor.borrow().selection.len(), this.frames.get());
-        if matches!(*this.gesture.borrow(), Gesture::Scale(_) | Gesture::MultiResize(_)) { return; }
+        if matches!(*this.gesture.borrow(), Gesture::Scale(_) | Gesture::MultiResize(_) | Gesture::Rotate(_) | Gesture::RotationOrigin(_)) { return; }
+        if this.guide_drag_active() { return; }
         if e.properties().is_right_button_pressed {
+            if this.show_rulers.get() && this.presentation.get().is_none() {
+                if let Some(id) = this.guide_at(screen) {
+                    this.select_ruler_guide(Some(id));
+                    this.emit(CanvasEvent::Action("ruler-guide-settings"));
+                    return;
+                }
+            }
             if this.presentation.get().is_none() {
                 this.emit(CanvasEvent::ContextMenu);
             }
@@ -933,6 +1020,7 @@ impl InputElementImpl for DesignCanvas {
             if this.hover.take().is_some() { this.invalidate_visual(); }
             return;
         }
+        if this.press_ruler(screen, e.pointer().id(), e.key_modifiers(), true) { return; }
         if this.linear_gradient_press(world, e.click_count()) { return; }
         if this.image_crop_press(world) { return; }
         if this.stroke_width_press(world) { return; }
@@ -943,10 +1031,13 @@ impl InputElementImpl for DesignCanvas {
                 let scaling = this.tool.get() == Tool::Scale;
                 let deep = e.key_modifiers().intersects(KeyModifiers::CONTROL | KeyModifiers::META);
                 if scaling && !deep && this.press_scale_handle(world) { return; }
+                if !deep && this.press_rotation(world, screen, e.key_modifiers(), e.click_count()) { return; }
                 if !deep && this.press_multi_resize(world, screen, e.key_modifiers(), e.click_count()) { return; }
                 if !scaling && this.corner_radius_press(world, e.key_modifiers()) { return; }
                 this.clear_corner_radius_hover();
                 let handle = if scaling || deep { None } else { this.handle_at(world) };
+                if handle.is_none() && !deep && this.press_ruler(screen, e.pointer().id(), e.key_modifiers(), false) { return; }
+                this.forget_selected_ruler();
                 if handle.is_none() && this.press_alt_drag(world, screen, e.key_modifiers()) { return; }
                 if this.vector_press(world, e.click_count(), additive) {
                     return;
@@ -960,20 +1051,6 @@ impl InputElementImpl for DesignCanvas {
                             editor.begin_node_transaction(&[id], "Move line endpoint");
                             *this.gesture.borrow_mut() = Gesture::LineEndpoint(drag);
                         }
-                    } else if hit.handle == resize::Handle::Rotate {
-                        let node = node.clone();
-                        let center = editor
-                            .document
-                            .world_transform(id)
-                            .unwrap()
-                            .apply(Point::new(node.width / 2.0, node.height / 2.0));
-                        let angle = (world.y - center.y).atan2(world.x - center.x).to_degrees();
-                        editor.begin_node_transaction(&[id], "Rotate");
-                        *this.gesture.borrow_mut() = Gesture::Rotate {
-                            node,
-                            center,
-                            angle,
-                        };
                     } else if matches!(hit.handle, resize::Handle::Edge(_)) {
                         *this.gesture.borrow_mut() = Gesture::EdgePress {
                             hit, world, screen, modifiers: e.key_modifiers(), clicks: e.click_count(),
@@ -1095,6 +1172,7 @@ impl InputElementImpl for DesignCanvas {
         let screen = e.get_position(Some(this));
         let position = Point::new(screen.x, screen.y);
         this.selection_pointer.set(Some(position));
+        if this.move_ruler(position, e.pointer().id()) { e.set_handled(true); return; }
         if this.presentation.get().is_none() {
             if this.pan_pointer(position) {
                 e.set_handled(true);
@@ -1146,7 +1224,7 @@ impl InputElementImpl for DesignCanvas {
         }
         let mut gesture = this.gesture.borrow_mut();
         this.activate_edge_drag(&mut gesture, position);
-        let resize_revision = matches!(*gesture, Gesture::Resize(_) | Gesture::MultiResize(_))
+        let resize_revision = matches!(*gesture, Gesture::Resize(_) | Gesture::MultiResize(_) | Gesture::Rotate(_))
             .then(|| this.editor.borrow().revision);
         match &mut *gesture {
             Gesture::EdgePress { .. } => return,
@@ -1162,23 +1240,8 @@ impl InputElementImpl for DesignCanvas {
             Gesture::Scale(drag) => drag.update(&mut this.editor.borrow_mut(), world, e.key_modifiers().contains(KeyModifiers::ALT)),
             Gesture::Resize(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::MultiResize(drag) => drag.update(this, world, e.key_modifiers()),
-            Gesture::Rotate {
-                node,
-                center,
-                angle,
-            } => {
-                let mut rotation = node.rotation
-                    + (world.y - center.y).atan2(world.x - center.x).to_degrees()
-                    - *angle;
-                if shift {
-                    rotation = (rotation / 15.0).round() * 15.0
-                }
-                let mut editor = this.editor.borrow_mut();
-                if let Some(n) = editor.document.nodes.get_mut(&node.id) {
-                    n.rotation = rotation;
-                }
-                editor.refresh_preview_nodes(&[node.id]);
-            }
+            Gesture::Rotate(drag) => drag.update(this, world, e.key_modifiers()),
+            Gesture::RotationOrigin(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::AltDrag(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::Marquee(drag) => { drag.update(&this.editor.borrow(), world, e.key_modifiers()); }
             Gesture::Draw(drag) => drag.update(this, world, e.key_modifiers(), false),
@@ -1308,6 +1371,9 @@ impl InputElementImpl for DesignCanvas {
             return;
         }
         let screen = e.get_position(Some(this));
+        if this.release_ruler(Point::new(screen.x, screen.y), e.pointer().id()) {
+            e.pointer().capture(None); e.set_handled(true); return;
+        }
         if this.pan_pointer(Point::new(screen.x, screen.y)) {
             *this.gesture.borrow_mut() = Gesture::None;
             e.pointer().capture(None);
@@ -1369,6 +1435,8 @@ impl InputElementImpl for DesignCanvas {
             Gesture::Draw(drag) => drag.update(this, this.world(release_screen), e.key_modifiers(), true),
             Gesture::LineEndpoint(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
             Gesture::Resize(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
+            Gesture::Rotate(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
+            Gesture::RotationOrigin(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
             Gesture::MultiResize(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
             _ => {}
         }
@@ -1383,6 +1451,7 @@ impl InputElementImpl for DesignCanvas {
                     this.select_at_pointer(world, modifiers, clicks, None);
                 }
             }
+            Gesture::Rotate(drag) => drag.finish(this),
             Gesture::MultiResize(drag) => drag.finish(this),
             Gesture::AltDrag(drag) => drag.finish(this, this.world(release_screen), e.key_modifiers()),
             Gesture::Marquee(mut drag) => {
@@ -1420,7 +1489,6 @@ impl InputElementImpl for DesignCanvas {
             Gesture::Move { .. }
             | Gesture::LineEndpoint(_)
             | Gesture::Resize(_)
-            | Gesture::Rotate { .. }
             | Gesture::VectorPoint { .. }
             | Gesture::VectorBend { .. }
             | Gesture::NetworkPoint { .. }
@@ -1435,6 +1503,7 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_pointer_capture_lost(this: &Self, e: &PointerCaptureLostEventArgs) {
         Self::parent_on_pointer_capture_lost(this, e);
+        if this.lost_ruler_capture(e.pointer().id()) { return; }
         if matches!(*this.gesture.borrow(), Gesture::Pan { .. }) {
             // A temporary hand drag can coexist with an unfinished pen path.
             // Losing camera capture must never roll back that transaction.
@@ -1504,8 +1573,9 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_lost_focus(this: &Self, e: &FocusChangedEventArgs) {
         Self::parent_on_lost_focus(this, e);
+        this.cancel_guide_drag();
         this.clear_measurement();
-        if matches!(*this.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_) | Gesture::MultiResize(_)) {
+        if matches!(*this.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_) | Gesture::MultiResize(_) | Gesture::Rotate(_) | Gesture::RotationOrigin(_)) {
             this.cancel();
         }
         // KeyUp is routed to the new focus owner.
@@ -1522,7 +1592,9 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
-        if this.multi_resize_modifier(e, true) || this.marquee_modifier(e, true) || this.alt_drag_modifier(e, true) {
+        if this.ruler_key(e) { e.set_handled(true); return; }
+        if this.rotation_key(e) { e.set_handled(true); return; }
+        if this.rotation_modifier(e, true) || this.multi_resize_modifier(e, true) || this.marquee_modifier(e, true) || this.alt_drag_modifier(e, true) {
             e.set_handled(true);
             return;
         }
@@ -1593,7 +1665,6 @@ impl InputElementImpl for DesignCanvas {
             .key_modifiers
             .intersects(KeyModifiers::CONTROL | KeyModifiers::META);
         let shift = e.key_modifiers.contains(KeyModifiers::SHIFT);
-        let alt = e.key_modifiers.contains(KeyModifiers::ALT);
         if matches!(e.key, Key::Left | Key::Right | Key::Up | Key::Down | Key::Enter | Key::Tab | Key::Delete | Key::Back) {
             this.finish_corner_radius_edit();
             this.finish_network_bucket();
@@ -1617,63 +1688,7 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
-        let action = if command {
-            match e.key {
-                Key::Add | Key::OemPlus if !alt => Some("zoom-in"),
-                Key::Subtract | Key::OemMinus if !alt => Some("zoom-out"),
-                Key::Z => Some(if shift { "redo" } else { "undo" }),
-                Key::Y => Some("redo"),
-                Key::C => Some("copy"),
-                Key::X => Some("cut"),
-                Key::V => Some("paste"),
-                Key::D => Some("duplicate"),
-                Key::A => Some(if shift { "select-inverse" } else { "select-all" }),
-                Key::G => Some(if alt {
-                    "frame-selection"
-                } else if shift {
-                    "ungroup"
-                } else {
-                    "group"
-                }),
-                Key::S => Some("save"),
-                Key::O => Some("open"),
-                Key::F if !alt && !shift => Some("find-layers"),
-                Key::R if !alt && !shift => Some("rename-layer"),
-                Key::OemQuestion if !alt && !shift => Some("actions"),
-                Key::K => Some(if shift {
-                    "place-image"
-                } else if alt {
-                    "component"
-                } else {
-                    "actions"
-                }),
-                _ => None,
-            }
-        } else {
-            match e.key {
-                Key::Delete | Key::Back => Some("delete"),
-                Key::F2 => Some("rename-layer"),
-                Key::V => Some("select"),
-                Key::F => Some(if shift { "section" } else { "frame" }),
-                Key::R => Some("rectangle"),
-                Key::O => Some("ellipse"),
-                Key::L => Some(if shift { "arrow" } else { "line" }),
-                Key::P => Some(if shift { "pencil" } else { "pen" }),
-                Key::B if shift && this.vector_node.get().is_some() => Some("network-bucket"),
-                Key::T => Some("text"),
-                Key::H => Some("hand"),
-                Key::C => Some("comment"),
-                Key::A if shift => Some("auto-layout"),
-                Key::S => Some(if shift { "section" } else { "slice" }),
-                Key::Add | Key::OemPlus if !alt => Some("zoom-in"),
-                Key::Subtract | Key::OemMinus if !alt => Some("zoom-out"),
-                Key::D0 if shift && !alt => Some("actual-size"),
-                Key::D1 => Some("fit"),
-                Key::D2 => Some("fit-selection"),
-                Key::K if !shift && !alt => Some("scale"),
-                _ => None,
-            }
-        };
+        let action = this.editor_shortcut(e);
         if let Some(action) = action {
             if !matches!(action, "undo" | "redo") { this.cancel_layout_drag(); }
             this.emit(CanvasEvent::Action(action));
@@ -1712,7 +1727,7 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_key_up(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_up(this, e);
-        if this.multi_resize_modifier(e, false) || this.marquee_modifier(e, false) || this.alt_drag_modifier(e, false) {
+        if this.rotation_modifier(e, false) || this.multi_resize_modifier(e, false) || this.marquee_modifier(e, false) || this.alt_drag_modifier(e, false) {
             e.set_handled(true);
             return;
         }
@@ -2045,6 +2060,7 @@ impl VisualImpl for DesignCanvas {
         ctx.pop(camera);
         if this.presentation.get().is_none() && prototype_scene.is_none() {
             this.layout_grids.borrow_mut().render(ctx, &editor, v);
+            this.render_ruler_guides(ctx, &editor, v);
         }
         if let Some(current) = this.presentation.get() {
             for &(id, position) in this.overlays.borrow().iter().filter(|_| prototype_scene.is_none()) {
@@ -2140,7 +2156,7 @@ impl VisualImpl for DesignCanvas {
             _ => None,
         };
         if marquee.is_none() && (scale_mode || (this.tool.get() == Tool::Select && editor.selection.len() > 1
-            && matches!(*gesture, Gesture::None | Gesture::MultiResize(_)))) {
+            && matches!(*gesture, Gesture::None | Gesture::MultiResize(_) | Gesture::RotationOrigin(_)))) {
             this.render_scale_handles(ctx, &editor, v);
         }
         let selection = match &*gesture {
@@ -2227,21 +2243,15 @@ impl VisualImpl for DesignCanvas {
                         &BoxShadows::default(),
                     );
                 }
-                let top = (corners[0] + corners[1]) * 0.5;
-                let center = (corners[0] + corners[2]) * 0.5;
-                let direction = top - center;
-                let length = direction.distance(Point::new(0.0, 0.0)).max(0.001);
-                let rotate = top + direction * (24.0 / length);
-                ctx.draw_line(&blue, ui(top), ui(rotate));
-                ctx.draw_ellipse_at(Some(&white), Some(&blue), ui(rotate), 3.0, 3.0);
             }
             if editor.selection.len() == 1 {
                 let bounds = Rect::from_points(corners[0], corners[2])
                     .union(Rect::from_points(corners[1], corners[3]));
-                if measuring.is_none() { this.draw_size_badge(ctx, resize::BadgeValue::Dimensions(n.width, n.height), bounds, v); }
+                if measuring.is_none() && !matches!(*gesture, Gesture::Rotate(_)) { this.draw_size_badge(ctx, resize::BadgeValue::Dimensions(n.width, n.height), bounds, v); }
                 this.render_corner_radius(ctx, &editor, id);
             }
         }
+        this.render_rotation(ctx, &editor, v, &gesture);
         if let Some(drag) = marquee {
             let a = v.world_to_screen(drag.start);
             let b = v.world_to_screen(drag.current);
@@ -2266,31 +2276,6 @@ impl VisualImpl for DesignCanvas {
                 label(ctx, "C", Point::new(p.x - 3.5, p.y - 6.0), 10.0, "#2A2200");
             }
         }
-        if this.show_rulers.get() {
-            let fill = brush("#F5F5F5");
-            ctx.draw_rectangle(
-                Some(&fill),
-                None,
-                UiRect::new(0.0, 0.0, v.width, 20.0),
-                0.0,
-                0.0,
-                &BoxShadows::default(),
-            );
-            let step = 100.0 * if v.zoom < 0.3 { 5.0 } else { 1.0 };
-            let mut x = (v.visible_rect().x / step).floor() * step;
-            let tick = pen(0xFFBBBBBB, 1.0);
-            while x < v.visible_rect().right() {
-                let px = v.world_to_screen(Point::new(x, 0.0)).x;
-                ctx.draw_line(&tick, UiPoint::new(px, 14.0), UiPoint::new(px, 20.0));
-                label(
-                    ctx,
-                    &format!("{x:.0}"),
-                    Point::new(px + 3.0, 3.0),
-                    9.0,
-                    "#777777",
-                );
-                x += step;
-            }
-        }
+        this.render_rulers(ctx, &editor, v);
     }
 }

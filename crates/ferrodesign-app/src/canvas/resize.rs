@@ -6,7 +6,6 @@ use ferroui_base::input::{Cursor, StandardCursorType};
 pub(super) enum Handle {
     Corner(usize),
     Edge(usize),
-    Rotate,
 }
 
 impl Handle {
@@ -19,7 +18,6 @@ impl Handle {
             Self::Edge(i) => {
                 [Point::new(0.0, -1.0), Point::new(1.0, 0.0), Point::new(0.0, 1.0), Point::new(-1.0, 0.0)][i]
             }
-            Self::Rotate => Point::default(),
         }
     }
 }
@@ -32,19 +30,16 @@ pub(super) struct Hit {
 }
 
 impl Hit {
-    fn cursor(self) -> Option<StandardCursorType> {
-        if self.handle == Handle::Rotate {
-            return None;
-        }
+    fn cursor(self) -> StandardCursorType {
         let axis = self.transform.apply_vector(self.handle.axes());
         // The platform exposes four bidirectional resize cursors.
         let octant = (axis.y.atan2(axis.x) / std::f64::consts::FRAC_PI_4).round() as i32;
-        Some(match octant.rem_euclid(4) {
+        match octant.rem_euclid(4) {
             0 => StandardCursorType::SizeWestEast,
             1 => StandardCursorType::TopLeftCorner,
             2 => StandardCursorType::SizeNorthSouth,
             _ => StandardCursorType::TopRightCorner,
-        })
+        }
     }
 }
 
@@ -68,7 +63,7 @@ impl DesignCanvas {
             Handle::Edge(i) => Some((h.id, i)),
             _ => None,
         });
-        self.set_handle_feedback(hit.and_then(Hit::cursor), edge);
+        self.set_handle_feedback(hit.map(Hit::cursor), edge);
     }
 
     pub(super) fn set_handle_feedback(
@@ -119,13 +114,6 @@ impl DesignCanvas {
         }
         if line {
             return None;
-        }
-        let top = (corners[0] + corners[1]) * 0.5;
-        let center = (corners[0] + corners[2]) * 0.5;
-        let direction = top - center;
-        let length = direction.distance(Point::default()).max(0.001);
-        if (top + direction * (24.0 / (zoom * length))).distance(pointer) * zoom < 8.0 {
-            return hit(Handle::Rotate);
         }
         // A narrow edge target leaves the interior available for moving layers and editing radii.
         (0..4)
@@ -290,6 +278,7 @@ fn badge_rect(bounds: Rect, view: Viewport, width: f64, height: f64, obstacle: O
 pub(super) enum BadgeValue {
     Dimensions(f64, f64),
     Scale(f64),
+    Rotation(f64),
 }
 
 impl DesignCanvas {
@@ -313,6 +302,7 @@ impl DesignCanvas {
         if cached.as_ref().is_none_or(|(previous, _)| *previous != value) {
             let text = match value {
                 BadgeValue::Dimensions(width, height) => dimensions(width, height),
+                BadgeValue::Rotation(delta) => format!("Δ {:+.1}°", if delta.abs() < 0.05 { 0.0 } else { delta }),
                 BadgeValue::Scale(factor) => format!("{:.1}%", factor * 100.0),
             };
             let label = FormattedText::new(
@@ -459,7 +449,7 @@ mod tests {
             let right = transform.apply(Point::new(128.5 + 3.0 / zoom, 16.0));
             let hit = canvas.handle_at(right).unwrap();
             assert_eq!(hit.handle, Handle::Edge(1));
-            assert_eq!(hit.cursor(), Some(StandardCursorType::SizeNorthSouth));
+            assert_eq!(hit.cursor(), StandardCursorType::SizeNorthSouth);
             assert!(canvas.handle_at(transform.apply(Point::new(128.5 + 5.0 / zoom, 24.0))).is_none());
             assert_eq!(
                 canvas.handle_at(transform.apply(Point::new(128.5, 0.0))).unwrap().handle,

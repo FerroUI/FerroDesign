@@ -56,6 +56,7 @@ impl Editor {
         let roots = crate::editor::clone_tree_into(
             &mut candidate,
             &self.document.nodes,
+            &self.document.guides,
             &ordinary,
             session.page,
             Point::default(),

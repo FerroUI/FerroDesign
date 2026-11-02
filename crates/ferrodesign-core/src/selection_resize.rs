@@ -70,27 +70,8 @@ impl Editor {
         ids.into_iter()
             .map(|id| {
                 let node = self.document.nodes.get(&id)?;
-                let parent = node.parent?;
-                // Flow positions are owned by their layout. Materialized instance
-                // children cannot be reshaped independently of their definition.
-                if self
-                    .document
-                    .nodes
-                    .get(&parent)
-                    .is_some_and(|p| p.layout.is_some() && !node.layout_child.absolute)
-                    || crate::layout_drag::validate_layout_reorder_ancestry(&self.document, parent).is_err()
-                    || !node.visible
-                    || self.document.page_of(id) != Some(self.active_page)
-                {
-                    return None;
-                }
-                let world = *self.scene.transforms.get(&id)?;
-                world.inverse()?;
-                let parent_inverse = if parent == self.active_page {
-                    Transform::IDENTITY
-                } else {
-                    self.scene.transforms.get(&parent)?.inverse()?
-                };
+                let (world, parent, _) = self.transform_root(id, false)?;
+                let parent_inverse = parent.inverse()?;
                 Some(Root {
                     id,
                     world,

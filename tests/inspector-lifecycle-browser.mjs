@@ -192,7 +192,7 @@ export async function mixedSelectionAndDock(page, reference, check, helpers) {
     const x = label.x + label.width / 2, y = label.y + label.height / 2;
     await page.mouse.move(x, y);
     await page.mouse.down();
-    await page.mouse.move(x + 12, y, { steps: 3 });
+    await page.mouse.move(x + 12, y);
     await page.waitForFunction(() => {
         const {nodes} = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
         return nodes[2].width === 76 && nodes[3].width === 108;
@@ -212,6 +212,78 @@ export async function mixedSelectionAndDock(page, reference, check, helpers) {
     await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 96);
     assert.deepEqual(await documentState(page), before);
     check("Dragging the native width prefix previews both mixed widths live, Escape rolls them back, and release commits one reversible change");
+
+    // The trusted press must activate the real browser capability. Chromium
+    // keeps client coordinates fixed under lock; native dimensions follow the
+    // relative movement even when the driver's virtual mouse leaves the viewport.
+    const scrub = async () => {
+        await clickNative(page, "WidthField", "InspectorViewport");
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 8, y);
+    };
+    const expectLock = () => page.waitForFunction(() => document.pointerLockElement === document.getElementById("out"));
+    const expectUnlocked = () => page.waitForFunction(() => !document.pointerLockElement);
+    await expectUnlocked();
+    await scrub();
+    await expectLock();
+    await page.keyboard.down("Shift");
+    try {
+        await page.mouse.move(x + page.viewportSize().width * 8, y);
+        await page.waitForFunction(() => {
+            const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+            return nodes[2].width > innerWidth && Math.abs((nodes[3].width - nodes[2].width) - 32) < 1e-6;
+        });
+    } finally { await page.keyboard.up("Shift"); }
+    const lockedWidths = await documentState(page);
+    assert.equal((await state(page)).historyLength, selected.historyLength);
+    await page.mouse.up();
+    await expectUnlocked();
+    assert.deepEqual(await documentState(page), lockedWidths);
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].width === 64);
+    assert.deepEqual(await documentState(page), before);
+    check("Genuine pointer lock extends a mixed-width scrub beyond the viewport, preserves the width difference, and commits one exact undo");
+
+    await scrub();
+    await expectLock();
+    await page.evaluate(() => document.exitPointerLock());
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].width === 64);
+    await page.mouse.up();
+    assert.deepEqual(await documentState(page), before);
+    assert.equal((await state(page)).historyLength, selected.historyLength);
+    check("Releasing the browser's pointer lock without a native key restores the authored geometry before pointer-up");
+
+    await scrub();
+    await expectLock();
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await expectUnlocked();
+    await page.mouse.up();
+    assert.deepEqual(await documentState(page), before);
+    assert.equal((await state(page)).historyLength, selected.historyLength);
+    check("Page hiding cancels a locked scrub before the document storage boundary can commit its preview");
+
+    // Exercise the same native field when the embedding document denies lock.
+    await page.evaluate(() => Object.defineProperty(document.getElementById("out"), "requestPointerLock", {
+        configurable: true, value() { return Promise.reject(new DOMException("Blocked in fixture", "NotAllowedError")); },
+    }));
+    try {
+        await scrub();
+        await page.mouse.move(x + 16, y);
+        await page.mouse.up();
+        await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].width === 80);
+        await expectUnlocked();
+        assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+        await page.keyboard.press("Enter");
+        await page.keyboard.press("Control+z");
+        await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].width === 64);
+        assert.deepEqual(await documentState(page), before);
+    } finally {
+        await page.evaluate(() => Reflect.deleteProperty(document.getElementById("out"), "requestPointerLock"));
+    }
+    check("A rejected pointer-lock request falls back to bounded native scrubbing and retains exact undo");
 
     await page.keyboard.press("F6");
     await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.SelectTool.focused === true);

@@ -44,14 +44,8 @@ impl EditorShell {
             self.field("LayerSearch").set_text(Some(""));
             self.refresh_layers();
         }
-        let Some(index) = self.layer_projection.borrow().index_of(id) else { return false; };
-        let host = self.control::<ItemsControl>("LayersHost");
-        host.update_layout();
-        host.scroll_into_view(index as i32);
-        let Some(button) = self.layer_buttons.borrow().get(&id).and_then(WeakRef::upgrade) else {
-            return false;
-        };
-        if !edit_name { return true; }
+        let Some(button) = self.realize_layer_button(id) else { return false; };
+        if !edit_name { return button.focus(); }
         let Some(row) = button.parent().and_then(|parent| parent.cast::<Grid>()) else { return false; };
         self.open_row_name(NameRow::Layer(id), &row)
     }
