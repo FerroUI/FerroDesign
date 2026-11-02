@@ -19,7 +19,7 @@ pub(in crate::shell) struct PageDrag {
     slot: Option<usize>,
     marker: Option<(Ref<Grid>, &'static str)>,
     line: Option<Ref<Border>>,
-    timer: Option<Rc<dyn IDisposable>>,
+    timer: Option<Subscription>,
 }
 
 impl EditorShell {

@@ -15,7 +15,7 @@ pub(super) struct LayerDrag {
     session: Option<LayerTreeMove>,
     target: Option<(NodeId, LayerRowSlot)>,
     marker: Option<WeakRef<Grid>>,
-    timer: Option<Rc<dyn IDisposable>>,
+    timer: Option<Subscription>,
 }
 
 struct Press {
