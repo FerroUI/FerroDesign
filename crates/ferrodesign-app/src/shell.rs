@@ -1338,7 +1338,8 @@ impl EditorShell {
         }
         grid
     }
-    fn refresh_inspector(&self) {
+    fn refresh_inspector(self: &Rc<Self>) {
+        self.cancel_stale_geometry_scrub();
         let editor = self.editor.borrow();
         let selection = fields::InspectorSelection::new(&editor);
         let node = selection.first;

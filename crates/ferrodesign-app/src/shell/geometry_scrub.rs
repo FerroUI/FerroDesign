@@ -106,6 +106,18 @@ impl Scrub {
 }
 
 impl EditorShell {
+    pub(super) fn cancel_stale_geometry_scrub(self: &Rc<Self>) {
+        // Hiding or disabling a focused field can raise LostFocus synchronously.
+        // Release its transaction before the inspector takes its document borrow.
+        let stale = self.geometry_scrub.borrow().as_ref().is_some_and(|drag| {
+            let editor = self.editor.borrow();
+            !drag.matches(&editor) || drag.baseline.keys().any(|id| editor.document.effective_locked(*id))
+        });
+        if stale {
+            self.finish_geometry_scrub(false);
+        }
+    }
+
     pub(super) fn geometry_scrub_active(&self) -> bool {
         self.geometry_scrub
             .borrow()

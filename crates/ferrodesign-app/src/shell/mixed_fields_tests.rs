@@ -454,4 +454,12 @@ fn geometry_scrub_click_escape_capture_loss_and_save_respect_history_boundaries(
     assert_eq!(shell.editor.borrow().history_len(), 1);
     assert!(shell.command("undo"));
     assert_eq!(f.json(), before);
+    down();
+    f.window.mouse_move(p(10.0, 0.0), drag);
+    shell.editor.borrow_mut().selection.clear();
+    shell.refresh_selection();
+    f.window.mouse_up(p(10.0, 0.0), MouseButton::Left, RawInputModifiers::NONE);
+    assert!(shell.editor.borrow().selection.is_empty());
+    assert!(!shell.editor.borrow().has_active_transaction());
+    assert_eq!(f.json(), before);
 }
