@@ -441,3 +441,66 @@ fn svg_nested_viewports_clip_children_after_aspect_mapping() {
     assert_ne!(editor.hit_test(Point::new(135.0, 40.0), 0.0), Some(outside));
 }
 
+
+#[test]
+fn svg_uniform_rounded_rect_preserves_exact_curves_paints_and_clips() {
+    let mut doc = Document::new("Rounded rectangle");
+    let page = doc.pages[0].id;
+    let mut node = Node::new(NodeKind::Rectangle, "Pill", 8.0, 9.0, 100.0, 20.0);
+    node.corner_radii = Some([80.0; 4]);
+    node.clip_content = true;
+    node.fills = vec![Fill::solid(Color::BLACK), Fill::solid(Color::WHITE)];
+    let mut stroke = Stroke::new(Color::rgb(5, 6, 7), 2.0);
+    stroke.align = StrokeAlign::Inside;
+    stroke.dash = vec![3.0, 2.0];
+    node.strokes = vec![stroke];
+    let id = doc.insert_node(page, node).unwrap();
+    let output = doc.export_svg(page, &[id]);
+    let xml = roxmltree::Document::parse(&output).unwrap();
+    let rects: Vec<_> = xml.descendants().filter(|n| n.has_tag_name("rect")).collect();
+    assert_eq!(rects.len(), 5); // Child clip, stroke clip, two fills, stroke.
+    for rect in &rects {
+        assert_eq!(rect.attribute("width"), Some("100"));
+        assert_eq!(rect.attribute("height"), Some("20"));
+        assert_eq!(rect.attribute("rx"), Some("10")); // Clamp both axes to a circular radius.
+    }
+    let paints: Vec<_> = rects.iter().filter_map(|rect| rect.attribute("fill")).collect();
+    assert_eq!(paints, ["#FFFFFF", "#000000", "none"]);
+    let painted_stroke = rects.last().unwrap();
+    assert_eq!(painted_stroke.attribute("stroke"), Some("#050607"));
+    assert_eq!(painted_stroke.attribute("stroke-dasharray"), Some("3 2"));
+    assert_eq!(painted_stroke.attribute("stroke-width"), Some("4"));
+    assert_eq!(painted_stroke.parent_element().unwrap().attribute("clip-path"),
+        Some(format!("url(#stroke-clip-{id}-0)").as_str()));
+    assert!(painted_stroke.ancestors().any(|n| n.attribute("transform") == Some("matrix(1 0 0 1 8 9)")));
+}
+
+#[test]
+fn svg_rounded_rect_keeps_custom_outlines_and_arrow_markers_on_paths() {
+    let mut doc = Document::new("Custom rounded shapes");
+    let page = doc.pages[0].id;
+    let make_rect = || Node::new(NodeKind::Rectangle, "Rounded", 0.0, 0.0, 20.0, 18.0)
+        .with_fill(Color::BLACK).with_radius(4.0);
+    let mut asymmetric = make_rect();
+    asymmetric.corner_radii = Some([4.0, 2.0, 2.0, 1.0]);
+    let mut smoothed = make_rect();
+    smoothed.corner_smoothing = 0.6;
+    for node in [asymmetric, smoothed] {
+        let id = doc.insert_node(page, node).unwrap();
+        let output = doc.export_svg(page, &[id]);
+        let xml = roxmltree::Document::parse(&output).unwrap();
+        assert!(!xml.descendants().any(|n| n.has_tag_name("rect")));
+        let path = xml.descendants().find(|n| n.has_tag_name("path")).unwrap();
+        assert!(path.attribute("d").unwrap().contains('C'));
+    }
+
+    let mut marked = make_rect();
+    let mut arrow = Stroke::new(Color::BLACK, 2.0);
+    arrow.cap = StrokeCap::Arrow;
+    marked.strokes = vec![arrow];
+    let id = doc.insert_node(page, marked).unwrap();
+    let output = doc.export_svg(page, &[id]);
+    let xml = roxmltree::Document::parse(&output).unwrap();
+    assert!(xml.descendants().any(|n| n.has_tag_name("rect") && n.attribute("rx") == Some("4")));
+    assert!(xml.descendants().any(|n| n.has_tag_name("path") && n.has_attribute("marker-end")));
+}

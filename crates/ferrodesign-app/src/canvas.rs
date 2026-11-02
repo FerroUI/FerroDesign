@@ -1172,7 +1172,7 @@ impl InputElementImpl for DesignCanvas {
         let screen = e.get_position(Some(this));
         let position = Point::new(screen.x, screen.y);
         this.selection_pointer.set(Some(position));
-        if this.move_ruler(position, e.pointer().id()) { e.set_handled(true); return; }
+        if this.move_ruler(position, e.pointer().id(), e.key_modifiers()) { e.set_handled(true); return; }
         if this.presentation.get().is_none() {
             if this.pan_pointer(position) {
                 e.set_handled(true);
@@ -1371,7 +1371,7 @@ impl InputElementImpl for DesignCanvas {
             return;
         }
         let screen = e.get_position(Some(this));
-        if this.release_ruler(Point::new(screen.x, screen.y), e.pointer().id()) {
+        if this.release_ruler(Point::new(screen.x, screen.y), e.pointer().id(), e.key_modifiers()) {
             e.pointer().capture(None); e.set_handled(true); return;
         }
         if this.pan_pointer(Point::new(screen.x, screen.y)) {
@@ -1592,7 +1592,7 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
-        if this.ruler_key(e) { e.set_handled(true); return; }
+        if this.ruler_alt(e.key, true) || this.ruler_key(e) { e.set_handled(true); return; }
         if this.rotation_key(e) { e.set_handled(true); return; }
         if this.rotation_modifier(e, true) || this.multi_resize_modifier(e, true) || this.marquee_modifier(e, true) || this.alt_drag_modifier(e, true) {
             e.set_handled(true);
@@ -1727,7 +1727,7 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_key_up(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_up(this, e);
-        if this.rotation_modifier(e, false) || this.multi_resize_modifier(e, false) || this.marquee_modifier(e, false) || this.alt_drag_modifier(e, false) {
+        if this.ruler_alt(e.key, false) || this.rotation_modifier(e, false) || this.multi_resize_modifier(e, false) || this.marquee_modifier(e, false) || this.alt_drag_modifier(e, false) {
             e.set_handled(true);
             return;
         }

@@ -267,3 +267,131 @@ fn guide_dropped_over_auto_layout_group_belongs_to_enclosing_frame() {
         local.x.round()
     );
 }
+
+#[test]
+fn alt_while_dragging_a_ruler_measures_visible_rotated_artwork_and_cancels_cleanly() {
+    let f = Fixture::new(false);
+    let shell = &f.shell;
+    let canvas = &shell.canvas;
+    let mut doc = core::Document::new("Rotated ruler redlines");
+    let mut frame = Node::new(NodeKind::Frame, "Frame", 120., 150., 180., 100.);
+    frame.rotation = 30.;
+    frame.clip_content = true;
+    let frame = doc.insert_node(1, frame).unwrap();
+    doc.insert_node(
+        frame,
+        Node::new(NodeKind::Rectangle, "Art", 30., 22., 60., 32.),
+    )
+    .unwrap();
+    let transform = doc.world_transform(frame).unwrap();
+    let mut editor = Editor::new(doc);
+    editor.selection = vec![frame];
+    *shell.editor.borrow_mut() = editor;
+    shell.refresh();
+    f.window.capture_rendered_frame().unwrap();
+    let view = core::Viewport {
+        zoom: 1.,
+        pan: Point::new(80., 65.),
+        ..canvas.viewport.get()
+    };
+    canvas.viewport.set(view);
+    canvas.set_rulers_visible(true);
+    f.window.capture_rendered_frame().unwrap();
+    assert!(canvas.focus());
+    let screen = |p: Point| {
+        canvas
+            .translate_point(ferroui_base::Point::new(p.x, p.y), &f.window)
+            .unwrap()
+    };
+    let at = |x, y| screen(view.world_to_screen(transform.apply(Point::new(x, y))));
+    let painted = |where_: ferroui_base::Point, red: bool| {
+        let frame = f.window.capture_rendered_frame().unwrap();
+        let bgra = frame.format() == Some(ferroui_base::platform::PixelFormat::BGRA8888);
+        let mut bytes = [0; 7 * 7 * 4];
+        frame.copy_pixels(
+            ferroui_base::PixelRect::new(
+                where_.x.round() as i32 - 3,
+                where_.y.round() as i32 - 3,
+                7,
+                7,
+            ),
+            &mut bytes,
+            7 * 4,
+        );
+        bytes
+            .chunks_exact(4)
+            .filter(|px| {
+                let (r, g, b) = if bgra {
+                    (px[2], px[1], px[0])
+                } else {
+                    (px[0], px[1], px[2])
+                };
+                if red {
+                    r.saturating_sub(g) > 65 && r.saturating_sub(b) > 45
+                } else {
+                    b.saturating_sub(r) > 100 && g.saturating_sub(r) > 45
+                }
+            })
+            .count()
+    };
+    let redlines = || canvas.ruler_redlines(&shell.editor.borrow(), view);
+    let alt = || {
+        f.window.key_press(
+            Key::LeftAlt,
+            RawInputModifiers::ALT,
+            PhysicalKey::AltLeft,
+            None,
+        )
+    };
+    let plain = RawInputModifiers::NONE;
+    let held = RawInputModifiers::LEFT_MOUSE_BUTTON;
+    let before = f.json();
+    let depth = shell.editor.borrow().history_len();
+    let start = screen(Point::new(7., 190.));
+    f.window.mouse_move(start, plain);
+    f.window.mouse_down(start, MouseButton::Left, plain);
+    f.window.mouse_move(at(55., 36.), held);
+    assert!(redlines().is_none());
+    alt();
+    let spans = redlines().expect("stationary Option shows distances to the hovered child");
+    let check_point =
+        |p: Point, x, y| assert!(p.distance(transform.apply(Point::new(x, y))) < 1e-6);
+    check_point(spans.origin, 55., 36.);
+    for (edge, (x, expected)) in spans.edges.into_iter().zip([(30., 25.), (90., 35.)]) {
+        let (point, distance) = edge.unwrap();
+        check_point(point, x, 36.);
+        assert!((distance - expected).abs() < 1e-6);
+    }
+    assert!(
+        painted(at(46., 36.), true) >= 2,
+        "the red line crosses the transformed local normal"
+    );
+    assert!(painted(at(55., 12.), false) >= 2, "the guide remains blue");
+    f.window
+        .key_release(Key::LeftAlt, plain, PhysicalKey::AltLeft, None);
+    assert!(redlines().is_none());
+    assert_eq!(
+        painted(at(46., 36.), true),
+        0,
+        "releasing Option removes the redline immediately"
+    );
+    assert!(
+        painted(at(55., 12.), false) >= 2,
+        "the underlying guide drag stays active"
+    );
+    f.window
+        .mouse_move(at(110., 70.), held | RawInputModifiers::ALT);
+    let frame_spans = redlines().expect("the selected frame supplies its own visible edges");
+    for (edge, (x, expected)) in frame_spans.edges.into_iter().zip([(0., 110.), (180., 70.)]) {
+        let (point, distance) = edge.unwrap();
+        check_point(point, x, 70.);
+        assert!((distance - expected).abs() < 1e-6);
+    }
+    f.window
+        .key_press(Key::Escape, plain, PhysicalKey::Escape, None);
+    f.window.mouse_up(at(110., 70.), MouseButton::Left, plain);
+    assert!(redlines().is_none());
+    assert_eq!(f.json(), before);
+    assert_eq!(shell.editor.borrow().history_len(), depth);
+    assert_eq!(shell.editor.borrow().selection, [frame]);
+}

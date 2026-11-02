@@ -8,6 +8,13 @@ pub struct RulerGuideId {
     pub index: usize,
 }
 
+/// The two visible edges can have different distances on either side of a guide.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RulerRedlines {
+    pub origin: Point,
+    pub edges: [Option<(Point, f64)>; 2],
+}
+
 impl Document {
     pub fn ruler_guide(&self, id: RulerGuideId) -> Option<&Guide> {
         self.guides.get(&id.owner)?.get(id.index)
@@ -58,10 +65,27 @@ impl Document {
             }
             (Point::new(p, bounds.y), Point::new(p, bounds.bottom()))
         };
-        let start = transform.apply(start);
-        let end = transform.apply(end);
+        self.clip_ruler_chord(
+            owner,
+            transform.apply(start),
+            transform.apply(end),
+            Some(view),
+            true,
+        )
+    }
+
+    // Intersect the finite chord with the layer and all clipping ancestors
+    // in their own coordinates, including rounded frame masks.
+    fn clip_ruler_chord(
+        &self,
+        owner: NodeId,
+        start: Point,
+        end: Point,
+        view: Option<Rect>,
+        round_owner: bool,
+    ) -> Option<(Point, Point)> {
         let (mut lo, mut hi) = (0.0_f64, 1.0_f64);
-        if !clip_rect(view, start, end, &mut lo, &mut hi) {
+        if view.is_some_and(|r| !clip_rect(r, start, end, &mut lo, &mut hi)) {
             return None;
         }
         let mut current = owner;
@@ -73,11 +97,12 @@ impl Document {
                 if !clip_rect(node.local_bounds(), a, b, &mut lo, &mut hi) {
                     return None;
                 }
-                if node
-                    .corner_radii
-                    .unwrap_or([node.corner_radius; 4])
-                    .iter()
-                    .any(|r| *r > 0.0)
+                if (current != owner || round_owner)
+                    && node
+                        .corner_radii
+                        .unwrap_or([node.corner_radius; 4])
+                        .iter()
+                        .any(|r| *r > 0.0)
                 {
                     let contours = crate::corner_path(node).fill_contours();
                     let contour = contours.first()?;
@@ -100,6 +125,73 @@ impl Document {
             current = node.parent?;
         }
         Some((start.lerp(end, lo), start.lerp(end, hi)))
+    }
+
+    /// Visible target edges along a perpendicular in the guide owner's axes.
+    /// Endpoints are in world space; values use the owner's local ruler units.
+    pub fn ruler_distances(
+        &self,
+        page: NodeId,
+        owner: NodeId,
+        guide: Guide,
+        target: NodeId,
+        pointer: Point,
+        view: Rect,
+    ) -> Option<RulerRedlines> {
+        if self.page_of(target) != Some(page) || !self.effective_visible(target) {
+            return None;
+        }
+        let owner_transform = self.ruler_owner_transform(page, owner)?;
+        let inverse = owner_transform.inverse()?;
+        let target_transform = self.world_transform(target)?;
+        let bounds = self.nodes.get(&target)?.local_bounds();
+        if !target_transform.transform_rect(bounds).intersects(view) {
+            return None;
+        }
+        let projected = (inverse * target_transform).transform_rect(bounds);
+        let along = |p: Point| if guide.horizontal { p.x } else { p.y };
+        let axis = |p: Point| if guide.horizontal { p.y } else { p.x };
+        let (start, end) = self.ruler_guide_segment(page, owner, guide, view)?;
+        let start = along(inverse.apply(start));
+        let end = along(inverse.apply(end));
+        let (min, max) = (
+            Point::new(projected.x, projected.y),
+            Point::new(projected.right(), projected.bottom()),
+        );
+        let lower = along(min).max(start.min(end));
+        let upper = along(max).min(start.max(end));
+        if lower > upper {
+            return None;
+        }
+        let cross_section = along(inverse.apply(pointer)).clamp(lower, upper);
+        let world = |position| {
+            owner_transform.apply(if guide.horizontal {
+                Point::new(cross_section, position)
+            } else {
+                Point::new(position, cross_section)
+            })
+        };
+        let (near, far) =
+            self.clip_ruler_chord(target, world(axis(min)), world(axis(max)), None, false)?;
+        let distances = [
+            axis(inverse.apply(near)) - guide.position,
+            axis(inverse.apply(far)) - guide.position,
+        ];
+        // Outside the artwork, only its facing edge measures the gap. Inside,
+        // both edges show the actual left/right or top/bottom insets.
+        let edge = |index: usize, p| {
+            let d = distances[index];
+            let facing = if index == 0 {
+                distances[1] >= -1e-8
+            } else {
+                distances[0] <= 1e-8
+            };
+            (d.abs() > 1e-8 && facing).then_some((p, d.abs()))
+        };
+        Some(RulerRedlines {
+            origin: world(guide.position),
+            edges: [edge(0, near), edge(1, far)],
+        })
     }
 }
 
@@ -127,6 +219,23 @@ fn clip_halfspace(start: f64, end: f64, lo: &mut f64, hi: &mut f64) -> bool {
 }
 
 impl Editor {
+    /// Query only authored owners. The scene index already accounts for the
+    /// active page, transformed frame extents, hidden subtrees and clipped bounds.
+    pub fn ruler_guides_in(&self, view: Rect) -> impl Iterator<Item = (NodeId, &[Guide])> {
+        self.document
+            .guides
+            .iter()
+            .filter_map(move |(&id, guides)| {
+                (id == self.active_page
+                    || self
+                        .scene
+                        .spatial
+                        .bounds(id)
+                        .is_some_and(|b| b.intersects(view)))
+                .then_some((id, guides.as_slice()))
+            })
+    }
+
     /// Apply one add, move, duplicate or removal to the authored guide list.
     pub fn edit_ruler_guide(
         &mut self,
@@ -222,7 +331,7 @@ pub fn snap_ruler_guides(
     let doc = &editor.document;
     let mut best: Option<Point> = None;
     let (mut x, mut y): (Option<f64>, Option<f64>) = (None, None);
-    for (&owner, guides) in &doc.guides {
+    for (owner, guides) in editor.ruler_guides_in(bounds) {
         if excluded
             .iter()
             .any(|&id| owner == id || doc.is_ancestor(id, owner))
@@ -282,7 +391,63 @@ pub fn snap_ruler_guides(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Node, GEOMETRY_EPSILON};
+    use crate::{GEOMETRY_EPSILON, Node};
+
+    #[test]
+    fn page_guide_measures_only_the_facing_visible_edge_of_clipped_artwork() {
+        let mut doc = Document::new("Visible guide distances");
+        let mut frame = Node::new(NodeKind::Frame, "Clip", 20., 50., 100., 70.);
+        frame.clip_content = true;
+        let frame = doc.insert_node(1, frame).unwrap();
+        let art = doc
+            .insert_node(
+                frame,
+                Node::new(NodeKind::Rectangle, "Art", -35., 5., 65., 40.),
+            )
+            .unwrap();
+        let view = Rect::new(-100., -100., 500., 500.);
+        let guide = Guide {
+            horizontal: false,
+            position: 5.,
+        };
+        let measure =
+            |doc: &Document| doc.ruler_distances(1, 1, guide, art, Point::new(5., 80.), view);
+        let lines = measure(&doc).unwrap();
+        assert_eq!(lines.origin, Point::new(5., 80.));
+        assert_eq!(lines.edges, [Some((Point::new(20., 80.), 15.)), None]);
+        doc.nodes.get_mut(&frame).unwrap().visible = false;
+        assert!(measure(&doc).is_none());
+    }
+
+    #[test]
+    fn ruler_owner_query_uses_active_scene_bounds_before_clipping_individual_guides() {
+        let mut doc = Document::new("Scoped ruler geometry");
+        let page = doc.pages[0].id;
+        let other_page = doc.add_page("Other");
+        let guide = Guide {
+            horizontal: true,
+            position: 5.,
+        };
+        doc.guides.insert(page, vec![guide]);
+        doc.guides.insert(other_page, vec![guide]);
+        let mut near = None;
+        for i in 0..1000 {
+            let frame = doc
+                .insert_node(
+                    page,
+                    Node::new(NodeKind::Frame, "Card", i as f64 * 100., 0., 40., 40.),
+                )
+                .unwrap();
+            doc.guides.insert(frame, vec![guide; 10]);
+            if i == 0 {
+                near = Some(frame);
+            }
+        }
+        let e = Editor::new(doc);
+        let view = Rect::new(3., 3., 10., 10.);
+        let owners: Vec<_> = e.ruler_guides_in(view).map(|(id, _)| id).collect();
+        assert_eq!(owners, [page, near.unwrap()]);
+    }
 
     #[test]
     fn ruler_guides_transfer_without_losing_frame_space_or_history() {

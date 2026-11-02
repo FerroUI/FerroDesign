@@ -17,3 +17,12 @@ FERRODESIGN_SCENARIOS=figma-artwork npm run test:browser
 The scenario verifies both source hashes. Figma’s 375 × 812 document is exported at 2×. To produce the same 750 × 1624 pixels in FerroDesign, the runner doubles the SVG’s outer width and height while preserving the original viewBox, path data, transforms and clipping. It imports the SVG through the editor’s file picker, checks the editable node types and frame dimensions, then downloads the selected frame through **Export PNG**. The Figma PNG is read only by the comparison process.
 
 Each renderer writes its native PNG, a JSON measurement and a difference image under `browser-report/`. The measurement counts exact RGBA matches, pixels within three channel values, pixels with a channel difference above sixteen, and mean absolute error over all four channels. A second set of counts excludes the two flat background colors in the reference, white and `#EAF2FF`. White in the difference image represents a maximum channel difference of 64 or more. The measurement covers this exported artwork, whose SVG represents lettering as paths. Editor chrome, editable text shaping and interactions require separate checks.
+
+The baseline at `1a9ea40` produced the same export from both browser modes. Thresholds allow modest variation in antialiased edges. All four must pass. The runner writes the actual image, difference image and measurements before reporting a threshold failure.
+
+| Region | Baseline within 3/255 on every RGBA channel | Minimum | Baseline mean absolute channel error | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Whole 750 × 1624 frame | 99.300% | 99.1% | 0.0582 | 0.09 |
+| 92,016 detail pixels | 91.133% | 90.5% | 0.7421 | 1.00 |
+
+The source SVG encodes the button blue as `#006FFD`. The Figma PNG has `#006FFC` at 61,191 pixels that FerroDesign paints with the SVG value. Those pixels explain most of the gap between exact matches (93.842% overall and 19.404% on detail) and the within-three measurement.

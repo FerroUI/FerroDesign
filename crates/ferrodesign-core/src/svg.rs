@@ -401,6 +401,17 @@ pub fn outline_path(node: &Node) -> VectorPath {
 }
 
 fn node_shape(node: &Node, attributes: &str) -> String {
+    if node.kind == NodeKind::Rectangle && node.corner_smoothing == 0.0 {
+        let corners = node.corner_radii.unwrap_or([node.corner_radius; 4]);
+        let radius = normalized_corner_radii(node.width, node.height, corners)[0];
+        if radius > 0.0 && corners == [corners[0]; 4] {
+            // Keep circular corners exact and let SVG rasterizers use their rounded-rect primitive.
+            return format!(
+                r#"<rect width="{}" height="{}" rx="{}" {attributes}/>"#,
+                number(node.width), number(node.height), number(radius)
+            );
+        }
+    }
     match node.kind {
         NodeKind::Text => text_shape(node, attributes),
         _ => format!(
@@ -421,15 +432,16 @@ fn node_shape(node: &Node, attributes: &str) -> String {
     }
 }
 
-fn stroke_shape(node: &Node, attributes: &str) -> String {
-    if let Some(network) = &node.vector_network {
-        format!(
-            r#"<path d="{}" {attributes}/>"#,
-            path_data(&network.stroke_path(), Transform::IDENTITY)
-        )
+fn stroke_shape(node: &Node, stroke: &Stroke, attributes: &str) -> String {
+    let path = if let Some(network) = &node.vector_network {
+        network.stroke_path()
+    } else if node.kind == NodeKind::Rectangle && stroke.cap == StrokeCap::Arrow {
+        // SVG 1.1 markers attach to paths, lines and polygons, not rect elements.
+        outline_path(node)
     } else {
-        node_shape(node, attributes)
-    }
+        return node_shape(node, attributes);
+    };
+    format!(r#"<path d="{}" {attributes}/>"#, path_data(&path, Transform::IDENTITY))
 }
 
 fn variable_stroke_shape(node: &Node, index: usize, stroke: &Stroke, defs: &mut String,
@@ -1223,7 +1235,7 @@ impl Document {
                     let _ = write!(attributes, r#" marker-end="url(#arrow-{id}-{i})""#);
                 }
                 match alignment {
-                    StrokeAlign::Center => body.push_str(&stroke_shape(node, &attributes)),
+                    StrokeAlign::Center => body.push_str(&stroke_shape(node, stroke, &attributes)),
                     StrokeAlign::Inside => {
                         let _ = write!(
                             defs,
@@ -1232,7 +1244,7 @@ impl Document {
                         let _ = write!(
                             body,
                             r#"<g clip-path="url(#stroke-clip-{id}-{i})">{}</g>"#,
-                            stroke_shape(node, &attributes)
+                            stroke_shape(node, stroke, &attributes)
                         );
                     }
                     StrokeAlign::Outside => {
@@ -1253,7 +1265,7 @@ impl Document {
                         let _ = write!(
                             body,
                             r#"<g mask="url(#stroke-mask-{id}-{i})">{}</g>"#,
-                            stroke_shape(node, &attributes)
+                            stroke_shape(node, stroke, &attributes)
                         );
                     }
                 }

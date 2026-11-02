@@ -51,6 +51,25 @@ export async function figmaArtworkReference(page, reference, check, helpers, out
     await download.saveAs(stem + ".png");
     const bytes = await readFile(stem + ".png");
     const actual = PNG.sync.read(bytes);
+    const { delta, ...measurement } = compareFigmaArtwork(actual, expected);
+    const { regions } = measurement;
+    await writeFile(stem + "-difference.png", PNG.sync.write(delta));
+    const result = { dataset: "kixlab/CANVAS@004d47e0938e6f4f30dcec06f6147c15ebdd0c60",
+        sample: "replication_gt/gid1-11", node: "1:308", mode, sourceHashes: hashes,
+        outputSHA256: sha256(bytes), bounds: view.selectionBounds, kinds, limits, ...measurement };
+    await writeFile(stem + ".json", JSON.stringify(result, null, 2) + "\n");
+    assert.deepEqual(measurement.failures, [], "Artwork fidelity fell below its pinned reference floors");
+    check("Same-node Figma artwork comparison at 750×1624: " + regions.full.exact + "/" + regions.full.pixels +
+        " pixels match exactly in RGBA; mean absolute channel error " +
+        regions.full.meanAbsoluteChannelError.toFixed(3) + " of 255");
+}
+
+const limits = {
+    full: { minimumWithinThreePercent: 99.1, maximumMeanAbsoluteChannelError: 0.09 },
+    detail: { minimumWithinThreePercent: 90.5, maximumMeanAbsoluteChannelError: 1.0 },
+};
+
+export function compareFigmaArtwork(actual, expected) {
     assert.deepEqual([actual.width, actual.height], [expected.width, expected.height]);
     const pixels = actual.width * actual.height;
     const delta = new PNG({ width: actual.width, height: actual.height });
@@ -85,18 +104,22 @@ export async function figmaArtworkReference(page, reference, check, helpers, out
         delta.data[i] = delta.data[i + 1] = delta.data[i + 2] = Math.min(255, max * 4);
         delta.data[i + 3] = 255;
     }
-    for (const area of Object.values(regions)) {
+    const failures = [];
+    for (const [name, area] of Object.entries(regions)) {
         area.meanAbsoluteChannelError = area.channelError / (4 * area.pixels);
         area.exactPercent = 100 * area.exact / area.pixels;
         delete area.channelError;
+        area.withinThreePercent = 100 * area.withinThree / area.pixels;
+        const limit = limits[name];
+        if (area.withinThreePercent < limit.minimumWithinThreePercent) {
+            failures.push(name + " within 3/255: " + area.withinThreePercent.toFixed(3) +
+                "% below " + limit.minimumWithinThreePercent + "%");
+        }
+        if (area.meanAbsoluteChannelError > limit.maximumMeanAbsoluteChannelError) {
+            failures.push(name + " mean absolute channel error: " + area.meanAbsoluteChannelError.toFixed(3) +
+                " above " + limit.maximumMeanAbsoluteChannelError);
+        }
     }
-    await writeFile(stem + "-difference.png", PNG.sync.write(delta));
-    const result = { dataset: "kixlab/CANVAS@004d47e0938e6f4f30dcec06f6147c15ebdd0c60",
-        sample: "replication_gt/gid1-11", node: "1:308", mode, sourceHashes: hashes,
-        outputSHA256: sha256(bytes), bounds: view.selectionBounds, kinds, regions,
+    return { delta, regions, failures,
         mostFrequentMismatch: [...mismatches].sort((a, b) => b[1] - a[1])[0] || null };
-    await writeFile(stem + ".json", JSON.stringify(result, null, 2) + "\n");
-    check("Same-node Figma artwork comparison at 750×1624: " + regions.full.exact + "/" + pixels +
-        " pixels match exactly in RGBA; mean absolute channel error " +
-        regions.full.meanAbsoluteChannelError.toFixed(3) + " of 255");
 }

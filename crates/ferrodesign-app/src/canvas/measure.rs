@@ -71,6 +71,7 @@ impl DesignCanvas {
         if !modifiers.contains(KeyModifiers::ALT)
             || self.tool.get() != Tool::Select
             || self.space.get()
+            || self.guide_drag_active()
             || self.presentation.get().is_some()
             || !self.is_focused()
             || self.vector_node.get().is_some()
@@ -120,18 +121,21 @@ impl DesignCanvas {
     }
 
     pub(super) fn draw_measurements(&self, ctx: &mut DrawingContext, editor: &Editor, v: Viewport) {
-        let Some(target) = self.measurement_target() else {
-            return;
-        };
-        let bounds = |id: NodeId| {
-            let transform = editor.scene.transforms.get(&id)?;
-            Some(transform.transform_rect(editor.document.nodes.get(&id)?.local_bounds()))
-        };
-        let Some(b) = bounds(target) else {
-            return;
-        };
-        let Some(a) = editor.selection.iter().filter_map(|id| bounds(*id)).reduce(Rect::union) else {
-            return;
+        let lines = if let Some(core::RulerRedlines { origin: from, edges }) = self.ruler_redlines(editor, v) {
+            let [a, b] = edges.map(|end| end.map(|(to, distance)| {
+                let along_x = (to.x - from.x).abs() >= (to.y - from.y).abs();
+                (Span { from, to, along_x }, distance)
+            }));
+            [a, b, None, None]
+        } else {
+            let Some(target) = self.measurement_target() else { return; };
+            let bounds = |id: NodeId| {
+                let transform = editor.scene.transforms.get(&id)?;
+                Some(transform.transform_rect(editor.document.nodes.get(&id)?.local_bounds()))
+            };
+            let Some(b) = bounds(target) else { return; };
+            let Some(a) = editor.selection.iter().filter_map(|id| bounds(*id)).reduce(Rect::union) else { return; };
+            spans(a, b).map(|line| line.map(|span| (span, span.from.distance(span.to))))
         };
         let guide = pen(GUIDE_COLOR, 1.0);
         let ink = brush("#BC244B");
@@ -139,23 +143,24 @@ impl DesignCanvas {
         let mut labels = self.measurements.labels.borrow_mut();
         let mut bodies = [None; 4];
 
-        for (i, span) in spans(a, b).into_iter().enumerate() {
-            let Some(span) = span else {
-                continue;
-            };
+        for (i, line) in lines.into_iter().enumerate() {
+            let Some((span, distance)) = line else { continue; };
             let from = v.world_to_screen(span.from);
             let to = v.world_to_screen(span.to);
-            let Some(visible) = Rect::from_points(from, to).intersection(view) else {
-                continue;
+            let Some(visible) = Rect::from_points(from, to).intersection(view) else { continue; };
+            let direction = to - from;
+            let length = from.distance(to);
+            let cap = if length > 1e-9 {
+                Point::new(-direction.y, direction.x) * (3.0 / length)
+            } else if span.along_x {
+                Point::new(0., 3.)
+            } else {
+                Point::new(3., 0.)
             };
-            let horizontal = span.along_x;
-            let cap = if horizontal { Point::new(0.0, 3.0) } else { Point::new(3.0, 0.0) };
             ctx.draw_line(&guide, ui(from), ui(to));
             for end in [from, to] {
                 ctx.draw_line(&guide, ui(end - cap), ui(end + cap));
             }
-            let distance =
-                if horizontal { (span.to.x - span.from.x).abs() } else { (span.to.y - span.from.y).abs() };
             if labels[i].as_ref().is_none_or(|(old, _)| *old != distance) {
                 let precise = format!("{distance:.2}");
                 let text = if distance > 0.0 && distance < 0.005 {
@@ -184,7 +189,7 @@ impl DesignCanvas {
             let body = |x: f64, y: f64| {
                 Rect::new(x.clamp(2.0, v.width - w - 2.0), y.clamp(2.0, v.height - h - 2.0), w, h)
             };
-            let candidates = if horizontal {
+            let candidates = if span.along_x {
                 [body(center.x - w / 2.0, center.y - h - 4.0), body(center.x - w / 2.0, center.y + 4.0)]
             } else {
                 [body(center.x + 4.0, center.y - h / 2.0), body(center.x - w - 4.0, center.y - h / 2.0)]

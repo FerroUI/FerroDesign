@@ -20,6 +20,8 @@ struct Drag {
     grab_offset: Point,
     moved: bool,
     duplicate: bool,
+    measuring: bool,
+    pointer_world: Point,
     token: core::EditorRenderToken,
     page: NodeId,
     preview: Option<(NodeId, Guide)>,
@@ -95,7 +97,7 @@ impl DesignCanvas {
         let near = Rect::new(world.x, world.y, 0., 0.).inflate(HIT / v.zoom);
         let mut nearest = None;
         let mut distance = HIT / v.zoom;
-        for (&owner, guides) in &e.document.guides {
+        for (owner, guides) in e.ruler_guides_in(near) {
             if e.document.effective_locked(owner) {
                 continue;
             }
@@ -176,6 +178,8 @@ impl DesignCanvas {
             grab_offset,
             moved: false,
             duplicate: source.is_some() && modifiers.contains(KeyModifiers::ALT),
+            measuring: modifiers.contains(KeyModifiers::ALT),
+            pointer_world: world,
             page: editor.active_page,
             token: editor.render_change_token(),
             preview,
@@ -184,7 +188,7 @@ impl DesignCanvas {
         true
     }
 
-    pub(super) fn move_ruler(&self, screen: Point, pointer: i32) -> bool {
+    pub(super) fn move_ruler(&self, screen: Point, pointer: i32, modifiers: KeyModifiers) -> bool {
         let (horizontal, page, grab_offset) = {
             let mut rulers = self.rulers.borrow_mut();
             let Some(drag) = rulers.drag.as_mut() else {
@@ -193,6 +197,8 @@ impl DesignCanvas {
             if drag.pointer != pointer {
                 return true;
             }
+            drag.measuring = modifiers.contains(KeyModifiers::ALT);
+            drag.pointer_world = self.viewport.get().screen_to_world(screen);
             if drag.start.distance(screen) >= 3.0 {
                 drag.moved = true;
             }
@@ -260,8 +266,13 @@ impl DesignCanvas {
         true
     }
 
-    pub(super) fn release_ruler(&self, screen: Point, pointer: i32) -> bool {
-        if !self.move_ruler(screen, pointer) {
+    pub(super) fn release_ruler(
+        &self,
+        screen: Point,
+        pointer: i32,
+        modifiers: KeyModifiers,
+    ) -> bool {
+        if !self.move_ruler(screen, pointer, modifiers) {
             return false;
         }
         if self
@@ -321,6 +332,41 @@ impl DesignCanvas {
                 false
             }
         }
+    }
+
+    pub(super) fn ruler_alt(&self, key: Key, pressed: bool) -> bool {
+        if !matches!(key, Key::LeftAlt | Key::RightAlt) {
+            return false;
+        }
+        let mut state = self.rulers.borrow_mut();
+        let Some(drag) = state.drag.as_mut() else {
+            return false;
+        };
+        drag.measuring = pressed;
+        drop(state);
+        self.invalidate_visual();
+        true
+    }
+
+    pub(crate) fn ruler_redlines(&self, e: &Editor, view: Viewport) -> Option<core::RulerRedlines> {
+        let state = self.rulers.borrow();
+        let drag = state.drag.as_ref().filter(|d| {
+            d.moved && d.measuring && d.page == e.active_page && d.token == e.render_change_token()
+        })?;
+        let (owner, guide) = drag.preview?;
+        let selected = e.selection.last().copied();
+        let hit = e.hit_test(drag.pointer_world, 0.);
+        // Once a guide enters a frame, the artwork beneath the pointer takes
+        // precedence. In empty canvas space the selected frame remains the target.
+        let target = hit.filter(|&id| id != owner).or(selected).or(hit)?;
+        e.document.ruler_distances(
+            drag.page,
+            owner,
+            guide,
+            target,
+            drag.pointer_world,
+            view.visible_rect(),
+        )
     }
 
     pub(super) fn ruler_key(&self, e: &KeyEventArgs) -> bool {
@@ -415,7 +461,7 @@ impl DesignCanvas {
                 );
             }
         };
-        for (&owner, guides) in &e.document.guides {
+        for (owner, guides) in e.ruler_guides_in(v.visible_rect()) {
             for (index, &g) in guides.iter().enumerate() {
                 let key = RulerGuideId { owner, index };
                 if drag.is_some_and(|d| !d.duplicate && d.source == Some(key)) {
