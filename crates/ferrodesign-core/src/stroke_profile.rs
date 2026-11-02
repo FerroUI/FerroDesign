@@ -246,6 +246,7 @@ fn node_stroke_path(node: &Node) -> Result<VectorPath, DocumentError> {
         | NodeKind::Section
         | NodeKind::Component
         | NodeKind::Instance => crate::corner_path(node),
+        NodeKind::Slice => return Err(invalid("Slices have no artwork stroke.")),
         NodeKind::Text | NodeKind::Boolean | NodeKind::Group => {
             return Err(invalid(
                 "This node needs a prepared vector outline for a variable-width stroke.",

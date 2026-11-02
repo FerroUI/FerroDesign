@@ -2,8 +2,70 @@
 //! query used by canvas selection. Choosing a row only changes editor focus.
 use super::*;
 use super::styles::style_label;
+use ferroui_base::input::KeyModifiers;
+use ferroui_base::interactivity::RoutingStrategies;
 
 impl EditorShell {
+    pub(super) fn wire_layer_preview(&self, row: &Ref<Grid>, id: NodeId) {
+        let canvas = self.canvas.downgrade();
+        row.add_handler(InputElement::pointer_entered_event(), move |_, _| {
+            if let Some(canvas) = canvas.upgrade() { canvas.preview_layer(Some(id)); }
+        });
+        let canvas = self.canvas.downgrade();
+        row.add_handler(InputElement::pointer_exited_event(), move |_, _| {
+            if let Some(canvas) = canvas.upgrade() { canvas.end_layer_preview(id); }
+        });
+        // Virtualized rows can disappear under a stationary pointer.
+        let canvas = self.canvas.downgrade();
+        row.unloaded(move |_, _| {
+            if let Some(canvas) = canvas.upgrade() { canvas.end_layer_preview(id); }
+        });
+    }
+
+    pub(super) fn wire_layer_activation(self: &Rc<Self>, button: &Ref<Button>, id: NodeId, asset: bool) {
+        // Button raises Click during the bubble phase of a successful release.
+        // Keep that hit testing and keyboard/automation activation in the control.
+        let modifiers = Rc::new(Cell::new(KeyModifiers::empty()));
+        let second_press = Rc::new(Cell::new(false));
+        if !asset {
+            let presses = second_press.clone();
+            button.add_handler_with(InputElement::pointer_pressed_event(), move |_, event| {
+                presses.set(event.click_count() == 2 && event.properties().is_left_button_pressed);
+            }, RoutingStrategies::TUNNEL, true);
+            let before = modifiers.clone();
+            button.add_handler_with(InputElement::pointer_released_event(), move |_, event| {
+                before.set(event.key_modifiers());
+            }, RoutingStrategies::TUNNEL, true);
+            let after = modifiers.clone();
+            let released = second_press.clone();
+            button.add_handler_with(InputElement::pointer_released_event(), move |_, _| {
+                after.set(KeyModifiers::empty());
+                released.set(false);
+            }, RoutingStrategies::BUBBLE, true);
+        }
+        let weak = Rc::downgrade(self);
+        button.click(move |_, _| {
+            let Some(shell) = weak.upgrade() else { return; };
+            if !shell.flush_inspector_drafts() { return; }
+            shell.canvas.cancel_active_edit();
+            if asset {
+                let point = shell.canvas.viewport.get().screen_to_world(Point::new(100.0, 100.0));
+                shell.editor.borrow_mut().create_instance(id, point.x, point.y);
+                shell.changed();
+            } else {
+                let rename = second_press.get() && modifiers.get().is_empty()
+                    && shell.editor.borrow().selection.as_slice() == [id];
+                shell.layer_projection.borrow().select_row(&mut shell.editor.borrow_mut(), id, modifiers.get());
+                shell.refresh_selection();
+                shell.canvas.invalidate_visual();
+                if rename && shell.reveal_selected_layer(true) { return; }
+                shell.focus_layer_row(id, ferroui_base::input::NavigationMethod::Unspecified);
+                return;
+            }
+            shell.canvas.focus();
+        });
+    }
+
     pub(super) fn select_matching_dialog(self: &Rc<Self>) {
         if !self.flush_inspector_drafts() { return; }
         self.canvas.cancel_active_edit();
@@ -92,7 +154,8 @@ impl EditorShell {
                     || editor.has_active_transaction()
                     || !editor.document.nodes.contains_key(&id)
                     || editor.document.page_of(id) != Some(page)
-                    || !editor.document.effective_visible(id)
+                    || (!editor.document.effective_visible(id)
+                        && !(shell.canvas.show_outlines.get() && shell.canvas.outline_hidden.get()))
                 {
                     return;
                 }

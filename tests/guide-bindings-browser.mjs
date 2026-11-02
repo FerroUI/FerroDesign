@@ -234,7 +234,9 @@ export async function guideBindingRegressions(page, reference, check, helpers, o
     const created = (await state(page)).selection[0];
     await waitDocument((doc, id) => doc.nodes[id] && Math.abs(doc.nodes[id].width - 51) < 1e-7, created);
     after = await documentState(page);
-    for (const [field, value] of Object.entries({ x: 142, y: 142, width: 51, height: 51 })) near(after.nodes[created][field], value, "Guide-snapped draw " + field);
+    assert.equal(after.nodes[created].parent, 2, "Drawing inside the guide frame creates its child");
+    // The frame origin is (40, 40); its child keeps the snapped world origin (142, 142).
+    for (const [field, value] of Object.entries({ x: 102, y: 102, width: 51, height: 51 })) near(after.nodes[created][field], value, "Guide-snapped draw " + field);
     await history(before, after, depth, "Guide-snapped shape draw");
     await captureNativeScreenshot(mode + "-guide-snapped-artwork", { controls: ["CanvasHost"] });
     check("Actual native move, resize and shape-creation gestures snap to fractional hidden-guide positions after pixel rounding, preserve the opposite resize anchor and commit one exact undo/redo record per gesture");

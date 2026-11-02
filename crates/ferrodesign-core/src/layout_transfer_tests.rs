@@ -755,3 +755,35 @@ fn frame_broad_phase_matches_exhaustive_geometry_across_a_thousand_destinations(
         assert_eq!(session.target(point).unwrap().parent, expected);
     }
 }
+
+#[test]
+fn move_and_copy_target_only_visible_parts_of_asymmetrically_clipped_frames() {
+    let mut document = Document::new("Rounded drop targets");
+    let source = child(&mut document, 1, "Source");
+    let clip = frame(&mut document, 1, "Clipping parent", 100.0, 100.0, None);
+    let shape = document.nodes.get_mut(&clip).unwrap();
+    shape.rotation = 19.0;
+    shape.clip_content = true;
+    shape.corner_radii = Some([56.0, 0.0, 16.0, 0.0]);
+    shape.corner_smoothing = 0.75;
+    let nested = frame(&mut document, clip, "Nested target", 0.0, 0.0, None);
+    let transform = document.world_transform(clip).unwrap();
+    let mut editor = editor(document, &[source]);
+    for prepare in [LayoutTransferSession::new, LayoutTransferSession::for_copy] {
+        let session = prepare(&editor.document, &[source], source, Point::new(12.0, 12.0)).unwrap();
+        for x in [2.0, 4.0, 10.0, 17.0, 34.0, 48.0, 250.0] {
+            for y in [2.0, 4.0, 10.0, 17.0, 34.0] {
+                let local = Point::new(x, y);
+                let visible = editor.document.nodes[&clip].contains_clip_point(local);
+                let target = session.target(transform.apply(local)).unwrap();
+                assert_eq!(target.parent, if visible { nested } else { 1 }, "{local:?}");
+            }
+        }
+    }
+    let session = LayoutTransferSession::for_copy(&editor.document, &[source], source, Point::new(12.0, 12.0)).unwrap();
+    let target = session.target(transform.apply(Point::new(110.0, 50.0))).unwrap();
+    // A caller may change a public node between the query and commit, before refresh.
+    editor.document.nodes.get_mut(&clip).unwrap().corner_smoothing = 0.0;
+    assert!(editor.commit_drag_copy(&session, target).is_err());
+    assert_eq!(editor.history_len(), 0);
+}

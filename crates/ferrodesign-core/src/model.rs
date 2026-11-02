@@ -272,6 +272,7 @@ pub enum NodeKind {
     Component,
     Instance,
     Section,
+    Slice,
     Boolean,
 }
 impl NodeKind {
@@ -300,6 +301,7 @@ impl NodeKind {
             Self::Component => "Component",
             Self::Instance => "Instance",
             Self::Section => "Section",
+            Self::Slice => "Slice",
             Self::Boolean => "Boolean group",
         }
     }
@@ -665,8 +667,11 @@ impl VectorPath {
             .map(|p| Rect::new(p.x, p.y, 0.0, 0.0))
             .reduce(|a, b| a.union(b))
     }
+    pub(crate) fn fill_contours(&self) -> Vec<Vec<Point>> {
+        self.flattened(0.35)
+    }
     pub fn contains(&self, p: Point) -> bool {
-        crate::geometry::path_contours_contain(self.fill_rule, &self.flattened(0.35), p)
+        crate::geometry::path_contours_contain(self.fill_rule, &self.fill_contours(), p)
     }
 }
 /// Editor-only layout guide. Its effective values travel with the frame,
@@ -884,9 +889,12 @@ impl Node {
         };
         if matches!(
             kind,
-            NodeKind::Group | NodeKind::Vector | NodeKind::Line | NodeKind::Boolean
+            NodeKind::Group | NodeKind::Vector | NodeKind::Line | NodeKind::Boolean | NodeKind::Slice
         ) {
             n.fills.clear()
+        }
+        if kind == NodeKind::Slice {
+            n.layout_child.absolute = true;
         }
         if kind == NodeKind::Text {
             n.fills = vec![Fill::solid(Color::BLACK)];
@@ -955,9 +963,13 @@ impl Node {
         Rect::new(0.0, 0.0, self.width, self.height)
     }
     pub fn local_transform(&self) -> Transform {
-        let cx = self.width / 2.0;
-        let cy = self.height / 2.0;
-        Transform::translation(self.x + cx, self.y + cy)
+        self.local_transform_for_bounds(self.bounds())
+    }
+    /// Evaluate the existing rotation, flips and affine residual at proposed parent-space bounds.
+    pub fn local_transform_for_bounds(&self, bounds: Rect) -> Transform {
+        let cx = bounds.width / 2.0;
+        let cy = bounds.height / 2.0;
+        Transform::translation(bounds.x + cx, bounds.y + cy)
             * Transform::rotation(self.rotation)
             * Transform::scale(
                 if self.flip_x { -1.0 } else { 1.0 },
@@ -1123,7 +1135,8 @@ impl Node {
             }
         }
     }
-    pub(crate) fn contains_clip_point(&self, point: Point) -> bool {
+    /// Tests the rounded clipping boundary in layer-local coordinates.
+    pub fn contains_clip_point(&self, point: Point) -> bool {
         self.local_bounds().contains(point) && crate::corner_path(self).contains(point)
     }
 }
@@ -1297,7 +1310,7 @@ pub struct CommentThread {
     pub resolved: bool,
     pub messages: Vec<CommentMessage>,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Guide {
     pub horizontal: bool,
     pub position: f64,
@@ -1561,7 +1574,11 @@ impl Document {
                 children.retain(|child| *child != id)
             }
         }
+        self.remove_nodes_and_references(ids)
+    }
+    pub(crate) fn remove_nodes_and_references(&mut self, ids: Vec<NodeId>) -> Vec<Node> {
         let set: BTreeSet<_> = ids.iter().copied().collect();
+        self.guides.retain(|owner, _| !set.contains(owner));
         let removed: Vec<_> = ids.iter().filter_map(|id| self.nodes.remove(id)).collect();
         for n in self.nodes.values_mut() {
             n.interactions.retain(|i| match i.action {

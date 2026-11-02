@@ -1032,12 +1032,10 @@ impl DesignCanvas {
                 value.stops[index].offset =
                     (value.stops[index].offset + sign * step).clamp(0.0, 1.0);
             } else {
-                let step = if modifiers.contains(KeyModifiers::SHIFT) {
-                    10.0
-                } else if modifiers.contains(KeyModifiers::ALT) {
+                let step = if modifiers.contains(KeyModifiers::ALT) && !modifiers.contains(KeyModifiers::SHIFT) {
                     0.1
                 } else {
-                    1.0
+                    self.nudge.get().step(modifiers.contains(KeyModifiers::SHIFT))
                 };
                 let world_delta = if matches!(key, Key::Left | Key::Right) {
                     Point::new(sign * step, 0.0)

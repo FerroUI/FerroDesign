@@ -22,13 +22,12 @@ import subprocess
 import sys
 
 
-SAMPLE = Path("samples/FerroDesign")
-CONFIG = SAMPLE / "scripts/browser-ci-groups.json"
+CONFIG = Path("scripts/browser-ci-groups.json")
 MANIFEST = "ferrodesign-provenance.json"
 MODES = ["Software2D", "WebGL2"]
-GROUP_SIZES = [8, 8, 10, 12]
-SCENARIO_COUNT = 38
-PAIR_COUNT = 76
+GROUP_SIZES = [8, 8, 11, 12]
+SCENARIO_COUNT = sum(GROUP_SIZES)
+PAIR_COUNT = SCENARIO_COUNT * len(MODES)
 DEPENDENCIES = ["browser-build", "browser-scenarios", "browser-data"]
 COMMANDS = {
     "scenario": ["node", "tests/browser.mjs"],
@@ -136,7 +135,7 @@ def registrations(source):
     calls = re.findall(r"\bawait\s+scenario\s*\(", source)
     names = re.findall(r'\bawait\s+scenario\s*\(\s*[\"\']([a-z0-9-]+)[\"\']\s*,', source)
     require(len(calls) == len(names), "Every await scenario call must have a literal registered name")
-    require(len(names) == SCENARIO_COUNT and len(set(names)) == len(names), "Expected 38 unique scenario registrations")
+    require(len(names) == SCENARIO_COUNT and len(set(names)) == len(names), f"Expected {SCENARIO_COUNT} unique scenario registrations")
     return names
 
 
@@ -148,16 +147,16 @@ def validate_config(config, source):
     group_names = [group.get("name") for group in groups]
     require(all(isinstance(name, str) and re.fullmatch(r"[a-z][a-z0-9-]*", name) for name in group_names)
             and len(set(group_names)) == 4, "Group names must be unique safe identifiers")
-    require([len(group.get("scenarios", [])) for group in groups] == GROUP_SIZES, "Expected contiguous group sizes 8, 8, 10, 12")
+    require([len(group.get("scenarios", [])) for group in groups] == GROUP_SIZES, f"Expected contiguous group sizes {GROUP_SIZES}")
     flattened = [name for group in groups for name in group["scenarios"]]
     require(flattened == names, "Groups must cover every registered scenario exactly once in registration order")
-    require(len(flattened) * len(MODES) == PAIR_COUNT, "Expected exactly 76 scenario/mode pairs")
+    require(len(flattened) * len(MODES) == PAIR_COUNT, f"Expected exactly {PAIR_COUNT} scenario/mode pairs")
     return names
 
 
 def load_plan(repo):
     config = read_json(Path(repo) / CONFIG)
-    names = validate_config(config, (Path(repo) / SAMPLE / "tests/browser.mjs").read_text())
+    names = validate_config(config, (Path(repo) / "tests/browser.mjs").read_text())
     return config, names
 
 
@@ -176,9 +175,9 @@ def source_identity(repo, environment):
     require(re.fullmatch(r"[0-9a-f]{40}", commit), "Invalid source commit")
     subprocess.run(["git", "diff", "--quiet", "HEAD", "--"], cwd=repo, check=True)
     tracked = subprocess.check_output([
-        "git", "ls-files", "-z", "--", str(SAMPLE / "tests"), str(SAMPLE / "web"),
-        str(SAMPLE / "scripts/browser_ci.py"), str(SAMPLE / "scripts/test_browser_ci.py"), str(CONFIG),
-        str(SAMPLE / "package.json"), str(SAMPLE / "package-lock.json"), ".github/workflows/ferrodesign.yml",
+        "git", "ls-files", "-z", "--", "tests", "crates/ferrodesign-app/wwwroot", "scripts/browser-group.sh",
+        "scripts/browser_ci.py", "scripts/test_browser_ci.py", str(CONFIG),
+        "package.json", "package-lock.json", ".github/workflows/ci.yml",
     ], cwd=repo).decode().split("\0")
     records = [file_record(Path(repo) / name, name) for name in sorted(filter(None, tracked))]
     require(any(row["path"] == str(CONFIG) for row in records), "The CI partition must be committed with the harness")
@@ -404,7 +403,7 @@ def run_validation(repo, dist, output, expected_sha256, kind, group, mode, envir
     }
     write_json(output / "proof.json", proof)
     try:
-        proof["process"]["exit_code"] = run_child(COMMANDS[kind], repo / SAMPLE, child_env, output)
+        proof["process"]["exit_code"] = run_child(COMMANDS[kind], repo, child_env, output)
         proof["process"]["finished_utc"] = now()
         require(proof["process"]["exit_code"] == 0, f"Original {kind} process exited {proof['process']['exit_code']}")
         if kind == "persistence":
@@ -467,7 +466,7 @@ def aggregate(artifacts, config, manifest, identity, needs, execution_attempt):
         pairs.extend(coverage["pairs"])
         shards.append({**item, **coverage})
     expected_pairs = {(name, mode) for group in config["groups"] for name in group["scenarios"] for mode in MODES}
-    require(len(pairs) == PAIR_COUNT and len(set(pairs)) == PAIR_COUNT and set(pairs) == expected_pairs, "Exactly 76 unique scenario/mode pairs must pass")
+    require(len(pairs) == PAIR_COUNT and len(set(pairs)) == PAIR_COUNT and set(pairs) == expected_pairs, f"Exactly {PAIR_COUNT} unique scenario/mode pairs must pass")
     data = artifacts / data_name
     require({path.name for path in data.iterdir()} == {"persistence", "benchmark"}, "Data artifact is missing or contains unexpected gates")
     persistence = validate_proof(data / "persistence", "persistence", config, manifest, identity, execution_attempt)
@@ -487,7 +486,7 @@ def github_output(path, key, value):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("plan", "seal", "verify", "run", "aggregate"))
-    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[3])
+    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--dist", type=Path, default=Path("dist"))
     parser.add_argument("--manifest-sha256")
     parser.add_argument("--github-output")

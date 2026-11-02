@@ -16,6 +16,7 @@ mod incremental;
 mod mask_tests;
 mod masks;
 mod picking;
+pub(crate) mod outlines;
 mod root_index;
 mod regions;
 #[cfg(all(test, not(target_os = "emscripten")))]
@@ -112,6 +113,57 @@ struct CachedStroke {
     outline: Option<Ref<Geometry>>,
     clip: Option<Ref<Geometry>>,
     arrow: Option<Ref<Geometry>>,
+}
+
+impl CachedStroke {
+    fn prepare(node: &Node, stroke: &Stroke, geometry: &Ref<Geometry>, stroke_geometry: &Ref<Geometry>,
+        immutable_brush: Rc<dyn IImmutableBrush>) -> Option<Self> {
+        let brush: Rc<dyn IBrush> = immutable_brush.clone();
+        let aligned = stroke.align != StrokeAlign::Center && is_closed(node);
+        let pen = make_pen(stroke, immutable_brush, if aligned { 2.0 } else { 1.0 });
+        let mut stroke_clip = None;
+        let outline = if !stroke.width_profile.is_uniform() {
+            match ferrodesign_core::variable_width_outline(node, stroke) {
+                Ok(path) => {
+                    let band = path_geometry(&path);
+                    if aligned {
+                        stroke_clip = Some(if stroke.align == StrokeAlign::Inside { geometry.clone() }
+                            else { combined(GeometryCombineMode::Exclude,
+                                RectangleGeometry::with_rect(band.bounds().inflate(1.0)).upcast(), geometry.clone()) });
+                    }
+                    Some(band)
+                }
+                Err(_) => return None,
+            }
+        } else if aligned {
+            let widened = stroke_geometry.get_widened_geometry(pen.as_ref());
+            Some(combined(
+                if stroke.align == StrokeAlign::Inside {
+                    GeometryCombineMode::Intersect
+                } else {
+                    GeometryCombineMode::Exclude
+                },
+                widened,
+                geometry.clone(),
+            ))
+        } else {
+            None
+        };
+        let arrow = if stroke.cap == StrokeCap::Arrow && !is_closed(node) {
+            arrow_geometry(node, stroke.width)
+        } else {
+            None
+        };
+        Some(Self { pen, brush, outline, clip: stroke_clip, arrow })
+    }
+
+    fn band(&self, path: &Ref<Geometry>) -> Ref<Geometry> {
+        let band = self.outline.clone().unwrap_or_else(|| path.get_widened_geometry(self.pen.as_ref()));
+        match &self.clip {
+            Some(clip) => combined(GeometryCombineMode::Intersect, band, clip.clone()),
+            None => band,
+        }
+    }
 }
 
 struct CachedShadow {
@@ -541,7 +593,7 @@ impl ScenePainter {
             self.prepare_invalid_nodes += 1;
             return None;
         };
-        if !node.visible || (node.opacity <= 0.0 && !node.is_mask) || self.editing_text == Some(id)
+        if node.kind == NodeKind::Slice || !node.visible || (node.opacity <= 0.0 && !node.is_mask) || self.editing_text == Some(id)
         {
             return None;
         }
@@ -1051,42 +1103,11 @@ fn build_visual(
     {
         let (immutable_brush, missing) = make_brush(&stroke.paint, stroke.opacity, images);
         missing_images += usize::from(missing);
-        let brush: Rc<dyn IBrush> = immutable_brush.clone();
-        let aligned = stroke.align != StrokeAlign::Center && is_closed(node);
-        let pen = make_pen(stroke, immutable_brush, if aligned { 2.0 } else { 1.0 });
-        let mut stroke_clip = None;
-        let outline = if !stroke.width_profile.is_uniform() {
-            match ferrodesign_core::variable_width_outline(node, stroke) {
-                Ok(path) => {
-                    let band = path_geometry(&path);
-                    if aligned {
-                        stroke_clip = Some(if stroke.align == StrokeAlign::Inside { geometry.clone() }
-                            else { combined(GeometryCombineMode::Exclude,
-                                RectangleGeometry::with_rect(band.bounds().inflate(1.0)).upcast(), geometry.clone()) });
-                    }
-                    Some(band)
-                }
-                Err(_) => { unsupported_effects += 1; continue; }
-            }
-        } else if aligned {
-            let widened = stroke_geometry.get_widened_geometry(pen.as_ref());
-            Some(combined(
-                if stroke.align == StrokeAlign::Inside {
-                    GeometryCombineMode::Intersect
-                } else {
-                    GeometryCombineMode::Exclude
-                },
-                widened,
-                geometry.clone(),
-            ))
-        } else {
-            None
+        let Some(cached) = CachedStroke::prepare(node, stroke, &geometry, &stroke_geometry, immutable_brush) else {
+            unsupported_effects += 1;
+            continue;
         };
-        let arrow = if stroke.cap == StrokeCap::Arrow && !is_closed(node) {
-            arrow_geometry(node, stroke.width)
-        } else {
-            None
-        };
+        let CachedStroke { outline, pen, arrow, .. } = &cached;
         let stroke_bounds = outline.as_ref().map(|outline| core_rect(outline.bounds()))
             .unwrap_or_else(|| core_rect(stroke_geometry.get_render_bounds(pen.as_ref())));
         if stroke_bounds.is_finite() {
@@ -1096,24 +1117,12 @@ fn build_visual(
             local_bounds = local_bounds.union(core_rect(arrow.bounds()));
         }
         if needs_outline && masks::paint_has_alpha(&stroke.paint) {
-            let stroke_region = outline
-                .clone()
-                .unwrap_or_else(|| stroke_geometry.get_widened_geometry(pen.as_ref()));
-            let stroke_region = if let Some(clip) = &stroke_clip {
-                combined(GeometryCombineMode::Intersect, stroke_region, clip.clone())
-            } else { stroke_region };
-            vector_mask = combined(GeometryCombineMode::Union, vector_mask, stroke_region);
-            if let Some(arrow) = &arrow {
+            vector_mask = combined(GeometryCombineMode::Union, vector_mask, cached.band(&stroke_geometry));
+            if let Some(arrow) = arrow {
                 vector_mask = combined(GeometryCombineMode::Union, vector_mask, arrow.clone());
             }
         }
-        strokes.push(CachedStroke {
-            pen,
-            brush,
-            outline,
-            clip: stroke_clip,
-            arrow,
-        });
+        strokes.push(cached);
     }
 
     if node.kind.is_container() && node.kind != NodeKind::Boolean && needs_outline {
@@ -2017,7 +2026,7 @@ fn core_rect(rect: UiRect) -> Rect {
     Rect::new(rect.x, rect.y, rect.width, rect.height)
 }
 
-fn ui_matrix(transform: Transform) -> Matrix {
+pub(crate) fn ui_matrix(transform: Transform) -> Matrix {
     Matrix::new(
         transform.a,
         transform.b,

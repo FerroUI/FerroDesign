@@ -15,19 +15,19 @@ from unittest import mock
 import browser_ci as ci
 
 
-REPO = Path(__file__).resolve().parents[3]
+REPO = Path(__file__).resolve().parents[1]
 
 
 class PartitionTests(unittest.TestCase):
     def setUp(self):
         self.config = ci.read_json(REPO / ci.CONFIG)
-        self.source = (REPO / ci.SAMPLE / "tests/browser.mjs").read_text()
+        self.source = (REPO / "tests/browser.mjs").read_text()
 
     def test_exact_registry_and_eight_contiguous_mode_groups(self):
         names = ci.validate_config(self.config, self.source)
-        self.assertEqual(len(names), 38)
+        self.assertEqual(len(names), 39)
         self.assertEqual(len(ci.matrix(self.config)["include"]), 8)
-        self.assertEqual([len(group["scenarios"]) for group in self.config["groups"]], [8, 8, 10, 12])
+        self.assertEqual([len(group["scenarios"]) for group in self.config["groups"]], [8, 8, 11, 12])
         self.assertEqual(names[0], "vector-network")
         self.assertEqual(names[-1], "bounded-history")
 
@@ -275,10 +275,10 @@ class CoverageTests(EvidenceFixture):
         super().setUp()
         self.populate()
 
-    def test_exact_eight_shards_and_both_data_gates_cover_all_76_pairs(self):
+    def test_exact_eight_shards_and_both_data_gates_cover_all_pairs(self):
         summary = self.gate()
         self.assertIs(summary["passed"], True)
-        self.assertEqual(summary["scenario_mode_pairs"], 76)
+        self.assertEqual(summary["scenario_mode_pairs"], 78)
         self.assertEqual(len(summary["shards"]), 8)
         self.assertEqual(summary["benchmark"]["normal_samples_per_mode"], 36)
         self.assertEqual(summary["benchmark"]["trace_samples_per_mode"], 6)
@@ -331,7 +331,7 @@ class CoverageTests(EvidenceFixture):
 
     def test_successful_earlier_sibling_is_retained_only_for_identical_build_identity(self):
         self.change_json(self.shard_dir() / "proof.json", lambda proof: proof["ci"].update(run_attempt="2"))
-        self.assertEqual(self.gate("2")["scenario_mode_pairs"], 76)
+        self.assertEqual(self.gate("2")["scenario_mode_pairs"], 78)
         self.change_json(self.shard_dir() / "proof.json", lambda proof: proof["process"].update(exit_code=1))
         with self.assertRaises(ci.GateError):
             self.gate("2")
@@ -492,54 +492,29 @@ class ProcessTests(EvidenceFixture):
 class WorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.workflow = (REPO / ".github/workflows/ferrodesign.yml").read_text()
+        cls.workflow = (REPO / ".github/workflows/ci.yml").read_text()
+        cls.config, _ = ci.load_plan(REPO)
 
-    def job(self, name):
-        match = re.search(r"^  " + re.escape(name) + r":\n(.*?)(?=^  [a-z][a-z-]*:|\Z)", self.workflow, re.M | re.S)
-        self.assertIsNotNone(match, name)
-        return match.group(1)
+    def commands(self, key):
+        block = re.search(r"^      " + re.escape(key) + r": \|\n((?:        .+\n)+)", self.workflow, re.M)
+        self.assertIsNotNone(block, key)
+        return [line.strip() for line in block.group(1).splitlines()]
 
-    def test_every_action_is_an_existing_reviewed_sha_pin(self):
-        pins = {
-            "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
-            "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",
-            "actions/cache/restore": "0057852bfaa89a56745cba8c7296529d2fc39830",
-            "actions/cache/save": "0057852bfaa89a56745cba8c7296529d2fc39830",
-            "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
-            "actions/download-artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
-        }
-        uses = re.findall(r"uses: ([^\s]+)", self.workflow)
-        self.assertTrue(uses)
-        for use in uses:
-            action, revision = use.split("@")
-            self.assertEqual(revision, pins[action])
+    def test_full_workflow_runs_all_group_mode_pairs_and_persistence(self):
+        expected = [f"scripts/browser-group.sh {group['name']} {mode}"
+                    for group in self.config["groups"] for mode in self.config["modes"]]
+        self.assertCountEqual(self.commands("browser-tests"), expected + ["node tests/document-store-browser.mjs"])
 
-    def test_one_build_fail_fast_false_bounded_matrix_and_independent_data_gates(self):
-        build, shards, data = self.job("browser-build"), self.job("browser-scenarios"), self.job("browser-data")
-        self.assertEqual(self.workflow.count("scripts/build-browser.sh 2>&1"), 1)
-        self.assertIn("steps.partition.outputs.matrix", build)
-        self.assertIn("browser_ci.py seal", build)
-        self.assertLess(build.index("Upload complete browser build"), build.index("Snapshot source timestamps"))
-        for job in (shards, data):
-            self.assertIn("needs: browser-build", job)
-            self.assertIn("timeout-minutes: 60", job)
-            self.assertIn("browser_ci.py verify", job)
-            self.assertNotIn("cargo ", job)
-        self.assertIn("fail-fast: false", shards)
-        self.assertIn("fromJSON(needs.browser-build.outputs.matrix)", shards)
-        self.assertIn("--kind persistence", data)
-        self.assertIn("--kind benchmark", data)
-        self.assertNotIn("continue-on-error", self.workflow)
-
-    def test_aggregate_always_runs_and_keeps_eight_artifacts_distinct(self):
-        aggregate = self.job("browser-coverage")
-        self.assertIn("if: always()", aggregate)
-        self.assertIn("needs: [browser-build, browser-scenarios, browser-data]", aggregate)
-        self.assertIn("toJSON(needs)", aggregate)
-        self.assertIn("merge-multiple: false", aggregate)
-        self.assertIn("browser_ci.py aggregate", aggregate)
-        self.assertIn("ferrodesign-v4-${{ github.ref }}", self.workflow)
-        self.assertIn("cancel-in-progress: false", self.workflow)
+    def test_pull_request_runs_all_software_groups_and_the_webgl_smoke_set(self):
+        expected = [f"scripts/browser-group.sh {group['name']} Software2D" for group in self.config["groups"]]
+        expected.extend([f"scripts/browser-group.sh {self.config['smoke']['name']} WebGL2",
+                         "node tests/document-store-browser.mjs"])
+        self.assertCountEqual(self.commands("browser-tests-pull-request"), expected)
+        smoke = self.config["smoke"]["scenarios"]
+        registered = {name for group in self.config["groups"] for name in group["scenarios"]}
+        self.assertTrue(smoke)
+        self.assertEqual(len(smoke), len(set(smoke)))
+        self.assertLessEqual(set(smoke), registered)
 
 
 if __name__ == "__main__":

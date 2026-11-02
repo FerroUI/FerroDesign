@@ -6,7 +6,7 @@ browser (WebAssembly): the same editor, controls, document model and scene rende
 
 **Open it in the browser:** https://ferroui.github.io/FerroDesign/
 
-![FerroDesign editing the Orbit mobile banking document in the browser](docs/images/ferrodesign-editor.png)
+![FerroDesign inspecting two selected banking screens with shared and mixed property values](docs/images/ferrodesign-editor.png)
 
 The editor has pages and layers, an infinite canvas, layout guides, editable vector networks, rich text
 with paragraph formatting, image cropping, effects and masks, continuous corners, variable-width
@@ -73,8 +73,9 @@ cargo test --locked -p ferrodesign-app --lib -- --test-threads=1
 node --test tests/*.test.mjs
 ```
 
-The browser validation scenarios drive the built site in Chromium with Playwright
-(`npm ci && node tests/browser.mjs`, see `scripts/browser_ci.py` for the groups); they are not part of CI.
+Run `npm ci && node tests/browser.mjs` to drive the built site in Chromium. Pull requests run all
+scenario groups in Software2D, the WebGL2 smoke group, and the browser storage checks. The full
+matrix also runs on the nightly schedule. See [the scenario groups](scripts/browser-ci-groups.json).
 
 ## License
 

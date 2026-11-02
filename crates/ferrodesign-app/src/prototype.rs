@@ -30,6 +30,12 @@ pub enum PrototypeRuntimeEvent {
     ScrollTo(NodeId),
 }
 
+/// Keep the same framing policy for initial, instant and animated navigation.
+pub(crate) fn fit_preview_frame(viewport: &mut Viewport, bounds: ferrodesign_core::Rect) {
+    let gutter = (viewport.width.min(viewport.height) * 0.03).clamp(4.0, 32.0);
+    viewport.fit(bounds, gutter);
+}
+
 struct PresentationBefore {
     frame: Option<PrototypeFrame>,
     current: Option<NodeId>,
@@ -45,6 +51,7 @@ struct RunningTransition {
 }
 
 struct AuthoredSnapshot {
+    start_root: NodeId,
     document: Document,
     selection: Vec<NodeId>,
     active_page: NodeId,
@@ -95,6 +102,23 @@ impl PrototypeRuntime {
 
     pub fn current(&self) -> Option<NodeId> {
         self.player.borrow().current
+    }
+
+    pub fn restart(self: &Rc<Self>) -> bool {
+        let root = self.authored.borrow().as_ref().map(|state| state.start_root);
+        root.is_some_and(|root| self.start(root))
+    }
+
+    pub fn can_step(&self, forward: bool) -> bool {
+        self.player.borrow().can_step(&self.editor.borrow().document, forward)
+    }
+
+    pub fn has_overlay(&self) -> bool {
+        !self.player.borrow().overlays.is_empty()
+    }
+
+    pub fn visible_frame(&self) -> Option<NodeId> {
+        self.player.borrow().interaction_root()
     }
 
     pub fn is_animating(&self) -> bool {
@@ -165,11 +189,15 @@ impl PrototypeRuntime {
         self.generation.set(self.generation.get().wrapping_add(1));
         {
             let mut editor = self.editor.borrow_mut();
-            if self.authored.borrow().is_none() {
+            let mut authored = self.authored.borrow_mut();
+            if let Some(state) = authored.as_mut() {
+                state.start_root = root;
+            } else {
                 // Finish an existing pointer transaction before capturing its
                 // final authored state; preview actions never enter history.
                 editor.commit_transaction();
-                *self.authored.borrow_mut() = Some(AuthoredSnapshot {
+                *authored = Some(AuthoredSnapshot {
+                    start_root: root,
                     document: editor.document.clone(),
                     selection: editor.selection.clone(),
                     active_page: editor.active_page,
@@ -224,15 +252,15 @@ impl PrototypeRuntime {
         true
     }
 
-    pub fn back(self: &Rc<Self>) -> bool {
-        if !self.is_active() {
+    pub fn step(self: &Rc<Self>, forward: bool) -> bool {
+        if !self.can_step(forward) {
             return false;
         }
         let previous = self.before_action();
         let changed = self
             .player
             .borrow_mut()
-            .back(&self.editor.borrow().document);
+            .step(&mut self.editor.borrow_mut().document, forward);
         if changed {
             self.after_action(previous);
         }
@@ -365,19 +393,14 @@ impl PrototypeRuntime {
         if !self.is_active() {
             return false;
         }
+        let matches = self.player.borrow().key_sources(&self.editor.borrow().document, key);
+        // Viewer shortcuts and typing unassigned keys need no transition snapshot.
+        if matches.is_empty() { return false }
         let previous = self.before_action();
         let changed = {
             let mut editor = self.editor.borrow_mut();
             let mut player = self.player.borrow_mut();
-            let Some(root) = player.interaction_root() else {
-                return false;
-            };
-            editor
-                .document
-                .descendants(root)
-                .into_iter()
-                .rev()
-                .any(|node| player.trigger_key(&mut editor.document, node, key))
+            matches.into_iter().any(|node| player.trigger_key(&mut editor.document, node, key))
         };
         if changed {
             self.after_action(previous);
@@ -511,7 +534,7 @@ impl PrototypeRuntime {
         from_viewport.pan = from_viewport.pan + from.origin * from_viewport.zoom;
         let mut to_viewport = from_viewport;
         if fit_destination {
-            to_viewport.fit(to.bounds(), 65.0);
+            fit_preview_frame(&mut to_viewport, to.bounds());
         }
         let mut final_viewport = to_viewport;
         final_viewport.pan = final_viewport.pan - to.origin * final_viewport.zoom;
