@@ -1574,6 +1574,9 @@ impl Document {
                 children.retain(|child| *child != id)
             }
         }
+        self.remove_nodes_and_references(ids)
+    }
+    pub(crate) fn remove_nodes_and_references(&mut self, ids: Vec<NodeId>) -> Vec<Node> {
         let set: BTreeSet<_> = ids.iter().copied().collect();
         self.guides.retain(|owner, _| !set.contains(owner));
         let removed: Vec<_> = ids.iter().filter_map(|id| self.nodes.remove(id)).collect();

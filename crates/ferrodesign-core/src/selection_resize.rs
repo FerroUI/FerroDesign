@@ -53,7 +53,43 @@ pub struct SelectionResize {
     affected: Vec<NodeId>,
     selection: Vec<NodeId>,
     page: NodeId,
-    last: Option<(Point, Point)>,
+    last: Option<(ResizeTarget, bool)>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ResizeTarget {
+    Layer(Rect),
+    Selection { pivot: Point, factors: Point },
+}
+
+impl ResizeTarget {
+    fn unchanged(self, node: &Node) -> bool {
+        match self {
+            Self::Layer(bounds) => bounds == node.bounds(),
+            Self::Selection { factors, .. } => factors == Point::new(1.0, 1.0),
+        }
+    }
+}
+
+// Keep authored rotation, flips and affine residuals for a pure translation.
+fn place(node: &mut Node, local: Transform) {
+    let current = node.local_transform();
+    if [local.a - current.a, local.b - current.b, local.c - current.c, local.d - current.d]
+        .into_iter().all(|v| v.abs() < 1e-12)
+    {
+        let (dx, dy) = (local.e - current.e, local.f - current.f);
+        if dx.abs() > 1e-12 { node.x += dx; }
+        if dy.abs() > 1e-12 { node.y += dy; }
+    } else {
+        node.set_local_transform(local);
+    }
+}
+
+impl Node {
+    pub fn can_resize_around_contents(&self) -> bool {
+        matches!(self.kind, NodeKind::Frame | NodeKind::Component | NodeKind::Instance | NodeKind::Section)
+            || (self.kind == NodeKind::Group && self.layout.is_some())
+    }
 }
 
 impl Editor {
@@ -81,6 +117,22 @@ impl Editor {
                 })
             })
             .collect()
+    }
+
+    /// Start a Move-tool resize in a single layer's own axes.
+    pub fn begin_single_resize(&mut self, id: NodeId) -> Option<SelectionResize> {
+        if self.has_active_transaction() || self.selection.as_slice() != [id]
+            || self.document.effective_locked(id) || !self.document.effective_visible(id) {
+            return None;
+        }
+        let node = self.document.nodes.get(&id)?;
+        let world = *self.scene.transforms.get(&id)?;
+        let root = Root {
+            id, world, parent_inverse: node.local_transform() * world.inverse()?,
+            size: Point::new(node.width, node.height), in_group: false,
+        };
+        let bounds = world.transform_rect(node.local_bounds());
+        self.start_resize(vec![root], bounds, "Resize")
     }
 
     /// Shared authored bounds of at least two distinct, editable free roots.
@@ -119,6 +171,10 @@ impl Editor {
             }
             index += 1;
         }
+        self.start_resize(roots, bounds, "Resize selection")
+    }
+
+    fn start_resize(&mut self, roots: Vec<Root>, bounds: Rect, label: &str) -> Option<SelectionResize> {
         // apply_resize changes a root and its immediate constrained/arranged children.
         let affected: Vec<_> = roots
             .iter()
@@ -126,7 +182,7 @@ impl Editor {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        self.begin_scoped_node_transaction(&affected, "Resize selection");
+        self.begin_scoped_node_transaction(&affected, label);
         Some(SelectionResize {
             token: self.active_transaction_token()?,
             version: self.render_change_token(),
@@ -189,8 +245,8 @@ impl SelectionResize {
         }
     }
 
-    fn apply(&self, editor: &mut Editor, pivot: Point, factors: Point) -> bool {
-        if factors == Point::new(1.0, 1.0) {
+    fn apply(&self, editor: &mut Editor, target: ResizeTarget, keep_contents: bool) -> bool {
+        if target.unchanged(&editor.document.nodes[&self.roots[0].id]) {
             return true;
         }
         for root in &self.roots {
@@ -206,8 +262,15 @@ impl SelectionResize {
             } else {
                 root.parent_inverse
             };
-            let Some(Placement { size, local }) = root.placement(pivot, factors, parent_inverse) else {
-                return false;
+            let Placement { size, local } = match target {
+                ResizeTarget::Layer(bounds) => Placement {
+                    size: Point::new(bounds.width, bounds.height),
+                    local: editor.document.nodes[&root.id].local_transform_for_bounds(bounds),
+                },
+                ResizeTarget::Selection { pivot, factors } => {
+                    let Some(placement) = root.placement(pivot, factors, parent_inverse) else { return false; };
+                    placement
+                }
             };
             let n = editor.document.nodes.get_mut(&root.id).unwrap();
             if n.kind == NodeKind::Text && size != root.size {
@@ -222,27 +285,25 @@ impl SelectionResize {
                     layout.height = SizingMode::Fixed;
                 }
             }
-            if n.kind == NodeKind::Group && n.layout.is_none() {
+            let keep_children = keep_contents && n.can_resize_around_contents();
+            let group = matches!(target, ResizeTarget::Selection { .. }) && n.kind == NodeKind::Group && n.layout.is_none();
+            if keep_children || group {
                 n.width = size.x;
                 n.height = size.y;
             } else if !editor.apply_resize(root.id, size.x, size.y, None) {
                 return false;
             }
-            let n = editor.document.nodes.get_mut(&root.id).unwrap();
-            let current = n.local_transform();
-            if [
-                local.a - current.a,
-                local.b - current.b,
-                local.c - current.c,
-                local.d - current.d,
-            ]
-            .into_iter()
-            .all(|v| v.abs() < 1e-12)
-            {
-                n.x += local.e - current.e;
-                n.y += local.f - current.f;
-            } else {
-                n.set_local_transform(local);
+            place(editor.document.nodes.get_mut(&root.id).unwrap(), local);
+            if keep_children {
+                // A moving left/top edge changes the frame origin. Undo its complete
+                // change of basis so each child's world geometry stays in place, even
+                // when nonuniform selection resizing shears a rotated nested frame.
+                let Some(inverse) = local.inverse() else { return false; };
+                let restore = inverse * parent_inverse * root.world;
+                for id in editor.document.nodes[&root.id].children.clone() {
+                    let child = editor.document.nodes.get_mut(&id).unwrap();
+                    place(child, restore * child.local_transform());
+                }
             }
         }
         true
@@ -251,29 +312,41 @@ impl SelectionResize {
     /// Apply positive axis factors around a world-space pivot. Invalid samples
     /// leave the previous valid preview in place.
     pub fn preview(&mut self, editor: &mut Editor, pivot: Point, factors: Point) -> bool {
-        if !self.valid(editor)
-            || !pivot.x.is_finite()
-            || !pivot.y.is_finite()
-            || ![factors.x, factors.y]
-                .into_iter()
-                .all(|v| v.is_finite() && v > 0.0)
-        {
+        self.preview_selection(editor, pivot, factors, false)
+    }
+
+    pub fn preview_selection(&mut self, editor: &mut Editor, pivot: Point, factors: Point, keep_contents: bool) -> bool {
+        if !pivot.x.is_finite() || !pivot.y.is_finite() || ![factors.x, factors.y].into_iter().all(|v| v.is_finite() && v > 0.0) {
             return false;
         }
-        if self.last == Some((pivot, factors)) || (self.last.is_none() && factors == Point::new(1.0, 1.0)) {
+        self.preview_target(editor, ResizeTarget::Selection { pivot, factors }, keep_contents)
+    }
+
+    pub fn preview_layer(&mut self, editor: &mut Editor, bounds: Rect, keep_contents: bool) -> bool {
+        if self.roots.len() != 1 || !bounds.is_finite()
+            || ![bounds.width, bounds.height].into_iter().all(|v| (0.0..=1e7).contains(&v)) {
+            return false;
+        }
+        self.preview_target(editor, ResizeTarget::Layer(bounds), keep_contents)
+    }
+
+    fn preview_target(&mut self, editor: &mut Editor, target: ResizeTarget, keep_contents: bool) -> bool {
+        if !self.valid(editor) { return false; }
+        if self.last == Some((target, keep_contents))
+            || (self.last.is_none() && target.unchanged(&editor.document.nodes[&self.roots[0].id])) {
             return true;
         }
         self.restore_geometry(editor);
-        if !self.apply(editor, pivot, factors) {
+        if !self.apply(editor, target, keep_contents) {
             self.restore_geometry(editor);
-            if let Some((p, f)) = self.last {
-                self.apply(editor, p, f);
+            if let Some((previous, keep)) = self.last {
+                self.apply(editor, previous, keep);
             }
             return false;
         }
         editor.refresh_preview_nodes(&self.affected);
         self.version = editor.render_change_token();
-        self.last = Some((pivot, factors));
+        self.last = Some((target, keep_contents));
         true
     }
 
@@ -417,6 +490,74 @@ mod tests {
         assert_eq!(e.selection, [peer]);
         assert_eq!(e.history_len(), 0);
     }
+    #[test]
+    fn bypass_keeps_content_and_descendants_in_world_space_under_rotated_and_skewed_frames() {
+        let mut doc = Document::new("Resize a viewport around its content");
+        let mut parent = Node::new(NodeKind::Frame, "Board", 10., 25., 500., 400.);
+        parent.rotation = 18.;
+        let parent = doc.insert_node(1, parent).unwrap();
+        let mut frame = Node::new(NodeKind::Frame, "Viewport", 36., 42., 220., 140.);
+        frame.rotation = 27.;
+        frame.affine_transform = Some(Transform { c: 0.18, ..Transform::IDENTITY });
+        let frame = doc.insert_node(parent, frame).unwrap();
+        let mut group = Node::new(NodeKind::Frame, "Card", 60., 24., 42., 34.);
+        group.flip_y = true;
+        group.constraints.horizontal = Constraint::Stretch;
+        let group = doc.insert_node(frame, group).unwrap();
+        let label = doc.insert_node(group, Node::new(NodeKind::Rectangle, "Badge", 6., 8., 15., 8.)).unwrap();
+        let peer = doc.insert_node(1, Node::new(NodeKind::Rectangle, "Peer", 290., 42., 68., 75.)).unwrap();
+        let mut editor = Editor::new(doc);
+        let before = editor.document.to_json().unwrap();
+        let world = editor.document.world_transform(label).unwrap();
+        let corners = editor.document.nodes[&label].local_bounds().corners();
+        editor.selection = vec![frame, peer];
+        let mut session = editor.begin_multi_resize().unwrap();
+        let pivot = session.bounds().center();
+        let factors = Point::new(0.36, 1.15);
+        session.preview(&mut editor, pivot, factors);
+        assert!(editor.document.nodes[&group].width < 42.);
+        assert!(session.preview_selection(&mut editor, pivot, factors, true));
+        assert_eq!(editor.document.nodes[&group].width, 42.);
+        for point in corners {
+            same(world.apply(point), editor.document.world_transform(label).unwrap().apply(point));
+        }
+        assert!(session.commit(&mut editor));
+        let after = editor.document.to_json().unwrap();
+        assert_eq!(editor.history_len(), 1);
+        assert!(editor.undo());
+        assert_eq!(editor.document.to_json().unwrap(), before);
+        assert!(editor.redo());
+        assert_eq!(editor.document.to_json().unwrap(), after);
+    }
+
+    #[test]
+    fn resizing_a_layout_viewport_can_hold_flow_contents_without_changing_their_sizing_modes() {
+        let mut doc = Document::new("Auto-layout viewport");
+        let mut frame = Node::new(NodeKind::Frame, "Row", 10., 20., 180., 70.);
+        frame.layout = Some(AutoLayout::default());
+        let frame = doc.insert_node(1, frame).unwrap();
+        let mut child = Node::new(NodeKind::Rectangle, "Fill", 0., 0., 50., 30.);
+        child.layout_child.width = SizingMode::Fill;
+        let child = doc.insert_node(frame, child).unwrap();
+        doc.layout_node(frame);
+        let mut e = Editor::new(doc);
+        let base = e.document.nodes[&child].bounds();
+        let original_settings = e.document.nodes[&child].layout_child.clone();
+        let origin = e.document.world_transform(child).unwrap().apply(Point::default());
+        let before = e.document.to_json().unwrap();
+        e.selection = vec![frame];
+        let mut drag = e.begin_single_resize(frame).unwrap();
+        let rect = Rect::new(35., 20., 155., 70.);
+        assert!(drag.preview_layer(&mut e, rect, false));
+        assert!(e.document.nodes[&child].width < base.width);
+        assert!(drag.preview_layer(&mut e, rect, true));
+        same(e.document.world_transform(child).unwrap().apply(Point::default()), origin);
+        assert_eq!(e.document.nodes[&child].width, base.width);
+        assert_eq!(e.document.nodes[&child].layout_child, original_settings);
+        drag.cancel(&mut e);
+        assert_eq!(e.document.to_json().unwrap(), before);
+    }
+
     #[test]
     fn multi_resize_on_a_page_with_auto_layout_snapshots_only_affected_geometry() {
         let mut d = Document::new("Scoped multi resize");

@@ -830,6 +830,10 @@ impl Editor {
     pub fn redo_label(&self) -> Option<&str> {
         self.redo.last().map(|e| e.label.as_str())
     }
+    /// A removed page's last camera is useful while Undo or Redo can reopen it.
+    pub fn can_revisit_page(&self, id: NodeId) -> bool {
+        self.undo.iter().chain(&self.redo).any(|entry| entry.page_before == id || entry.page_after == id)
+    }
     pub fn history_len(&self) -> usize {
         self.undo.len()
     }
@@ -947,6 +951,11 @@ impl Editor {
                 && self.scene.transforms.get(id)
                     .is_some_and(|t| rect.contains_rect(t.transform_rect(node.local_bounds())))
         });
+        self.marquee_from_enclosed(hits, additive, deep)
+    }
+
+    /// Apply hierarchy and range rules to the current view's enclosed, editable layers.
+    pub fn marquee_from_enclosed(&self, mut hits: Vec<NodeId>, additive: bool, deep: bool) -> Vec<NodeId> {
         if deep {
             let mut ancestors = BTreeSet::new();
             for id in &hits {
@@ -2447,23 +2456,12 @@ pub(crate) fn clone_tree_into(
         let Some(original) = source.get(&old) else {
             continue;
         };
-        let mut n = original.clone();
-        n.id = remap[&old];
+        let mut n = original.clone_for_copy(remap[&old], &remap);
         if let Some(guides) = source_guides.get(&old) { d.guides.insert(n.id, guides.clone()); }
-        n.revision = 0;
-        n.children = n
-            .children
-            .iter()
-            .filter_map(|id| remap.get(id).copied())
-            .collect();
-        n.parent = if roots.contains(&old) {
-            Some(parent)
-        } else {
-            original.parent.and_then(|id| remap.get(&id).copied())
-        };
         if roots.contains(&old) {
+            n.parent = Some(parent);
             n.x += offset.x;
-            n.y += offset.y
+            n.y += offset.y;
         }
         if instance {
             n.component_source = Some(old);
@@ -2477,18 +2475,6 @@ pub(crate) fn clone_tree_into(
             crate::components::remap_component_references(&mut n, &remap);
             if roots.contains(&old) && n.kind == NodeKind::Component && d.is_component_set(parent) {
                 n.variant_properties = crate::components::unique_variant_properties(d, parent, &n.variant_properties);
-            }
-        }
-        for i in &mut n.interactions {
-            match &mut i.action {
-                PrototypeAction::NavigateTo { target }
-                | PrototypeAction::OpenOverlay { target, .. }
-                | PrototypeAction::ScrollTo { target } => {
-                    if let Some(id) = remap.get(target) {
-                        *target = *id
-                    }
-                }
-                _ => {}
             }
         }
         d.nodes.insert(n.id, n);

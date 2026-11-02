@@ -1188,6 +1188,27 @@ impl Editor {
         }).is_some()
     }
 
+    /// Move selected vertices together in their original local space. Rebase
+    /// bounds once so adjacent vertices and handles receive exactly one nudge.
+    pub fn nudge_network_points(&mut self, id: NodeId, point: NetworkPointId,
+        selected: &[VectorVertexId], world_delta: Point) -> bool {
+        if self.has_active_transaction() { return false; }
+        let Some(inv) = self.document.world_transform(id).and_then(Transform::inverse) else { return false; };
+        let delta = inv.apply_vector(world_delta);
+        self.edit_vector_network(id, "Nudge vector points", |network| {
+            let points: BTreeSet<_> = match point {
+                NetworkPointId::Vertex(_) => selected.iter().copied().map(NetworkPointId::Vertex).collect(),
+                handle => [handle].into_iter().collect(),
+            };
+            if points.is_empty() { return None; }
+            for p in points {
+                let target = network.point_position(p)? + delta;
+                if !network.move_edit_point(p, target) { return None; }
+            }
+            Some(())
+        }).is_some()
+    }
+
     pub fn add_network_vertex(&mut self, id: NodeId, position: Point) -> Option<VectorVertexId> {
         let inverse = self.document.world_transform(id)?.inverse()?;
         self.edit_vector_network(id, "Add network vertex", |network| {
