@@ -93,3 +93,49 @@ fn native_layer_search_is_scoped_reversible_and_preserves_other_page_disclosure(
     assert_eq!(fixture.json(), initial);
     assert_eq!(shell.editor.borrow().history_len(), 0);
 }
+
+#[test]
+fn layer_rows_move_on_release_and_cancel_without_touching_the_document() {
+    use ferroui_base::input::MouseButton;
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let mut doc = core::Document::new("Row drag");
+    let page = doc.pages[0].id;
+    let group = doc.insert_node(page, Node::new(NodeKind::Group, "Destination", 200., 95., 150., 80.)).unwrap();
+    doc.nodes.get_mut(&group).unwrap().rotation = 30.;
+    let source = doc.insert_node(page, Node::new(NodeKind::Rectangle, "Source", 20., 14., 54., 32.)).unwrap();
+    let guard = doc.insert_node(page, Node::new(NodeKind::Frame, "Immovable", 100., 70., 40., 40.)).unwrap();
+    doc.nodes.get_mut(&guard).unwrap().locked = true;
+    *shell.editor.borrow_mut() = Editor::new(doc);
+    shell.editor.borrow_mut().selection = vec![guard];
+    shell.refresh();
+    fixture.window.capture_rendered_frame().unwrap();
+    let point = |id| {
+        let row = shell.layer_buttons.borrow().get(&id).unwrap().upgrade().unwrap();
+        row.translate_point(ferroui_base::Point::new(row.bounds().width * 0.5, row.bounds().height * 0.5), &fixture.window).unwrap()
+    };
+    let start = point(source);
+    let target = point(group);
+    let down = || {
+        fixture.window.mouse_move(start, RawInputModifiers::NONE);
+        fixture.window.mouse_down(start, MouseButton::Left, RawInputModifiers::NONE);
+        fixture.window.mouse_move(target, RawInputModifiers::LEFT_MOUSE_BUTTON);
+    };
+    let before = fixture.json();
+    down();
+    assert_eq!(fixture.json(), before);
+    assert_eq!(shell.editor.borrow().selection, [guard]);
+    fixture.window.key_press(Key::Escape, RawInputModifiers::NONE, PhysicalKey::Escape, None);
+    fixture.window.key_release(Key::Escape, RawInputModifiers::NONE, PhysicalKey::Escape, None);
+    fixture.window.mouse_up(target, MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(fixture.json(), before);
+    down();
+    fixture.window.mouse_up(target, MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(shell.editor.borrow().document.nodes[&source].parent, Some(group));
+    assert_eq!(shell.editor.borrow().selection, [source]);
+    assert!(shell.expanded.borrow().contains(&group));
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+    assert_eq!(shell.editor.borrow().selection, [guard]);
+}
