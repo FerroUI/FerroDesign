@@ -2587,6 +2587,20 @@ mod render_change_tests {
         assert_eq!(editor.document.to_json().unwrap(), before);
         assert_eq!(editor.history_len(), 0);
         assert!(!editor.has_active_transaction());
+        editor.begin_node_transaction(&[vector], "Previous gesture");
+        let stale = editor.active_transaction_token().unwrap();
+        editor.cancel_transaction();
+        editor.begin_node_transaction(&[vector], "Inspector scrub");
+        let current = editor.active_transaction_token().unwrap();
+        let values = BTreeMap::from([(ordinary, 30.0), (vector, 1.0e7)]);
+        assert!(editor.preview_layer_dimensions(LayerDimension::Width, &values, &stale).is_err());
+        assert_eq!(editor.active_transaction_token(), Some(current.clone()));
+        // The ordinary layer was not explicitly captured by the caller. The
+        // vector overflow must still roll its earlier edit back atomically.
+        assert!(editor.preview_layer_dimensions(LayerDimension::Width, &values, &current).is_err());
+        assert_eq!(editor.document.to_json().unwrap(), before);
+        assert!(!editor.has_active_transaction());
+        assert_eq!(editor.history_len(), 0);
     }
 
     #[test]
