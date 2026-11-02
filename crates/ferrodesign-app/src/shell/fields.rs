@@ -203,6 +203,7 @@ impl EditorShell {
         let weak_shell = Rc::downgrade(self);
         let weak_field = field.downgrade();
         if let Some(property) = super::geometry_fields::GeometryField::named(name) {
+            self.wire_geometry_scrub(name, property);
             self.wire_geometry_steps(name, property, committed.clone());
         }
         let value = committed.clone();
@@ -278,7 +279,7 @@ impl EditorShell {
     }
 
     pub(super) fn sync_document_draft_dirty(&self) {
-        let dirty = self.inline_draft_dirty.get()
+        let dirty = self.geometry_scrub_active() || self.inline_draft_dirty.get()
             || self.canvas.network_bucket_state().1
             || self.canvas.stroke_width_active()
             || self.canvas.corner_radius_active()

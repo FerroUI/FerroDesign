@@ -162,6 +162,10 @@
     <Style Selector="Border.rule"><Setter Property="Background" Value="#EEEEEE"/><Setter Property="Height" Value="1"/><Setter Property="Margin" Value="-16,8"/></Style>
     <Style Selector="ComboBox">
       <Setter Property="PlaceholderForeground" Value="#616161"/>
+    <Style Selector="TextBlock.scrub-prefix">
+      <Setter Property="Width" Value="24"/><Setter Property="Margin" Value="0"/>
+      <Setter Property="TextAlignment" Value="Center"/><Setter Property="IsHitTestVisible" Value="True"/>
+    </Style>
       <Setter Property="MinHeight" Value="28"/><Setter Property="FontSize" Value="11"/>
       <Setter Property="Padding" Value="8,4"/><Setter Property="Background" Value="#F5F5F5"/>
       <Setter Property="BorderThickness" Value="0"/><Setter Property="CornerRadius" Value="5"/>
@@ -419,18 +423,22 @@
                 <Button Name="AlignBottomButton" ToolTip.Tip="Align bottom"/>
               </UniformGrid>
               <Border Classes="rule"/>
-              <TextBlock Text="Position" Classes="heading"/>
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Text="Position" Classes="heading"/>
+                <TextBlock Name="GeometryScrubStatus" Grid.Column="1" HorizontalAlignment="Right" Classes="label"
+                           Foreground="#006ABB" IsVisible="False"/>
+              </Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <TextBox Name="XField" Text="0" AutomationProperties.Name="X position" ToolTip.Tip="X position · Type a value or expression (320/2, x+10). ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1.">
-                  <TextBox.InnerLeftContent><TextBlock Text="X" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                <TextBox Name="XField" Text="0" AutomationProperties.Name="X position" ToolTip.Tip="X position · Drag the label or Alt/Option-drag the field. ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1. Type a value or expression such as x+10.">
+                  <TextBox.InnerLeftContent><TextBlock Name="XScrub" Text="X" Classes="field-prefix scrub-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
-                <TextBox Name="YField" Grid.Column="2" Text="0" AutomationProperties.Name="Y position" ToolTip.Tip="Y position · Type a value or expression (320/2, x+10). ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1.">
-                  <TextBox.InnerLeftContent><TextBlock Text="Y" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                <TextBox Name="YField" Grid.Column="2" Text="0" AutomationProperties.Name="Y position" ToolTip.Tip="Y position · Drag the label or Alt/Option-drag the field. ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1. Type a value or expression such as x+10.">
+                  <TextBox.InnerLeftContent><TextBlock Name="YScrub" Text="Y" Classes="field-prefix scrub-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
               </Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <TextBox Name="RotationField" Text="0" AutomationProperties.Name="Rotation in degrees" ToolTip.Tip="Rotation in degrees · Type a value or expression (320/2, x+10). ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1.">
-                  <TextBox.InnerLeftContent><TextBlock Text="∠" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                <TextBox Name="RotationField" Text="0" AutomationProperties.Name="Rotation in degrees" ToolTip.Tip="Rotation in degrees · Drag the label or Alt/Option-drag the field. ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1. Type a value or expression such as x+10.">
+                  <TextBox.InnerLeftContent><TextBlock Name="RotationScrub" Text="∠" Classes="field-prefix scrub-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
                 <Button Name="FlipButton" Grid.Column="2" Content="Flip horizontal" VerticalAlignment="Bottom"/>
               </Grid>
@@ -438,11 +446,11 @@
               <Border Classes="rule"/>
               <Grid ColumnDefinitions="*,28"><TextBlock Name="DimensionsTitle" Text="Layout" Classes="heading" VerticalAlignment="Center"/><Button Name="AddLayoutButton" Grid.Column="1" Content="+" ToolTip.Tip="Add auto layout"/></Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <TextBox Name="WidthField" Text="0" AutomationProperties.Name="Width" ToolTip.Tip="Width · Type a value or expression (320/2, x+10). ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1.">
-                  <TextBox.InnerLeftContent><TextBlock Text="W" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                <TextBox Name="WidthField" Text="0" AutomationProperties.Name="Width" ToolTip.Tip="Width · Drag the label or Alt/Option-drag the field. ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1. Type a value or expression such as x+10.">
+                  <TextBox.InnerLeftContent><TextBlock Name="WidthScrub" Text="W" Classes="field-prefix scrub-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
-                <TextBox Name="HeightField" Grid.Column="2" Text="0" AutomationProperties.Name="Height" ToolTip.Tip="Height · Type a value or expression (320/2, x+10). ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1.">
-                  <TextBox.InnerLeftContent><TextBlock Text="H" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                <TextBox Name="HeightField" Grid.Column="2" Text="0" AutomationProperties.Name="Height" ToolTip.Tip="Height · Drag the label or Alt/Option-drag the field. ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1. Type a value or expression such as x+10.">
+                  <TextBox.InnerLeftContent><TextBlock Name="HeightScrub" Text="H" Classes="field-prefix scrub-prefix"/></TextBox.InnerLeftContent>
                 </TextBox>
               </Grid>
               <TextBlock Name="SliceHint" IsVisible="False" Classes="label" TextWrapping="Wrap"

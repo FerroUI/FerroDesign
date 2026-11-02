@@ -1181,7 +1181,21 @@ impl Editor {
     pub fn set_layer_dimensions(
         &mut self, dimension: LayerDimension, values: &BTreeMap<NodeId, f64>,
     ) -> Result<(), DocumentError> {
-        if self.has_active_transaction() {
+        self.write_layer_dimensions(dimension, values, None)
+    }
+
+    /// Update an inspector scrub inside the caller's own transaction. Another
+    /// gesture cannot accidentally join it, even if it targets the same nodes.
+    pub fn preview_layer_dimensions(
+        &mut self, dimension: LayerDimension, values: &BTreeMap<NodeId, f64>, owner: &EditorTransactionToken,
+    ) -> Result<(), DocumentError> {
+        self.write_layer_dimensions(dimension, values, Some(owner))
+    }
+
+    fn write_layer_dimensions(
+        &mut self, dimension: LayerDimension, values: &BTreeMap<NodeId, f64>, owner: Option<&EditorTransactionToken>,
+    ) -> Result<(), DocumentError> {
+        if self.active_transaction_token().as_ref() != owner {
             return Err(DocumentError::Invalid("Finish the active edit before resizing layers.".into()));
         }
         let binding = match dimension { LayerDimension::Width => "width", LayerDimension::Height => "height" };
@@ -1200,17 +1214,21 @@ impl Editor {
             ids.push(id);
         }
         if ids.is_empty() { return Ok(()); }
-        if ids.iter().any(|id| !self.document.nodes[id].children.is_empty()) {
+        let has_children = ids.iter().any(|id| !self.document.nodes[id].children.is_empty());
+        if has_children {
             ids.sort_by_cached_key(|id| {
                 std::iter::successors(self.document.nodes.get(id), |node| {
                     node.parent.and_then(|parent| self.document.nodes.get(&parent))
                 }).take(MAX_DOCUMENT_DEPTH).count()
             });
-            self.begin_transaction("Resize layers");
-        } else {
-            self.begin_node_transaction(&ids, "Resize layers");
         }
-        for id in ids {
+        if owner.is_none() {
+            if has_children { self.begin_transaction("Resize layers"); }
+            else { self.begin_node_transaction(&ids, "Resize layers"); }
+        } else if has_children {
+            self.promote_node_transaction(false);
+        }
+        for &id in &ids {
             let node = &self.document.nodes[&id];
             let value = values[&id];
             let (width, height) = match dimension {
@@ -1228,7 +1246,9 @@ impl Editor {
             node.variable_bindings.remove(binding);
             if node.component_source.is_some() { node.overridden_properties.insert(binding.into()); }
         }
-        self.commit_transaction();
+        if owner.is_none() { self.commit_transaction(); }
+        else if has_children || self.has_auto_layout() { self.refresh(); }
+        else { self.refresh_preview_nodes(&ids); }
         Ok(())
     }
 

@@ -187,6 +187,32 @@ export async function mixedSelectionAndDock(page, reference, check, helpers) {
     assert.deepEqual(await documentState(page), before);
     check("Native width arrows step mixed selections and typed formulas once per key, keep field focus, and undo exactly");
 
+    await clickNative(page, "WidthField", "InspectorViewport");
+    const label = (await state(page)).chrome.WidthScrub;
+    const x = label.x + label.width / 2, y = label.y + label.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 12, y, { steps: 3 });
+    await page.waitForFunction(() => {
+        const {nodes} = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return nodes[2].width === 76 && nodes[3].width === 108;
+    });
+    assert.equal((await state(page)).historyLength, selected.historyLength);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    assert.deepEqual(await documentState(page), before);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 7, y);
+    await page.mouse.up();
+    assert.equal((await documentState(page)).nodes[3].width, 103);
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 96);
+    assert.deepEqual(await documentState(page), before);
+    check("Dragging the native width prefix previews both mixed widths live, Escape rolls them back, and release commits one reversible change");
+
     await page.keyboard.press("F6");
     await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.SelectTool.focused === true);
     await page.keyboard.press("End");

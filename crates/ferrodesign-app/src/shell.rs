@@ -6,6 +6,7 @@ mod diagnostics;
 mod panels;
 mod geometry_authoring;
 mod geometry_fields;
+mod geometry_scrub;
 mod selection;
 mod styles;
 mod effects;
@@ -73,6 +74,7 @@ pub struct EditorShell {
     inline_updating: Cell<bool>,
     inline_draft_dirty: Cell<bool>,
     inspector_drafts: RefCell<Vec<std::rc::Weak<fields::InspectorDraft>>>,
+    geometry_scrub: RefCell<Option<geometry_scrub::Scrub>>,
     panel_state: panels::PanelState,
     expanded: RefCell<BTreeSet<NodeId>>,
     layer_buttons: RefCell<BTreeMap<NodeId, WeakRef<Button>>>,
@@ -140,6 +142,7 @@ impl EditorShell {
             inline_draft_dirty: Cell::new(false),
             inspector_drafts: RefCell::new(Vec::new()),
             panel_state: panels::PanelState::default(),
+            geometry_scrub: RefCell::new(None),
             expanded: RefCell::new(expanded),
             layer_buttons: RefCell::new(BTreeMap::new()),
             layer_projection: RefCell::new(LayerProjection::default()),
@@ -771,6 +774,7 @@ impl EditorShell {
             "RadiusField", "CornerSmoothingField", "IndependentCornersButton",
             "StrokeProfileChoice", "StrokeWidthCustomButton", "StrokeWidthHandlesButton", "StrokeWidthField", "DashField",
             "SelectMatchingButton",
+            "XScrub", "YScrub", "WidthScrub", "HeightScrub", "RotationScrub",
             "XField", "YField", "RotationField", "AffineButton", "FramePresetsButton", "PageFramePresetsButton",
             "ConstraintLeft", "ConstraintRight", "ConstraintTop", "ConstraintBottom", "ConstraintCenterX", "ConstraintCenterY",
             "HorizontalConstraint", "VerticalConstraint",
@@ -941,6 +945,7 @@ impl EditorShell {
         let result = if is_svg {
             self.editor.borrow_mut().import_svg(text, name).map(|_| ())
         } else {
+        self.finish_geometry_scrub(false);
             self.editor.borrow_mut().load_json(text)
         };
         match result {
@@ -1038,7 +1043,7 @@ impl EditorShell {
         // A background timer may belong to the previous committed edit. The
         // held bucket preview must remain cancelable; release/cancel schedules
         // a fresh save, while explicit lifecycle boundaries finish it first.
-        if self.canvas.network_bucket_state().1 || self.canvas.stroke_width_active()
+        if self.geometry_scrub_active() || self.canvas.network_bucket_state().1 || self.canvas.stroke_width_active()
             || self.canvas.corner_radius_active() || self.canvas.linear_gradient_active() { return; }
         if let Some(timer) = self.pending_save_timer.borrow_mut().take() { timer.dispose(); }
         if !self.pending_save.get() { return; }
@@ -1778,6 +1783,11 @@ impl EditorShell {
         // Undo during a held stroke cancels that preview. Other explicit
         // commands finish the stroke before they can join its transaction.
         if matches!(command, "undo" | "redo") && self.canvas.cancel_active_edit() {
+        if command != "storage-status" && self.geometry_scrub.borrow().is_some() {
+            let cancel = matches!(command, "undo" | "redo");
+            self.finish_geometry_scrub(!cancel);
+            if cancel { return true; }
+        }
             return true;
         }
         self.canvas.finish_linear_gradient_edit();

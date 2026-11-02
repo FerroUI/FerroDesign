@@ -341,3 +341,107 @@ fn native_mixed_text_formats_converge_preserve_existing_weights_and_report_align
     assert!(!shell.command("bold"));
     assert_eq!(f.json(), before);
 }
+
+#[test]
+fn geometry_scrub_previews_mixed_values_and_commits_the_release_sample_once() {
+    let f = Fixture::with_kind(false, NodeKind::Rectangle);
+    let shell = &f.shell;
+    let (second, pinned) = {
+        let mut e = shell.editor.borrow_mut();
+        let first = e.document.nodes.get_mut(&f.id).unwrap();
+        first.rotation = 23.0;
+        first.width = 120.125;
+        let other = Node::new(NodeKind::Rectangle, "Peer", 210.0, 75.0, 46.5, 40.0);
+        let second = e.document.insert_node(1, other.clone()).unwrap();
+        let mut pinned = other;
+        pinned.locked = true;
+        let pinned = e.document.insert_node(1, pinned).unwrap();
+        e.selection = vec![f.id, second, pinned];
+        e.refresh();
+        (second, pinned)
+    };
+    shell.refresh();
+    let field = shell.field("WidthField");
+    let label = shell.control::<TextBlock>("WidthScrub");
+    field.bring_into_view();
+    f.window.capture_rendered_frame().unwrap();
+    let at = label.translate_point(ferroui_base::Point::new(label.bounds().width * 0.5, label.bounds().height * 0.5), &f.window).unwrap();
+    let p = |dx| ferroui_base::Point::new(at.x + dx, at.y);
+    let widths = || {
+        let e = shell.editor.borrow();
+        [e.document.nodes[&f.id].width, e.document.nodes[&second].width, e.document.nodes[&pinned].width]
+    };
+    let initial = f.json();
+    let origin = shell.editor.borrow().document.world_transform(f.id).unwrap().apply(Point::default());
+    let plain = RawInputModifiers::NONE;
+    let drag = RawInputModifiers::LEFT_MOUSE_BUTTON;
+    f.window.mouse_move(at, plain);
+    f.window.mouse_down(at, MouseButton::Left, plain);
+    f.window.mouse_move(p(2.0), drag);
+    assert_eq!(f.json(), initial);
+    f.window.mouse_move(p(8.0), drag);
+    assert_eq!(widths(), [128.125, 54.5, 46.5]);
+    assert_eq!(shell.editor.borrow().history_len(), 0);
+    assert!(field.placeholder_text().unwrap().contains("+8"));
+    f.window.mouse_move(p(9.0), drag | RawInputModifiers::SHIFT);
+    assert_eq!(widths(), [138.125, 64.5, 46.5]);
+    f.window.mouse_up(p(10.0), MouseButton::Left, RawInputModifiers::ALT);
+    assert_eq!(widths(), [120.125 + 18.1, 46.5 + 18.1, 46.5]);
+    let updated_origin = shell.editor.borrow().document.world_transform(f.id).unwrap().apply(Point::default());
+    assert!(origin.distance(updated_origin) < 1e-8, "resizing preserves the transformed local origin");
+    let after = f.json();
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.command("undo"));
+    assert_eq!(f.json(), initial);
+    assert!(shell.command("redo"));
+    assert_eq!(f.json(), after);
+}
+
+#[test]
+fn geometry_scrub_click_escape_capture_loss_and_save_respect_history_boundaries() {
+    use ferroui_base::{input::IPointer, interactivity::RoutingStrategies};
+    let f = Fixture::with_kind(false, NodeKind::Rectangle);
+    let shell = &f.shell;
+    let field = shell.field("XField");
+    let label = shell.control::<TextBlock>("XScrub");
+    f.window.capture_rendered_frame().unwrap();
+    let at = label.translate_point(ferroui_base::Point::new(label.bounds().width / 2.0, label.bounds().height / 2.0), &f.window).unwrap();
+    let p = |dx,dy| ferroui_base::Point::new(at.x + dx, at.y + dy);
+    let saved_pointer = Rc::new(RefCell::new(None::<Rc<dyn IPointer>>));
+    let seen = saved_pointer.clone();
+    field.add_handler_with(InputElement::pointer_pressed_event(), move |_,e| {
+        seen.replace(Some(e.pointer().clone()));
+    }, RoutingStrategies::BUBBLE, true);
+    let down = || {
+        f.window.mouse_move(at, RawInputModifiers::NONE);
+        f.window.mouse_down(at, MouseButton::Left, RawInputModifiers::NONE);
+    };
+    let drag = RawInputModifiers::LEFT_MOUSE_BUTTON;
+    let before = f.json();
+    down();
+    f.window.mouse_up(at, MouseButton::Left, RawInputModifiers::NONE);
+    assert!(field.is_focused());
+    assert_eq!(field.selected_text(), field.text().unwrap());
+    assert_eq!(f.json(), before);
+    down();
+    f.window.mouse_move(p(12.0, 60.0), drag);
+    assert_eq!(shell.editor.borrow().document.nodes[&f.id].x, 26.0, "down one speed tier halves the delta");
+    f.key(&field, Key::Escape);
+    f.window.mouse_up(p(12.0,60.0), MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(f.json(), before);
+    down();
+    f.window.mouse_move(p(15.0,0.0), drag);
+    saved_pointer.borrow().as_ref().unwrap().capture(None);
+    f.window.mouse_up(p(15.0,0.0), MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(f.json(), before);
+    assert_eq!(shell.editor.borrow().history_len(), 0);
+    down();
+    f.window.mouse_move(p(9.0,0.0), drag);
+    assert!(shell.command("commit-edit"));
+    assert_eq!(platform::load_document(), f.json());
+    f.window.mouse_up(p(24.0,0.0), MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(shell.editor.borrow().document.nodes[&f.id].x, 29.0);
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.command("undo"));
+    assert_eq!(f.json(), before);
+}

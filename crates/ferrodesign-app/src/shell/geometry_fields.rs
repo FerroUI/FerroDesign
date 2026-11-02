@@ -17,14 +17,14 @@ impl GeometryField {
         }
     }
 
-    fn read(self, node: &Node) -> f64 {
+    pub(super) fn read(self, node: &Node) -> f64 {
         match self {
             Self::X => node.x, Self::Y => node.y, Self::Width => node.width,
             Self::Height => node.height, Self::Rotation => node.rotation,
         }
     }
 
-    fn apply(self, editor: &mut Editor, input: Option<&str>, step: f64) -> Result<bool, String> {
+    pub(super) fn apply(self, editor: &mut Editor, input: Option<&str>, step: f64) -> Result<bool, String> {
         let expression = input.map(GeometryInput::parse).transpose()?;
         let mut values = BTreeMap::new();
         for &id in &editor.selection {
@@ -41,6 +41,10 @@ impl GeometryField {
                 }
             }
         }
+        self.set_values(editor, &values, None)
+    }
+
+    pub(super) fn set_values(self, editor: &mut Editor, values: &BTreeMap<NodeId, f64>, owner: Option<&core::EditorTransactionToken>) -> Result<bool, String> {
         if values.is_empty() { return Err("Select an unlocked layer to edit its geometry.".into()); }
         if values.iter().all(|(id, value)| self.read(&editor.document.nodes[id]) == *value) {
             return Ok(false);
@@ -51,7 +55,10 @@ impl GeometryField {
             Self::Rotation => |node, value| node.rotation = value,
             Self::Width | Self::Height => {
                 let dimension = if matches!(self, Self::Width) { core::LayerDimension::Width } else { core::LayerDimension::Height };
-                editor.set_layer_dimensions(dimension, &values).map_err(|e| e.to_string())?;
+                match owner {
+                    Some(token) => editor.preview_layer_dimensions(dimension, values, token),
+                    None => editor.set_layer_dimensions(dimension, values),
+                }.map_err(|e| e.to_string())?;
                 return Ok(true);
             }
         };
