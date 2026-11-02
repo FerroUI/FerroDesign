@@ -8,7 +8,7 @@ use ferrodesign_core::{
     PrototypeScene, PrototypeTimer, Transition, TransitionKind, Trigger, Viewport, MAX_DOCUMENT_DEPTH,
 };
 use ferroui_base::animation::{Clock, IClock, PlayState, TimeSpan};
-use ferroui_base::reactive::{AnonymousObserver, IDisposable, IObservable};
+use ferroui_base::reactive::{AnonymousObserver, IDisposable, IObservable, Subscription};
 use ferroui_base::threading::{DispatcherPriority, DispatcherTimer};
 use ferroui_base::Ref;
 use std::{
@@ -53,7 +53,7 @@ struct AuthoredSnapshot {
 }
 
 struct ScheduledTimer {
-    subscription: Rc<dyn IDisposable>,
+    subscription: Subscription,
 }
 
 pub struct PrototypeRuntime {
