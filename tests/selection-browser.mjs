@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { layerTreeDrag } from "./layer-tree-browser.mjs";
+import { resizeBadgeClearsDock } from "./resize-badge-browser.mjs";
 
 // Fixture import supplies initial conditions only. Selection, preferences,
 // history and gesture cancellation all use the actual native input surface.
@@ -465,6 +466,8 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     await clickNative(page, "SelectTool");
     await click({ x: 45, y: 45 }, [], [2]);
     await click({ x: 158, y: 80 }, ["Shift"], [2, 3]);
+    await resizeBadgeClearsDock(page, helpers, mode);
+    check("The full live size badge stays above the measured floating tool dock during a shared resize");
     const multiBase = await snapshot();
     await moveWorld(page, 180, 60);
     await page.mouse.down();

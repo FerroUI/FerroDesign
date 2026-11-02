@@ -37,6 +37,23 @@ impl EditorShell {
     pub(super) fn wire_workspace(self: &Rc<Self>) {
         self.hook("MinimizeUiButton", "minimize-ui");
         self.hook("RestoreUiButton", "restore-ui");
+        // The native dock is a sibling of CanvasHost. Its actual arranged
+        // rectangle changes as the workspace switches between desktop, phone
+        // and hidden chrome. Keep hit-independent readouts clear of it.
+        let dock = self.control::<Border>("Toolbar");
+        let overlay = dock.downgrade();
+        let canvas = self.canvas.downgrade();
+        let _ = dock.layout_updated(move || {
+            let Some(canvas) = canvas.upgrade() else { return };
+            let bounds = overlay.upgrade().filter(|dock| dock.is_effectively_visible()).and_then(|dock| {
+                let bounds = dock.bounds();
+                let transform = dock.transform_to_visual(&canvas)?;
+                let rect = ferroui_base::Rect::new(0.0, 0.0, bounds.width, bounds.height).transform_to_aabb(transform);
+                (rect.width > 0.0 && rect.height > 0.0)
+                    .then_some(core::Rect::new(rect.x, rect.y, rect.width, rect.height))
+            });
+            canvas.set_size_badge_obstacle(bounds);
+        }).detach();
         let weak = Rc::downgrade(self);
         self.canvas.add_handler_with(InputElement::key_down_event(), move |_, event| {
             if event.key != Key::F6 || !event.key_modifiers.is_empty() { return; }

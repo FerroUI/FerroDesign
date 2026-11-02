@@ -252,7 +252,7 @@ fn dimensions(width: f64, height: f64) -> String {
     )
 }
 
-fn badge_rect(bounds: Rect, view: Viewport, width: f64, height: f64) -> Option<Rect> {
+fn badge_rect(bounds: Rect, view: Viewport, width: f64, height: f64, obstacle: Option<Rect>) -> Option<Rect> {
     const MARGIN: f64 = 4.0;
     const GAP: f64 = 8.0;
     let visible = bounds.intersection(Rect::new(0.0, 0.0, view.width, view.height))?;
@@ -267,7 +267,23 @@ fn badge_rect(bounds: Rect, view: Viewport, width: f64, height: f64) -> Option<R
     } else {
         (visible.bottom() - GAP - height).max(MARGIN)
     };
-    Some(Rect::new(x, y, width, height))
+    let preferred = Rect::new(x, y, width, height);
+    let Some(dock) = obstacle else { return Some(preferred) };
+    let dock = dock.inflate(MARGIN);
+    let clear = |body: &Rect| body.intersection(dock).is_none_or(|r| r.width == 0.0 || r.height == 0.0);
+    if clear(&preferred) { return Some(preferred); }
+
+    // Prefer the inside of the selection's lower edge. For a selection that
+    // runs beneath the dock, choose the closest clear side of the actual
+    // overlay. The viewport margin still applies on narrow or clipped views.
+    let safe = Rect::new(MARGIN, MARGIN, view.width - 2.0 * MARGIN, view.height - 2.0 * MARGIN);
+    [
+        Rect::new(x, (visible.bottom() - GAP - height).max(MARGIN), width, height),
+        Rect::new(x, dock.y - height, width, height),
+        Rect::new(x, dock.bottom(), width, height),
+        Rect::new(dock.x - width, y, width, height),
+        Rect::new(dock.right(), y, width, height),
+    ].into_iter().find(|body| safe.contains_rect(*body) && clear(body))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -277,6 +293,10 @@ pub(super) enum BadgeValue {
 }
 
 impl DesignCanvas {
+    pub(crate) fn set_size_badge_obstacle(&self, rect: Option<Rect>) {
+        if self.size_badge_obstacle.replace(rect) != rect { self.invalidate_visual(); }
+    }
+
     pub(super) fn draw_size_badge(
         &self,
         ctx: &mut DrawingContext,
@@ -306,7 +326,7 @@ impl DesignCanvas {
             *cached = Some((value, label));
         }
         let label = &cached.as_ref().unwrap().1;
-        let Some(body) = badge_rect(bounds, view, label.width().ceil() + 14.0, label.height().ceil() + 6.0)
+        let Some(body) = badge_rect(bounds, view, label.width().ceil() + 14.0, label.height().ceil() + 6.0, self.size_badge_obstacle.get())
         else {
             return;
         };
@@ -325,10 +345,32 @@ mod tests {
         assert_eq!(dimensions(19.1251, 7.004), "19.13 × 7");
         let view = Viewport { width: 200.0, height: 140.0, ..Viewport::default() };
         let partial = Rect::new(-30.0, 15.0, 55.0, 50.0);
-        assert_eq!(badge_rect(partial, view, 70.0, 20.0), Some(Rect::new(4.0, 73.0, 70.0, 20.0)));
+        assert_eq!(badge_rect(partial, view, 70.0, 20.0, None), Some(Rect::new(4.0, 73.0, 70.0, 20.0)));
         let clipped = Rect::new(140.0, 95.0, 180.0, 180.0);
-        assert_eq!(badge_rect(clipped, view, 70.0, 20.0), Some(Rect::new(126.0, 112.0, 70.0, 20.0)));
-        assert_eq!(badge_rect(Rect::new(210.0, 0.0, 80.0, 100.0), view, 70.0, 20.0), None);
+        assert_eq!(badge_rect(clipped, view, 70.0, 20.0, None), Some(Rect::new(126.0, 112.0, 70.0, 20.0)));
+        assert_eq!(badge_rect(Rect::new(210.0, 0.0, 80.0, 100.0), view, 70.0, 20.0, None), None);
+    }
+
+    #[test]
+    fn size_badge_uses_measured_dock_footprint_without_reserving_the_whole_footer() {
+        let view = Viewport { width: 960.0, height: 600.0, ..Default::default() };
+        let bounds = Rect::new(120.0, 50.0, 720.0, 475.0);
+        let dock = Rect::new(300.0, 540.0, 360.0, 48.0);
+        let place = |bounds, dock| badge_rect(bounds, view, 82.0, 22.0, dock).unwrap();
+        let ordinary = place(bounds, None);
+        assert!(ordinary.intersects(dock));
+        let adjusted = place(bounds, Some(dock));
+        assert_eq!(adjusted.x, ordinary.x);
+        assert!(adjusted.bottom() <= bounds.bottom() - 8.0);
+        assert!(!adjusted.intersects(dock));
+        let beside = Rect::new(45.0, 50.0, 100.0, 475.0);
+        assert_eq!(place(beside, Some(dock)), place(beside, None));
+        let narrow = Viewport { width: 320.0, height: 320.0, ..Default::default() };
+        let bounds = Rect::new(-15.0, 270.0, 350.0, 100.0);
+        let dock = Rect::new(0.0, 265.0, 320.0, 55.0);
+        let adjusted = badge_rect(bounds, narrow, 82.0, 22.0, Some(dock)).unwrap();
+        assert_eq!(adjusted.bottom(), dock.y - 4.0);
+        assert!(badge_rect(bounds, narrow, 82.0, 22.0, Some(Rect::new(0.0,0.0,320.0,320.0))).is_none());
     }
 
     #[test]
