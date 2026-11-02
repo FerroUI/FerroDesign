@@ -12,6 +12,7 @@ pub(super) struct LayerRow {
     pub(super) depth: usize,
     pub(super) expanded: Option<bool>,
     pub(super) has_children: bool,
+    children_forward: bool,
     pub(super) visible: bool,
     pub(super) locked: bool,
     pub(super) assets: bool,
@@ -26,6 +27,7 @@ impl LayerRow {
             depth,
             expanded,
             has_children: !node.children.is_empty(),
+            children_forward: node.layer_rows_follow_child_order(),
             visible: node.visible,
             locked: node.locked,
             assets,
@@ -37,6 +39,7 @@ impl LayerRow {
             && self.name == node.name
             && self.kind == node.kind
             && self.has_children == !node.children.is_empty()
+            && self.children_forward == node.layer_rows_follow_child_order()
             && self.visible == node.visible
             && self.locked == node.locked
     }
@@ -240,7 +243,11 @@ fn project_rows(
                 shown_depth = path.len();
             }
         }
-        pending.extend(node.children.iter().map(|&child| (child, depth + 1)));
+        if node.layer_rows_follow_child_order() {
+            pending.extend(node.children.iter().rev().map(|&child| (child, depth + 1)));
+        } else {
+            pending.extend(node.children.iter().map(|&child| (child, depth + 1)));
+        }
     }
     rows
 }

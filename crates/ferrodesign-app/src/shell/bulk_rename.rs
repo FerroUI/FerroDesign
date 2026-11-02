@@ -30,7 +30,9 @@ impl RenameSession {
             if selected.contains(&id) {
                 layers.push((id, node.name.clone()));
             }
-            pending.extend(node.children.iter().copied());
+            if node.layer_rows_follow_child_order() {
+                pending.extend(node.children.iter().rev().copied());
+            } else { pending.extend(node.children.iter().copied()); }
         }
         Self {
             version: editor.render_change_token(),
