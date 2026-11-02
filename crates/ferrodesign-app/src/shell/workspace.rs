@@ -139,6 +139,7 @@ impl EditorShell {
             dialog.classes().set("phone", compact && size.width.min(size.height) <= 480.0);
             shell.size_tool_dock(size.width < 440.0);
             if shell.compact.replace(compact) != compact {
+                shell.size_page_menu(compact);
                 shell.compact_panel.set(CompactPanel::Canvas);
                 shell.workspace_ui.inspect_on_phone.set(false);
                 shell.layout_workspace();

@@ -13,13 +13,22 @@ pub(in crate::shell) struct PageDrag {
     page: NodeId,
     pointer: Rc<dyn IPointer>,
     started: Instant,
+    hold_after: Duration,
     origin: UiPoint,
     current: UiPoint,
     active: bool,
+    held_menu: bool,
     slot: Option<usize>,
     marker: Option<(Ref<Grid>, &'static str)>,
     line: Option<Ref<Border>>,
     timer: Option<Subscription>,
+}
+
+impl PageDrag {
+    fn is_touch_hold(&self) -> bool {
+        self.pointer.type_() == PointerType::Touch
+            && (self.held_menu || self.started.elapsed() >= self.hold_after)
+    }
 }
 
 impl EditorShell {
@@ -32,7 +41,10 @@ impl EditorShell {
         button.add_handler_with(
             InputElement::pointer_pressed_event(),
             move |_, e| {
-                if !e.properties().is_left_button_pressed || !e.key_modifiers().is_empty() {
+                if !e.pointer().is_primary()
+                    || !e.properties().is_left_button_pressed
+                    || !e.key_modifiers().is_empty()
+                {
                     return;
                 }
                 let Some(s) = weak.upgrade() else { return };
@@ -57,9 +69,15 @@ impl EditorShell {
                     page: editor.active_page,
                     pointer: e.pointer().clone(),
                     started: Instant::now(),
+                    hold_after: s
+                        .root
+                        .get_platform_settings()
+                        .map(|p| p.hold_wait_duration())
+                        .unwrap_or(Duration::from_millis(350)),
                     origin,
                     current: origin,
                     active: false,
+                    held_menu: false,
                     slot: None,
                     marker: None,
                     line: None,
@@ -69,6 +87,25 @@ impl EditorShell {
             RoutingStrategies::TUNNEL,
             false,
         );
+    }
+
+    pub(super) fn defer_held_page_menu(&self, page: NodeId) -> bool {
+        let mut state = self.page_drag.borrow_mut();
+        let Some(drag) = state.as_mut() else {
+            return false;
+        };
+        if drag.pointer.type_() != PointerType::Touch
+            || self
+                .page_list
+                .borrow()
+                .rows
+                .get(drag.source)
+                .is_none_or(|r| r.id != page)
+        {
+            return false;
+        }
+        drag.held_menu = true;
+        true
     }
 
     pub(super) fn wire_page_drag(self: &Rc<Self>) {
@@ -86,6 +123,7 @@ impl EditorShell {
                 }
                 let point = e.get_position(Some(&s.control::<ScrollViewer>("PagesViewport")));
                 if s.update_page_drag(point) {
+                    e.prevent_gesture_recognition();
                     e.set_handled(true);
                 }
             },
@@ -101,8 +139,25 @@ impl EditorShell {
                 };
                 let point = e.get_position(Some(&s.control::<ScrollViewer>("PagesViewport")));
                 let active = s.update_page_drag(point);
+                let menu = s
+                    .page_drag
+                    .borrow()
+                    .as_ref()
+                    .filter(|d| d.is_touch_hold() && !d.active)
+                    .and_then(|d| {
+                        s.page_list
+                            .borrow()
+                            .rows
+                            .get(d.source)
+                            .map(|r| (r.id, r.button.clone()))
+                    });
                 s.finish_page_drag(active);
-                if active {
+                if let Some((id, button)) = menu {
+                    e.prevent_gesture_recognition();
+                    e.set_handled(true);
+                    s.show_page_menu(id, &button);
+                } else if active {
+                    e.prevent_gesture_recognition();
                     e.set_handled(true);
                 }
             },
@@ -125,14 +180,14 @@ impl EditorShell {
         );
         let weak = Rc::downgrade(self);
         view.add_handler(InputElement::pointer_capture_lost_event(), move |_, e| {
-            let Some(s) = weak
-                .upgrade()
-                .filter(|s| s.has_page_drag() && s.page_pointer(e.pointer().id()))
-            else {
+            let Some(s) = weak.upgrade().filter(|s| s.page_pointer(e.pointer().id())) else {
                 return;
             };
-            if e.pointer().captured().as_ref()
-                != Some(&s.control::<ScrollViewer>("PagesViewport").upcast())
+            let captured = e.pointer().captured();
+            if captured.is_none()
+                || (s.has_page_drag()
+                    && captured.as_ref()
+                        != Some(&s.control::<ScrollViewer>("PagesViewport").upcast()))
             {
                 s.finish_page_drag(false);
             }
@@ -171,9 +226,7 @@ impl EditorShell {
             if (point.x - drag.origin.x).hypot(point.y - drag.origin.y) < 5. {
                 return false;
             }
-            if drag.pointer.type_() == PointerType::Touch
-                && drag.started.elapsed() < Duration::from_millis(350)
-            {
+            if drag.pointer.type_() == PointerType::Touch && !drag.is_touch_hold() {
                 *state = None;
                 return false;
             }

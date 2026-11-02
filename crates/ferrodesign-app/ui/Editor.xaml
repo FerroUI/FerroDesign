@@ -197,6 +197,9 @@
     </Style>
     <Style Selector="StackPanel.file-heading"><Setter Property="Margin" Value="16,19,12,0"/></Style>
     <Style Selector="Button.file-heading-action"><Setter Property="Width" Value="30"/><Setter Property="Height" Value="28"/></Style>
+    <Style Selector="Button.page-heading-action"><Setter Property="Width" Value="28"/><Setter Property="Height" Value="28"/></Style>
+    <Style Selector="Border.phone-sidebar Button.page-heading-action"><Setter Property="Width" Value="44"/><Setter Property="Height" Value="44"/></Style>
+    <Style Selector="Border.phone-sidebar ToggleButton.page-row"><Setter Property="Height" Value="44"/></Style>
     <Style Selector="Border.phone-sidebar StackPanel.file-heading"><Setter Property="Margin" Value="12,6,8,0"/></Style>
     <Style Selector="Border.phone-sidebar Button.file-heading-action"><Setter Property="Width" Value="44"/><Setter Property="Height" Value="44"/></Style>
     <Style Selector="Path.drawer-icon"><Setter Property="Stroke" Value="#555555"/></Style>
@@ -241,9 +244,9 @@
           <TextBlock Text="Drafts / FerroDesign" Classes="label"/>
         </StackPanel>
         <StackPanel Grid.Row="1" Margin="12,0,12,12" Spacing="4">
-          <Grid ColumnDefinitions="*,28,28" Margin="4,0,0,4">
+          <Grid ColumnDefinitions="*,Auto,Auto" Margin="4,0,0,4">
             <TextBlock Text="Pages" Classes="heading" VerticalAlignment="Center"/>
-            <Button Name="PageActionsButton" Grid.Column="1" Padding="5" AutomationProperties.Name="Page actions" ToolTip.Tip="Page actions">
+            <Button Name="PageActionsButton" Classes="page-heading-action" Grid.Column="1" Padding="5" AutomationProperties.Name="Page actions" ToolTip.Tip="Page actions">
               <Button.Flyout>
                 <MenuFlyout Placement="BottomEdgeAlignedRight">
                   <MenuItem Name="PageRename" Header="Rename page"/>
@@ -254,7 +257,7 @@
                 </MenuFlyout>
               </Button.Flyout>
             </Button>
-            <Button Name="AddPageButton" Grid.Column="2" Content="+" AutomationProperties.Name="Add page" ToolTip.Tip="Add page"/>
+            <Button Name="AddPageButton" Classes="page-heading-action" Grid.Column="2" Content="+" AutomationProperties.Name="Add page" ToolTip.Tip="Add page"/>
           </Grid>
           <ScrollViewer Name="PagesViewport" MaxHeight="155" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
             <StackPanel Name="PagesHost" Spacing="2">

@@ -46,6 +46,15 @@ impl EditorShell {
         });
     }
 
+    pub(super) fn size_page_menu(&self, compact: bool) {
+        // A flyout is hosted outside the sidebar's visual styles.
+        for name in ["PageRename", "PageDuplicate", "PageMoveUp", "PageMoveDown", "PageDelete"] {
+            let item = self.control::<MenuItem>(name);
+            if compact { item.set_min_height(44.); }
+            else { item.clear_value(ferroui_base::layout::Layoutable::min_height_property()); }
+        }
+    }
+
     pub(super) fn add_workspace_page(&self) {
         let mut editor = self.editor.borrow_mut();
         let name = format!("Page {}", editor.document.pages.len() + 1);
@@ -237,13 +246,21 @@ impl EditorShell {
         let target = button.downgrade();
         button.add_handler(InputElement::context_requested_event(), move |_, e| {
             let (Some(shell), Some(target)) = (weak.upgrade(), target.upgrade()) else { return; };
-            if shell.go_to_page(id) {
-                if let Some(menu) = shell.button("PageActionsButton").flyout() { menu.show_at(&target); }
+            // A touch hold can still turn into a reorder. Resolve a stationary
+            // hold on release, while a right-click or keyboard request opens now.
+            if !(e.is_holding() && shell.defer_held_page_menu(id)) {
+                shell.show_page_menu(id, &target);
             }
             e.set_handled(true);
         });
         self.wire_page_drag_source(&button, id);
         PageRow { id, name: String::new(), host, button, label }
+    }
+
+    fn show_page_menu(self: &Rc<Self>, id: NodeId, target: &Ref<ToggleButton>) {
+        if self.go_to_page(id) {
+            if let Some(menu) = self.button("PageActionsButton").flyout() { menu.show_at(target); }
+        }
     }
 
     fn go_to_page(self: &Rc<Self>, id: NodeId) -> bool {

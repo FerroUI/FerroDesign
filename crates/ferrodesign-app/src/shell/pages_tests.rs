@@ -386,3 +386,84 @@ fn native_page_drag_reorders_on_release_keeps_canvas_state_and_cancels_at_edges(
     assert_eq!(s.editor.borrow().active_page, active);
     assert_eq!(s.editor.borrow().history_len(), 1);
 }
+
+#[test]
+fn native_touch_page_hold_distinguishes_menu_reorder_and_scrolling() {
+    let f = Fixture::new(false);
+    let s = &f.shell;
+    let active = s.editor.borrow().active_page;
+    for i in 0..16 { s.editor.borrow_mut().document.add_page(format!("Touch scene {i}")); }
+    s.editor.borrow_mut().refresh();
+    s.refresh();
+    f.window.set_width(390.);
+    f.window.set_height(844.);
+    f.window.capture_rendered_frame().unwrap();
+    s.show_layers_panel();
+    f.window.capture_rendered_frame().unwrap();
+    for name in ["PageActionsButton", "AddPageButton"] {
+        let b = s.button(name).bounds();
+        assert!(b.width >= 44. && b.height >= 44., "{name} touch target {b:?}");
+    }
+    assert!(row_at(&f, 0).bounds().height >= 44.);
+    let view = s.control::<ferroui_controls::ScrollViewer>("PagesViewport");
+    let menu = s.button("PageActionsButton").flyout().unwrap();
+    let point = |index, fraction| {
+        let row = row_at(&f, index);
+        row.translate_point(ferroui_base::Point::new(25., row.bounds().height * fraction), &f.window).unwrap()
+    };
+    let hold = |row| {
+        let touch = f.window.touch_begin(point(row, 0.5), RawInputModifiers::NONE);
+        let interval = row_at(&f, row).get_platform_settings().unwrap().hold_wait_duration();
+        std::thread::sleep(interval.max(Duration::from_millis(350)) + Duration::from_millis(30));
+        Dispatcher::ui_thread().run_jobs(None);
+        touch
+    };
+    let before = f.json();
+    let source = s.editor.borrow().document.pages[2].id;
+    let canceled = f.window.touch_begin(point(0, 0.5), RawInputModifiers::NONE);
+    canceled.dispose();
+    assert!(s.page_drag.borrow().is_none());
+    let a = hold(2);
+    assert!(!menu.is_open());
+    assert_eq!(s.editor.borrow().active_page, active);
+    let target = point(0, 0.2);
+    f.window.touch_move(a.as_ref(), target, RawInputModifiers::NONE);
+    assert!(s.has_page_drag());
+    assert_eq!(f.json(), before);
+    f.window.touch_end(a.as_ref(), target, RawInputModifiers::NONE);
+    assert_eq!(s.editor.borrow().document.pages[0].id, source);
+    assert!(!menu.is_open());
+    assert_eq!(s.editor.borrow().active_page, active);
+    assert_eq!(s.editor.borrow().selection, [f.id]);
+    assert!(s.command("undo"));
+    f.window.capture_rendered_frame().unwrap();
+    assert_eq!(f.json(), before);
+
+    let stationary = s.editor.borrow().document.pages[1].id;
+    let b = hold(1);
+    assert!(!menu.is_open());
+    f.window.touch_end(b.as_ref(), point(1, 0.5), RawInputModifiers::NONE);
+    Dispatcher::ui_thread().run_jobs(None);
+    assert!(menu.is_open());
+    f.window.capture_rendered_frame().unwrap();
+    for name in ["PageRename", "PageDuplicate", "PageMoveUp", "PageMoveDown", "PageDelete"] {
+        let b = s.control::<MenuItem>(name).bounds();
+        assert!(b.width >= 44. && b.height >= 44., "{name} touch target {b:?}");
+    }
+    assert_eq!(s.editor.borrow().active_page, stationary);
+    assert_eq!(s.editor.borrow().history_len(), 0);
+    menu.hide();
+    f.window.capture_rendered_frame().unwrap();
+
+    let from = point(2, 0.7);
+    let c = f.window.touch_begin(from, RawInputModifiers::NONE);
+    for dy in [12., 30., 52., 70.] {
+        f.window.touch_move(c.as_ref(), ferroui_base::Point::new(from.x, from.y-dy), RawInputModifiers::NONE);
+    }
+    f.window.touch_end(c.as_ref(), ferroui_base::Point::new(from.x, from.y-70.), RawInputModifiers::NONE);
+    f.window.capture_rendered_frame().unwrap();
+    assert!(view.offset().y > 0.0, "a quick swipe scrolls the page list");
+    assert!(!s.has_page_drag() && !menu.is_open());
+    assert_eq!(f.json(), before);
+    assert_eq!(s.editor.borrow().active_page, stationary);
+}

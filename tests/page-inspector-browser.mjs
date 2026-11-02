@@ -181,4 +181,75 @@ export async function pageInspectorRegressions(page, reference, check, helpers, 
     assert.deepEqual(await documentState(page), original);
     check("Dragging an inactive page reorders on release, keeps the current canvas and camera, and cancels or undoes exactly");
 
+    const desktop = page.viewportSize(), phoneDocument = structuredClone(original);
+    for (let i = 0; i < 10; i++) {
+        phoneDocument.pages.push({ ...phoneDocument.pages[1], id: phoneDocument.next_id++, name: "Mobile scene " + i, children: [] });
+    }
+    const input = await page.context().newCDPSession(page);
+    try {
+        await importFixture(page, phoneDocument);
+        await page.setViewportSize({width: 390, height: 844});
+        await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.CompactLayers.visible);
+        await clickNative(page, "CompactLayers");
+        await clickNative(page, "PageActionsButton");
+        const phone = (await state(page)).chrome;
+        for (const name of ["PageActionsButton", "AddPageButton", "ActivePage", "PageRename", "PageDuplicate", "PageMoveUp", "PageMoveDown", "PageDelete"]) {
+            const c = phone[name];
+            assert.ok(c.width >= 44 && c.height >= 44 && c.x >= 0 && c.x + c.width <= 391 && c.y >= 0 && c.y + c.height <= 845,
+                name + " has an on-screen phone touch target");
+        }
+        await captureNativeScreenshot(mode + "-phone-page-actions", {controls: ["PageDuplicate", "PageDelete", "ActivePage"]});
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => !JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.PageDuplicate);
+        await input.send("Emulation.setTouchEmulationEnabled", {enabled: true});
+        const touch = (type, point) => input.send("Input.dispatchTouchEvent", {
+            type, touchPoints: point ? [{...point, id: 1, radiusX: 2, radiusY: 2, force: 1}] : [],
+        });
+        const origin = phone.ActivePage, firstId = phoneDocument.pages[0].id, secondId = phoneDocument.pages[1].id;
+        const second = {x: origin.x + origin.width / 2, y: origin.y + 1.5 * origin.height + 2};
+        const top = {x: second.x, y: origin.y + 3};
+        const held = async () => {
+            await touch("touchStart", second);
+            // Allow the platform to recognize a stationary touch hold before choosing a move or release.
+            await page.waitForTimeout(600);
+            const during = await state(page);
+            assert.equal(during.activePage, firstId);
+            assert.ok(!during.chrome.PageDuplicate, "The context menu waits until a stationary finger lifts");
+        };
+        await held();
+        await touch("touchMove", {x: second.x, y: second.y - 12});
+        await touch("touchMove", top);
+        await frames(page);
+        const beforeDrop = await documentState(page);
+        assert.deepEqual(beforeDrop.pages, phoneDocument.pages);
+        await captureNativeScreenshot(mode + "-phone-page-reorder", {controls: ["PagesViewport", "ActivePage"]});
+        await touch("touchEnd");
+        await page.waitForFunction(id => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).pages[0].id === id, secondId);
+        assert.equal((await state(page)).activePage, firstId);
+        await page.keyboard.press("Control+z");
+        await frames(page);
+        assert.deepEqual(await documentState(page), beforeDrop);
+        await held();
+        await touch("touchEnd");
+        await page.waitForFunction(id => {
+            const v = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+            return v.activePage === id && v.chrome.PageDuplicate?.visible;
+        }, secondId);
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => !JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.PageDuplicate);
+        const from = {x: second.x, y: origin.y + 2.5 * origin.height + 4};
+        await touch("touchStart", from);
+        for (const step of [12, 30, 52, 72]) await touch("touchMove", {x: from.x, y: from.y - step});
+        await touch("touchEnd");
+        await page.waitForFunction(y => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.ActivePage.y < y - 5,
+            origin.y + origin.height + 2);
+        assert.deepEqual(await documentState(page), beforeDrop);
+        check("On a phone, held touch can drag or open page actions on release, a quick swipe scrolls, and page controls have 44-DIP targets");
+    } finally {
+        await input.send("Emulation.setTouchEmulationEnabled", {enabled: false});
+        await input.detach();
+        await page.setViewportSize(desktop);
+        await frames(page);
+    }
+
 }
