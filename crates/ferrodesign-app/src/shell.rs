@@ -74,8 +74,8 @@ pub struct EditorShell {
     inline_layout: RefCell<Option<text::InlineLayout>>,
     inline_updating: Cell<bool>,
     inline_draft_dirty: Cell<bool>,
-    inspector_drafts: RefCell<Vec<std::rc::Weak<fields::InspectorDraft>>>,
     geometry_scrub: RefCell<Option<geometry_scrub::Scrub>>,
+    inspector_drafts: RefCell<Vec<std::rc::Weak<fields::InspectorDraft>>>,
     panel_state: panels::PanelState,
     expanded: RefCell<BTreeSet<NodeId>>,
     layer_buttons: RefCell<BTreeMap<NodeId, WeakRef<Button>>>,
@@ -142,9 +142,9 @@ impl EditorShell {
             inline_layout: RefCell::new(None),
             inline_updating: Cell::new(false),
             inline_draft_dirty: Cell::new(false),
+            geometry_scrub: RefCell::new(None),
             inspector_drafts: RefCell::new(Vec::new()),
             panel_state: panels::PanelState::default(),
-            geometry_scrub: RefCell::new(None),
             expanded: RefCell::new(expanded),
             layer_buttons: RefCell::new(BTreeMap::new()),
             layer_projection: RefCell::new(LayerProjection::default()),
@@ -775,10 +775,10 @@ impl EditorShell {
             "DesignTab", "PrototypeTab", "InspectTab", "PrototypeInspector", "InspectInspector",
             "PageInspector", "DesignInspector", "PageBackgroundField", "PageBackgroundSwatch",
             "NameField", "WidthField", "HeightField", "FillField", "TextField",
+            "XScrub", "YScrub", "WidthScrub", "HeightScrub", "RotationScrub",
             "RadiusField", "CornerSmoothingField", "IndependentCornersButton",
             "StrokeProfileChoice", "StrokeWidthCustomButton", "StrokeWidthHandlesButton", "StrokeWidthField", "DashField",
             "SelectMatchingButton",
-            "XScrub", "YScrub", "WidthScrub", "HeightScrub", "RotationScrub",
             "XField", "YField", "RotationField", "AffineButton", "FramePresetsButton", "PageFramePresetsButton",
             "ConstraintLeft", "ConstraintRight", "ConstraintTop", "ConstraintBottom", "ConstraintCenterX", "ConstraintCenterY",
             "HorizontalConstraint", "VerticalConstraint",
@@ -946,6 +946,7 @@ impl EditorShell {
         self.toast(message);
     }
     pub fn import_document(self: &Rc<Self>, text: &str, name: &str) -> bool {
+        self.finish_geometry_scrub(false);
         self.finish_inline_text(true);
         if !self.flush_inspector_drafts() {
             self.toast("Correct the inspector value or press Escape before opening a design.");
@@ -961,7 +962,6 @@ impl EditorShell {
         let result = if is_svg {
             self.editor.borrow_mut().import_svg(text, name).map(|_| ())
         } else {
-        self.finish_geometry_scrub(false);
             self.editor.borrow_mut().load_json(text)
         };
         match result {
@@ -1785,6 +1785,11 @@ impl EditorShell {
     }
 
     pub fn command(self: &Rc<Self>, command: &str) -> bool {
+        if command != "storage-status" && self.geometry_scrub.borrow().is_some() {
+            let cancel = matches!(command, "undo" | "redo");
+            self.finish_geometry_scrub(!cancel);
+            if cancel { return true; }
+        }
         if matches!(command, "toggle-ui" | "minimize-ui" | "restore-ui") {
             return self.change_workspace_ui(command);
         }
@@ -1809,11 +1814,6 @@ impl EditorShell {
         // Undo during a held stroke cancels that preview. Other explicit
         // commands finish the stroke before they can join its transaction.
         if matches!(command, "undo" | "redo") && self.canvas.cancel_active_edit() {
-        if command != "storage-status" && self.geometry_scrub.borrow().is_some() {
-            let cancel = matches!(command, "undo" | "redo");
-            self.finish_geometry_scrub(!cancel);
-            if cancel { return true; }
-        }
             return true;
         }
         self.canvas.finish_linear_gradient_edit();
