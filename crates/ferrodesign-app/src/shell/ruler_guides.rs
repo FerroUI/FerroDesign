@@ -34,7 +34,7 @@ impl EditorShell {
     }
 
     fn show_ruler_guides(self: &Rc<Self>, owner: NodeId, offset: usize) {
-        let (page, title, total, first, entries, version, selected_frame) = {
+        let (page, title, total, first, entries, version, selected_frame, frame_size) = {
             let e = self.editor.borrow();
             let d = &e.document;
             if d.ruler_owner_transform(e.active_page, owner).is_none() || d.effective_locked(owner)
@@ -64,6 +64,7 @@ impl EditorShell {
                     .collect::<Vec<_>>(),
                 e.render_change_token(),
                 frame,
+                d.nodes.get(&owner).map(|node| (node.width, node.height)),
             )
         };
         self.modal("Ruler guides", &title);
@@ -112,10 +113,15 @@ impl EditorShell {
                     s.show_ruler_guides(owner, total / PER_PAGE * PER_PAGE);
                 }
             });
-            button.set_min_height(36.);
+            button.classes().add("ruler-add");
             Grid::set_column(&button, i as i32);
             add.children().add(button);
         }
+        let first_add = add
+            .children()
+            .get(0)
+            .cast::<Button>()
+            .expect("vertical guide action");
         host.children().add(add);
         if owner != page {
             host.children().add(self.style_button(
@@ -132,6 +138,16 @@ impl EditorShell {
                 move |s| s.show_ruler_guides(frame, 0),
             ));
         }
+        let preferred = self
+            .canvas
+            .selected_ruler_guide()
+            .filter(|guide| {
+                guide.owner == owner && (first..first + entries.len()).contains(&guide.index)
+            })
+            .map_or_else(
+                || offset.clamp(first, total.saturating_sub(1)),
+                |guide| guide.index,
+            );
         let mut focus = None;
         if total == 0 {
             host.children().add(style_label(
@@ -145,22 +161,44 @@ impl EditorShell {
             row.set_column_definitions(ColumnDefinitions::parse("Auto,*,Auto,Auto").unwrap());
             row.set_column_spacing(4.);
             let axis = if guide.horizontal { "Y" } else { "X" };
-            let label = style_label(axis);
+            let label = style_label(&format!("{} · {axis}", index + 1));
             label.set_vertical_alignment(VerticalAlignment::Center);
             row.children().add(label);
             let field = TextBox::new();
             field.set_name(Some(format!("RulerPosition{index}")));
             field.set_text(Some(&guide.position.to_string()));
-            field.set_min_height(34.);
+            field.classes().add("ruler-position");
             AutomationProperties::set_name(
                 &field,
                 Some(&format!("Guide {} {axis} position", index + 1)),
             );
             Grid::set_column(&field, 1);
             row.children().add(field.clone());
-            if self.canvas.selected_ruler_guide() == Some(id) {
+            if index == preferred {
                 focus = Some(field.clone());
             }
+            let error = TextBlock::new();
+            error.set_name(Some(format!("RulerError{index}")));
+            error.classes().add("ruler-error");
+            let limit =
+                frame_size.map(|(width, height)| if guide.horizontal { height } else { width });
+            let message = limit.map_or_else(
+                || "Enter a finite number, for example -12.75.".to_owned(),
+                |end| format!("Enter a position between 0 and {end}."),
+            );
+            error.set_text(Some(&message));
+            error.set_is_visible(false);
+            let validation = error.downgrade();
+            let input = field.downgrade();
+            field.text_changing(move |_, _| {
+                if let (Some(field), Some(error)) = (input.upgrade(), validation.upgrade()) {
+                    if error.is_visible() {
+                        error.set_is_visible(false);
+                        AutomationProperties::set_item_status(&field, None);
+                    }
+                }
+            });
+            let validation = error.downgrade();
             let input = field.downgrade();
             let token = version.clone();
             let apply = Rc::new(move |s: &Rc<EditorShell>| {
@@ -175,10 +213,14 @@ impl EditorShell {
                     .trim()
                     .parse::<f64>()
                     .ok()
-                    .filter(|n| n.is_finite())
+                    .filter(|n| n.is_finite() && limit.is_none_or(|end| (0.0..=end).contains(n)))
                 else {
-                    s.toast("Enter a finite guide position.");
                     field.focus();
+                    if let Some(error) = validation.upgrade() {
+                        error.set_is_visible(true);
+                        AutomationProperties::set_item_status(&field, error.text().as_deref());
+                        error.bring_into_view();
+                    }
                     return;
                 };
                 if s.canvas.commit_ruler(
@@ -213,6 +255,10 @@ impl EditorShell {
             let set = self.style_button("Set", &format!("RulerApply{index}"), true, move |s| {
                 apply(s)
             });
+            AutomationProperties::set_name(
+                &set,
+                Some(&format!("Set guide {} {axis} position", index + 1)),
+            );
             Grid::set_column(&set, 2);
             row.children().add(set);
             let token = version.clone();
@@ -223,12 +269,14 @@ impl EditorShell {
                         return;
                     }
                     if s.canvas.commit_ruler(Some(id), None, false) {
-                        s.show_ruler_guides(owner, first);
+                        s.show_ruler_guides(owner, index);
                     }
                 });
+            AutomationProperties::set_name(&remove, Some(&format!("Remove guide {}", index + 1)));
             Grid::set_column(&remove, 3);
             row.children().add(remove);
             host.children().add(row);
+            host.children().add(error);
         }
         if total > PER_PAGE {
             host.children().add(style_label(&format!(
@@ -252,13 +300,19 @@ impl EditorShell {
             ));
             host.children().add(nav);
         }
-        self.modal_button("Done", "close-modal");
+        let done = self.style_button("Done", "RulerDone", true, |s| s.close_modal());
+        done.classes().add("primary");
+        self.control::<StackPanel>("ModalActions")
+            .children()
+            .add(done);
         panel.update_layout();
-        if let Some(f) = focus {
-            f.focus();
-            f.select_all();
+        if let Some(field) = focus {
+            field.focus();
+            field.select_all();
+            field.bring_into_view();
         } else {
-            self.button("CloseModalButton").focus();
+            first_add.focus();
+            first_add.bring_into_view();
         }
     }
 }

@@ -47,4 +47,34 @@ export async function rulerGuides(page, reference, check, helpers) {
     assert.deepEqual(await guides(),copy);
     await page.keyboard.press("Shift+r");
     check("Rulers create a page guide from real pointer input, Option-drag duplicates it, and Delete and Undo restore exact positions");
+    const desktop = page.viewportSize();
+    try {
+        await page.setViewportSize({ width: 320, height: 568 });
+        await frames(page);
+        await page.evaluate(() => globalThis.ferroDesign.ferroDesignCommand("ruler-guide-settings"));
+        await page.waitForFunction(() => Object.entries(JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome)
+            .some(([id, c]) => id.startsWith("RulerPosition") && c.focused && c.height >= 44));
+        const { chrome } = await state(page);
+        const focused = Object.keys(chrome).find(id => id.startsWith("RulerPosition") && chrome[id].focused);
+        for (const name of ["RulerAddVertical", "RulerAddHorizontal", "RulerPosition0",
+            "RulerApply0", "RulerRemove0", "CloseModalButton", "RulerDone"]) {
+            assert.ok(chrome[name].width >= 44 && chrome[name].height >= 44, name + " has a phone-sized target");
+        }
+        await page.keyboard.press("Control+a");
+        await page.keyboard.insertText("not a position");
+        await page.keyboard.press("Enter");
+        const error = focused.replace("Position", "Error");
+        await page.waitForFunction(({focused,error}) => {
+            const c = JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome;
+            return c[focused]?.focused && c[error]?.visible;
+        }, {focused,error});
+        assert.deepEqual(await guides(), copy);
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => !JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.ModalBackdrop.visible);
+        check("At 320 px ruler controls have 44-DIP targets, open on an editable position, and validate inline without changing guides");
+    } finally {
+        await page.setViewportSize(desktop);
+        await frames(page);
+    }
+
 }

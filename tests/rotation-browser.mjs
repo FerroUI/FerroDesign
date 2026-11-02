@@ -143,8 +143,7 @@ async function captureOrbitRotation(page, reference, check, helpers, mode) {
                 y: Math.round(v.chrome.CanvasHost.y + v.pan.y + v.zoom * y)});
             const cross = project(pivot.x, pivot.y);
             const box = v.selectionBounds, bottom = project(box.x + box.width / 2, box.y + box.height);
-            const target = ink(png, cross.x - 10, cross.y - 10, cross.x + 11, cross.y + 11);
-            assert.ok(target.width >= 14 && target.height >= 14, "The native origin crosshair is painted at the fixed left edge");
+            assert.ok(paintedOrigin(png, cross.x, cross.y), "All four native crosshair arms are painted at the fixed left edge");
             const badge = ink(png, bottom.x - 60, bottom.y - 48, bottom.x + 61, bottom.y + 44);
             assert.ok(badge.width >= 32 && badge.height >= 15, "The live angle badge is visible beside the transformed selection");
         } finally { await page.keyboard.up("Shift"); }
@@ -169,4 +168,34 @@ function ink(png, left, top, right, bottom) {
         }
     }
     return {width: maxX - minX + 1, height: maxY - minY + 1};
+}
+
+// A 1.5-DIP line centered on an integer covers two adjacent pixels only
+// partially. Compare each arm with its nearby artwork so both light and dark
+// sides of the pivot can exhibit their actual composited stroke color.
+function paintedOrigin(png, x, y) {
+    const target = [9, 109, 174];
+    const pixel = (sx, sy) => {
+        const i = (sy * png.width + sx) * 4;
+        return png.data.subarray(i, i + 3);
+    };
+    const arm = (dx, dy) => {
+        for (const distance of [6, 7]) {
+            for (const across of [-1, 0, 1]) {
+                const px = x + dx * distance - dy * across, py = y + dy * distance + dx * across;
+                const sample = pixel(px, py);
+                for (const side of [-4, 4]) {
+                    const background = pixel(px - dy * side, py + dx * side);
+                    const vector = target.map((ink, i) => ink - background[i]);
+                    const length = vector.reduce((sum, v) => sum + v * v, 0);
+                    if (length < 40 * 40) continue;
+                    const coverage = vector.reduce((sum, v, i) => sum + v * (sample[i] - background[i]), 0) / length;
+                    if (coverage >= 0.5 && coverage <= 1.05 && vector.every((v, i) =>
+                        Math.abs(sample[i] - background[i] - coverage * v) <= 12)) return true;
+                }
+            }
+        }
+        return false;
+    };
+    return [[1,0],[-1,0],[0,1],[0,-1]].every(([dx, dy]) => arm(dx, dy));
 }

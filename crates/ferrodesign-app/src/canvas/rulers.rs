@@ -221,13 +221,9 @@ impl DesignCanvas {
         {
             let world = v.screen_to_world(screen);
             let owner = self
-                .drawing_parent_at(world, Tool::Rectangle)
-                .filter(|&id| {
-                    self.editor
-                        .borrow()
-                        .document
-                        .ruler_owner_transform(page, id)
-                        .is_some()
+                .containing_parent_at(world, |editor, id| {
+                    !editor.document.effective_locked(id)
+                        && editor.document.ruler_owner_transform(page, id).is_some()
                 })
                 .unwrap_or(page);
             let e = self.editor.borrow();

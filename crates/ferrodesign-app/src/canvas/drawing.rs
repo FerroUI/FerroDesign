@@ -14,6 +14,15 @@ pub(super) struct ShapeDrag {
 impl DesignCanvas {
     pub(super) fn drawing_parent_at(&self, press: Point, tool: Tool) -> Option<NodeId> {
         if tool == Tool::Slice { return None; }
+        self.containing_parent_at(press, |editor, id| {
+            editor.document.is_layer_destination(id)
+                && (tool != Tool::Section || editor.document.nodes[&id].kind == NodeKind::Section)
+        })
+    }
+
+    pub(super) fn containing_parent_at(
+        &self, press: Point, accepts: impl Fn(&Editor, NodeId) -> bool,
+    ) -> Option<NodeId> {
         let editor = self.editor.borrow();
         let doc = &editor.document;
         let roots = &doc.page(editor.active_page)?.children;
@@ -26,8 +35,7 @@ impl DesignCanvas {
         for _ in 0..core::MAX_DOCUMENT_DEPTH {
             let id = current?;
             let node = doc.nodes.get(&id)?;
-            if doc.is_layer_destination(id)
-                && (tool != Tool::Section || node.kind == NodeKind::Section)
+            if accepts(&editor, id)
                 && doc
                     .world_transform(id)
                     .and_then(core::Transform::inverse)

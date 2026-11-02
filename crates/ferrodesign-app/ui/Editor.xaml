@@ -152,10 +152,22 @@
       <Setter Property="TextWrapping" Value="Wrap"/><Setter Property="FontSize" Value="13"/>
       <Setter Property="LineHeight" Value="20"/><Setter Property="Foreground" Value="#24313B"/>
     </Style>
-    <Style Selector="Border.rename-dialog.phone TextBox.rename-field">
+    <Style Selector="Button.ruler-add">
+      <Setter Property="MinHeight" Value="36"/><Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBox.ruler-position">
+      <Setter Property="MinHeight" Value="34"/><Setter Property="FontSize" Value="13"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBlock.ruler-error">
+      <Setter Property="Foreground" Value="#AD2721"/><Setter Property="FontSize" Value="12"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style Selector="Border.touch-dialog.phone TextBox">
       <Setter Property="MinHeight" Value="44"/><Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
-    <Style Selector="Border.rename-dialog.phone Button">
+    <Style Selector="Border.touch-dialog.phone Button">
       <Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="FontSize" Value="13"/>
       <Setter Property="MinHeight" Value="44"/><Setter Property="MinWidth" Value="44"/>
     </Style>
