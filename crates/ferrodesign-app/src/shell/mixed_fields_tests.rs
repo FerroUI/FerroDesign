@@ -351,6 +351,12 @@ fn geometry_scrub_previews_mixed_values_and_commits_the_release_sample_once() {
         let first = e.document.nodes.get_mut(&f.id).unwrap();
         first.rotation = 23.0;
         first.width = 120.125;
+        first.variable_bindings.insert("width".into(), 900);
+        e.document.variables.insert(900, core::Variable {
+            id: 900, name: "Bound width".into(), collection: "Dimensions".into(),
+            values: BTreeMap::from([("Default".into(), core::VariableValue::Number(120.125))]),
+        });
+        e.document.next_id = 901;
         let other = Node::new(NodeKind::Rectangle, "Peer", 210.0, 75.0, 46.5, 40.0);
         let second = e.document.insert_node(1, other.clone()).unwrap();
         let mut pinned = other;
@@ -383,6 +389,9 @@ fn geometry_scrub_previews_mixed_values_and_commits_the_release_sample_once() {
     assert_eq!(widths(), [128.125, 54.5, 46.5]);
     assert_eq!(shell.editor.borrow().history_len(), 0);
     assert!(field.placeholder_text().unwrap().contains("+8"));
+    f.window.mouse_move(at, drag);
+    assert_eq!(f.json(), initial, "dragging back restores bindings during the live preview");
+    f.window.mouse_move(p(8.0), drag);
     f.window.mouse_move(p(9.0), drag | RawInputModifiers::SHIFT);
     assert_eq!(widths(), [138.125, 64.5, 46.5]);
     f.window.mouse_up(p(10.0), MouseButton::Left, RawInputModifiers::ALT);
