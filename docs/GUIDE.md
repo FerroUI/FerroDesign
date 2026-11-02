@@ -45,6 +45,8 @@ With a selection on the canvas, hold **Alt/Option** and hover another layer to m
 
 The position, width, height and rotation fields accept arithmetic. Enter `320/2` for an absolute value or `(x/2)+6` to calculate from each unlocked layer’s current value. In a mixed selection, `Mixed+10` adds ten to each individual value. Signed numbers such as `-12` set an absolute coordinate. Enter or leaving the field commits the selection in one undo step. Escape discards the draft.
 
+Select two or more freely positioned layers to resize them together with **Move**. Drag a side to change one dimension or a corner to change both. **Shift** preserves the selection’s proportions, and **Alt/Option** keeps its center fixed. Groups resize their contents, frames use their child constraints, and text and strokes retain their authored sizes. **Esc** cancels the preview. One **Undo** restores the entire selection.
+
 With **Move** active, drag a side of a selected layer to change its width or height. The opposite edge stays fixed, including on rotated layers. Hold **Shift** to preserve proportions or **Alt/Option** to resize about the center. The size label shows fractional dimensions near the selection. **Esc** cancels the drag and **Undo** restores the previous geometry.
 
 [Side resize on a rotated layer](images/ferrodesign-side-resize.png) · [Layer search on a phone](images/ferrodesign-layer-search.png) · [Quick Actions on a phone](images/ferrodesign-quick-actions.png)
