@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { layerTreeDrag } from "./layer-tree-browser.mjs";
 
 // Fixture import supplies initial conditions only. Selection, preferences,
 // history and gesture cancellation all use the actual native input surface.
@@ -481,5 +482,7 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     assert.deepEqual(await documentState(page), multiBase.document);
     await selected([2, 3]);
     check("Dragging the shared Move edge resizes both selected layers and their spacing about the fixed opposite edge; one Undo restores the document");
+
+    await layerTreeDrag(page, reference, check, helpers);
 
 }

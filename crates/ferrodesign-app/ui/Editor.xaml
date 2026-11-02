@@ -110,6 +110,10 @@
       <Setter Property="CornerRadius" Value="4"/><Setter Property="Background" Value="White"/>
       <Setter Property="BorderThickness" Value="1"/><Setter Property="BorderBrush" Value="#0C8CE9"/>
     </Style>
+    <Style Selector="Border.layer-insertion"><Setter Property="IsVisible" Value="False"/><Setter Property="BorderBrush" Value="#0D99FF"/><Setter Property="BorderThickness" Value="1.5"/></Style>
+    <Style Selector="Grid.insert-above Border.layer-insertion"><Setter Property="IsVisible" Value="True"/><Setter Property="Height" Value="2"/><Setter Property="VerticalAlignment" Value="Top"/></Style>
+    <Style Selector="Grid.insert-below Border.layer-insertion"><Setter Property="IsVisible" Value="True"/><Setter Property="Height" Value="2"/><Setter Property="VerticalAlignment" Value="Bottom"/></Style>
+    <Style Selector="Grid.insert-inside Border.layer-insertion"><Setter Property="IsVisible" Value="True"/><Setter Property="Background" Value="#120D99FF"/><Setter Property="CornerRadius" Value="4"/></Style>
     <Style Selector="Button.layer-action">
       <Setter Property="Width" Value="20"/><Setter Property="MinWidth" Value="0"/>
       <Setter Property="MinHeight" Value="0"/><Setter Property="Height" Value="24"/>

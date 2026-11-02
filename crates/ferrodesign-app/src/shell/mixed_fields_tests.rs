@@ -438,7 +438,8 @@ fn geometry_scrub_click_escape_capture_loss_and_save_respect_history_boundaries(
     down();
     f.window.mouse_move(p(9.0,0.0), drag);
     assert!(shell.command("commit-edit"));
-    assert_eq!(platform::load_document(), f.json());
+    let saved: serde_json::Value = serde_json::from_str(&platform::load_document()).unwrap();
+    assert_eq!(saved, serde_json::from_str::<serde_json::Value>(&f.json()).unwrap());
     f.window.mouse_up(p(24.0,0.0), MouseButton::Left, RawInputModifiers::NONE);
     assert_eq!(shell.editor.borrow().document.nodes[&f.id].x, 29.0);
     assert_eq!(shell.editor.borrow().history_len(), 1);

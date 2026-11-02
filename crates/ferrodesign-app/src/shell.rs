@@ -14,6 +14,7 @@ mod compositing;
 mod components;
 mod layout;
 mod layer_projection;
+mod layer_drag;
 mod layer_rename;
 mod bulk_rename;
 mod pages;
@@ -79,6 +80,7 @@ pub struct EditorShell {
     expanded: RefCell<BTreeSet<NodeId>>,
     layer_buttons: RefCell<BTreeMap<NodeId, WeakRef<Button>>>,
     layer_projection: RefCell<LayerProjection>,
+    layer_drag: RefCell<layer_drag::LayerDrag>,
     page_list: RefCell<pages::PageList>,
     assets: Cell<bool>,
     inspector_tab: Cell<u8>,
@@ -146,6 +148,7 @@ impl EditorShell {
             expanded: RefCell::new(expanded),
             layer_buttons: RefCell::new(BTreeMap::new()),
             layer_projection: RefCell::new(LayerProjection::default()),
+            layer_drag: RefCell::default(),
             page_list: RefCell::default(),
             assets: Cell::new(false),
             inspector_tab: Cell::new(0),
@@ -245,6 +248,7 @@ impl EditorShell {
         self.wire_inline_text();
         self.wire_zoom();
         self.wire_panels();
+        self.wire_layer_drag();
         self.wire_geometry_authoring();
         self.wire_stroke_profiles();
         self.hook("EditPaintsButton", "paints");
@@ -815,6 +819,18 @@ impl EditorShell {
             )
         })
         .collect();
+        // The diagnostics bridge exposes just the realized rows used by the native tree.
+        let host = self.control::<ItemsControl>("LayersHost");
+        let projection = self.layer_projection.borrow();
+        for container in host.get_realized_containers() {
+            let index = host.index_from_container(&container);
+            if let Some(row) = usize::try_from(index).ok().and_then(|i| projection.rows().get(i)) {
+                if let Some(button) = self.layer_buttons.borrow().get(&row.id).and_then(WeakRef::upgrade) {
+                    chrome.insert(format!("LayerRow{}", row.id), native_bounds(&button));
+                }
+            }
+        }
+        drop(projection);
         let mut popup_items = self.open_tool_items();
         if self.button("PageActionsButton").flyout().is_some_and(|f| f.is_open()) {
             popup_items.extend(["PageRename", "PageMoveUp", "PageMoveDown"].map(|name| (name, self.control(name))));
@@ -1194,6 +1210,7 @@ impl EditorShell {
         let grid = Grid::new();
         if !row.assets { self.wire_layer_preview(&grid, id); }
         grid.classes().add("layer-row");
+        grid.set_tag(Some(Rc::new(id)));
         grid.set_column_definitions(ColumnDefinitions::parse("20,*,20,20").unwrap());
         grid.set_height(30.0);
         grid.set_margin(Thickness::new(
@@ -1278,6 +1295,7 @@ impl EditorShell {
         button.set_content(Some(Control::boxed(content)));
         Grid::set_column(&button, 1);
         self.wire_layer_activation(&button, id, row.assets);
+        if !row.assets { self.wire_layer_drag_source(&button, id); }
         // Weak handles must not keep scrolled-out item controls alive.
         self.layer_buttons
             .borrow_mut()
@@ -1310,6 +1328,13 @@ impl EditorShell {
                 }
             });
             grid.children().add(action);
+        }
+        if !row.assets {
+            let marker = Border::new();
+            marker.classes().add("layer-insertion");
+            marker.set_is_hit_test_visible(false);
+            Grid::set_column_span(&marker, 4);
+            grid.children().add(marker);
         }
         grid
     }
