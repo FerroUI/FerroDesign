@@ -196,6 +196,7 @@ impl SelectionResize {
             (n.x, n.y, n.width, n.height) = (old.x, old.y, old.width, old.height);
             (n.rotation, n.flip_x, n.flip_y, n.affine_transform) =
                 (old.rotation, old.flip_x, old.flip_y, old.affine_transform);
+            n.text_auto_resize = old.text_auto_resize;
             if let (Some(layout), Some(before)) = (&mut n.layout, &old.layout) {
                 layout.width = before.width;
                 layout.height = before.height;
@@ -228,6 +229,10 @@ impl SelectionResize {
                 return false;
             };
             let n = editor.document.nodes.get_mut(&root.id).unwrap();
+            if n.kind == NodeKind::Text && size != root.size {
+                // Manual bounds wrap auto-width text at its new width.
+                n.text_auto_resize = TextAutoResize::Fixed;
+            }
             if let Some(layout) = &mut n.layout {
                 if size.x != root.size.x {
                     layout.width = SizingMode::Fixed;
@@ -302,6 +307,9 @@ impl SelectionResize {
         };
         for root in &self.roots {
             let n = editor.document.nodes.get_mut(&root.id).unwrap();
+            if n.component_source.is_some() && n.text_auto_resize != originals[&n.id].text_auto_resize {
+                n.overridden_properties.insert("text_auto_resize".into());
+            }
             if n.component_source.is_some() && n.layout != originals[&n.id].layout {
                 n.overridden_properties.insert("layout".into());
             }
@@ -361,6 +369,7 @@ mod tests {
         let mut text =
             Node::new(NodeKind::Text, "Title", 30.0, 10.0, 68.0, 28.0).with_text("Title", 19.0, Color::BLACK);
         text.rotation = 31.0;
+        text.text_auto_resize = TextAutoResize::WidthAndHeight;
         let text = d.insert_node(group, text).unwrap();
         let mut e = Editor::new(d);
         e.selection = vec![shape, group, text];
@@ -376,6 +385,9 @@ mod tests {
         let pivot = resize.bounds().center();
         let factors = Point::new(1.75, 0.6);
         assert!(resize.preview(&mut e, pivot, Point::new(0.24, 0.3)));
+        assert_eq!(e.document.nodes[&text].text_auto_resize, TextAutoResize::Fixed);
+        assert!(resize.preview(&mut e, pivot, Point::new(1.0, 1.0)));
+        assert_eq!(e.document.nodes[&text].text_auto_resize, TextAutoResize::WidthAndHeight);
         assert!(resize.preview(&mut e, pivot, factors));
         assert!(resize.commit(&mut e));
         for (id, old) in [shape, group, text].into_iter().zip(original) {
