@@ -120,8 +120,10 @@ test("a rejected, unsupported, legacy-failed or throwing request keeps bounded e
 test("default browser unlock, capture loss, cancellation, blur and page hiding cancel only their owner", async () => {
     for (const reason of ["unlock", "capture", "cancel", "blur", "hidden", "pagehide", "missedUp"]) {
         const f = fixture(true), token = f.arm();
-        f.api.request(token);
-        if (reason !== "capture") f.grant();
+        if (reason !== "capture") {
+            f.api.request(token);
+            f.grant();
+        }
         if (reason === "unlock") { f.doc.pointerLockElement = null; f.doc.send("pointerlockchange"); }
         if (reason === "capture") f.root.send("lostpointercapture");
         if (reason === "cancel") f.win.send("pointercancel");
@@ -144,4 +146,28 @@ test("a stale DOM capture-loss event cannot cancel a recaptured mouse", () => {
     f.root.hasPointerCapture = () => false;
     f.root.send("lostpointercapture");
     assert.deepEqual(f.canceled, [token]);
+});
+
+
+test("capture may transfer before Chromium publishes the pointer-lock grant", async () => {
+    for (const legacy of [false, true]) {
+        for (const accepted of [false, true]) {
+            const f = fixture(legacy), token = f.arm();
+            f.api.request(token);
+            f.root.send("lostpointercapture", { buttons: 0 });
+            assert.deepEqual(f.canceled, []);
+            if (accepted) {
+                f.grant();
+                f.move(8, 0);
+                assert.equal(f.api.coordinate(token, 0, 10), 18.125);
+                assert.deepEqual(f.canceled, []);
+                f.api.end(token);
+            } else {
+                if (legacy) f.doc.send("pointerlockerror");
+                else f.attempts[0].reject(new Error("Rejected"));
+                await Promise.resolve();
+                assert.deepEqual(f.canceled, [token]);
+            }
+        }
+    }
 });

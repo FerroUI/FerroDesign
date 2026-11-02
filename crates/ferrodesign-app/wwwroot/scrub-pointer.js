@@ -37,6 +37,12 @@ export function installScrubPointer(root, cancelNative) {
         cancelNative(token);
     }
 
+    function denied(attempt) {
+        if (pending !== attempt) return;
+        pending = null;
+        if (active === attempt && attempt.captureLost && !root.hasPointerCapture?.(attempt.press.pointerId)) cancel();
+    }
+
     function synchronize() {
         if (doc.pointerLockElement === root) {
             if (!pending) return;
@@ -92,9 +98,11 @@ export function installScrubPointer(root, cancelNative) {
     }, true);
     root.addEventListener("lostpointercapture", e => {
         if (e.target !== root || active?.press.pointerId !== e.pointerId || root.hasPointerCapture?.(e.pointerId)) return;
-        // Entering pointer lock can release DOM capture. The browser lock
-        // continues routing to the same FerroUI host in that case.
-        if (doc.pointerLockElement !== root) cancel();
+        // Chromium can release DOM capture before publishing pointerLockElement.
+        // Wait for this request's result to distinguish a grant from actual loss.
+        if (doc.pointerLockElement === root) return;
+        if (pending === active) active.captureLost = true;
+        else cancel();
     });
     const interrupt = () => { pressed = null; cancel(); };
     win.addEventListener("blur", interrupt);
@@ -103,7 +111,7 @@ export function installScrubPointer(root, cancelNative) {
     doc.addEventListener("pointerlockchange", synchronize);
     doc.addEventListener("pointerlockerror", () => {
         // Promise-based requests have an identity-bound rejection handler.
-        if (pending?.legacy) pending = null;
+        if (pending?.legacy) denied(pending);
     });
 
     return {
@@ -123,12 +131,12 @@ export function installScrubPointer(root, cancelNative) {
                 const result = root.requestPointerLock();
                 if (typeof result?.then === "function") {
                     result.then(() => { if (pending === attempt) synchronize(); },
-                        () => { if (pending === attempt) pending = null; });
+                        () => denied(attempt));
                 } else {
                     attempt.legacy = true;
                 }
             } catch {
-                if (pending === attempt) pending = null;
+                denied(attempt);
             }
         },
         coordinate(token, axis, absolute) {

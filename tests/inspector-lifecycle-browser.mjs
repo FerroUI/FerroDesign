@@ -227,14 +227,38 @@ export async function mixedSelectionAndDock(page, reference, check, helpers) {
     await expectUnlocked();
     await scrub();
     await expectLock();
+    // Chromium can report a recentered screen coordinate on lock acquisition.
+    // Measure its trusted relative displacement instead of assuming a driver origin.
+    const beforeMotion = (await documentState(page)).nodes[2].width;
+    await page.evaluate(() => {
+        const movement = [];
+        const observe = e => {
+            if (e.isTrusted && (e.buttons & 1)) movement.push([e.movementX, e.movementY, e.shiftKey]);
+        };
+        document.addEventListener("pointermove", observe, true);
+        window.takeScrubMovement = () => {
+            document.removeEventListener("pointermove", observe, true);
+            return movement;
+        };
+    });
+    const screenWidth = page.viewportSize().width;
     await page.keyboard.down("Shift");
     try {
-        await page.mouse.move(x + page.viewportSize().width * 8, y);
-        await page.waitForFunction(() => {
-            const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
-            return nodes[2].width > innerWidth && Math.abs((nodes[3].width - nodes[2].width) - 32) < 1e-6;
-        });
+        await page.mouse.move(Math.max(screenWidth + 64, x + screenWidth / 2), y);
     } finally { await page.keyboard.up("Shift"); }
+    const movement = await page.evaluate(() => window.takeScrubMovement());
+    assert.ok(movement.length > 0 && movement.every(([, , shift]) => shift));
+    let expected = beforeMotion, vertical = 0;
+    for (const [dx, dy] of movement) {
+        vertical += dy;
+        const speed = vertical <= -48 ? 2 : vertical >= 96 ? 0.25 : vertical >= 48 ? 0.5 : 1;
+        expected += dx * speed * 10;
+    }
+    assert.ok(expected > screenWidth, "The trusted Shift drag must enlarge the box beyond the viewport");
+    await page.waitForFunction(expected => {
+        const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return Math.abs(nodes[2].width - expected) < 1e-6 && Math.abs(nodes[3].width - expected - 32) < 1e-6;
+    }, expected);
     const lockedWidths = await documentState(page);
     assert.equal((await state(page)).historyLength, selected.historyLength);
     await page.mouse.up();
