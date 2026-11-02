@@ -661,7 +661,11 @@ fn native_workspace_visibility_keeps_artwork_anchored_and_restores_minimized_ins
     assert_eq!(shell.workspace_ui.name(), "hidden");
     assert!(visible("ModalBackdrop"));
     shell.close_modal();
-    fixture.click_button(&shell.button("RestoreUiButton"), RawInputModifiers::NONE);
+    fixture.window.key_press(Key::F6, RawInputModifiers::NONE, PhysicalKey::F6, None);
+    fixture.window.key_release(Key::F6, RawInputModifiers::NONE, PhysicalKey::F6, None);
+    assert!(shell.button("RestoreUiButton").is_focused());
+    fixture.window.key_press(Key::Enter, RawInputModifiers::NONE, PhysicalKey::Enter, None);
+    fixture.window.key_release(Key::Enter, RawInputModifiers::NONE, PhysicalKey::Enter, None);
     render();
     assert_eq!(shell.workspace_ui.name(), "minimized");
     assert!(visible("RightPanel") && visible("Toolbar"));

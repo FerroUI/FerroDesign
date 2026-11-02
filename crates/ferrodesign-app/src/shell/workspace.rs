@@ -1,6 +1,6 @@
 //! Keep a usable artboard when the two desktop sidebars would consume the window.
 use super::*;
-use ferroui_base::input::KeyModifiers;
+use ferroui_base::input::{KeyModifiers, NavigationMethod};
 use ferroui_base::interactivity::RoutingStrategies;
 use ferroui_controls::primitives::ToggleButton;
 
@@ -37,6 +37,23 @@ impl EditorShell {
     pub(super) fn wire_workspace(self: &Rc<Self>) {
         self.hook("MinimizeUiButton", "minimize-ui");
         self.hook("RestoreUiButton", "restore-ui");
+        let weak = Rc::downgrade(self);
+        self.canvas.add_handler_with(InputElement::key_down_event(), move |_, event| {
+            if event.key != Key::F6 || !event.key_modifiers.is_empty() { return; }
+            let Some(shell) = weak.upgrade() else { return };
+            if shell.workspace_ui.hidden.get() && !shell.prototype.is_active()
+                && !shell.control::<Border>("ModalBackdrop").is_visible()
+            {
+                event.set_handled(shell.button("RestoreUiButton").focus_with(
+                    NavigationMethod::Directional, KeyModifiers::NONE));
+            }
+        }, RoutingStrategies::TUNNEL, false);
+        let weak = Rc::downgrade(self);
+        self.button("RestoreUiButton").add_handler_with(InputElement::key_down_event(), move |_, event| {
+            if matches!(event.key, Key::Escape | Key::F6) && event.key_modifiers.is_empty() {
+                if let Some(shell) = weak.upgrade() { event.set_handled(shell.canvas.focus()); }
+            }
+        }, RoutingStrategies::TUNNEL, false);
         let weak = Rc::downgrade(self);
         self.button("MinimizedInspectorButton").click(move |_, _| {
             if let Some(shell) = weak.upgrade() {

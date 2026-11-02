@@ -90,7 +90,9 @@ export async function navigationRegressions(page, reference, check, helpers) {
     const hidden = await state(page);
     assert.equal(hidden.chrome.CanvasHost.width, page.viewportSize().width);
     assert.deepEqual(hidden.selection, [2]);
-    await clickNative(page, "RestoreUiButton");
+    await page.keyboard.press("F6");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.RestoreUiButton.focused);
+    await page.keyboard.press("Enter");
     await waitUi("minimized", false, true, true);
     await page.keyboard.press("Escape");
     await waitUi("minimized", false, false, true);
