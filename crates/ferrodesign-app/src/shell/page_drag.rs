@@ -192,6 +192,9 @@ impl EditorShell {
             };
             drag.version = self.editor.borrow().render_change_token();
             drag.active = true;
+            // Stop delayed hover work for rows crossed during capture. Enabling
+            // the service after release leaves the next hover to start its own timer.
+            ToolTip::set_service_enabled(&view, false);
             let weak = Rc::downgrade(self);
             drag.timer = Some(DispatcherTimer::run(
                 move || weak.upgrade().is_some_and(|s| s.scroll_page_drag()),
@@ -295,9 +298,9 @@ impl EditorShell {
         if !drag.active {
             return;
         }
-        let view = self
-            .control::<ScrollViewer>("PagesViewport")
-            .upcast::<InputElement>();
+        let viewport = self.control::<ScrollViewer>("PagesViewport");
+        viewport.clear_value(ToolTip::service_enabled_property());
+        let view = viewport.upcast::<InputElement>();
         if drag.pointer.captured().as_ref() == Some(&view) {
             drag.pointer.capture(None);
         }

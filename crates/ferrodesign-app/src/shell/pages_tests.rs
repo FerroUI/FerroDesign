@@ -293,7 +293,11 @@ fn native_page_drag_reorders_on_release_keeps_canvas_state_and_cancels_at_edges(
     let f = Fixture::new(false);
     let s = &f.shell;
     let active = s.editor.borrow().active_page;
-    for i in 0..22 { s.editor.borrow_mut().document.add_page(format!("Scene {i}")); }
+    for i in 0..22 {
+        let name = if i == 2 { "A page name long enough to be visibly ellipsized in the page list".to_owned() }
+            else { format!("Scene {i}") };
+        s.editor.borrow_mut().document.add_page(name);
+    }
     s.editor.borrow_mut().refresh();
     s.refresh();
     f.window.capture_rendered_frame().unwrap();
@@ -326,12 +330,23 @@ fn native_page_drag_reorders_on_release_keeps_canvas_state_and_cancels_at_edges(
             r < 90 && p[1] > 90 && b > p[1].saturating_add(40)
         }).count()
     };
+    let short = row_at(&f, 1);
+    let long = row_at(&f, 3);
+    ferroui_controls::ToolTip::set_is_open(&short, true);
+    assert!(!ferroui_controls::ToolTip::get_is_open(&short), "a readable title has no popup over adjacent rows");
+    ferroui_controls::ToolTip::set_is_open(&long, true);
+    assert!(ferroui_controls::ToolTip::get_is_open(&long), "the full clipped name remains available on hover");
+    ferroui_controls::ToolTip::set_is_open(&long, false);
     assert_eq!(insertion_ink(), 0);
     down(start); move_to(third);
+    ferroui_controls::ToolTip::set_is_open(&long, true);
+    assert!(!ferroui_controls::ToolTip::get_is_open(&long));
+    assert!(!ferroui_controls::ToolTip::get_service_enabled(&long));
     assert!(s.has_page_drag());
     assert!(insertion_ink() >= 32, "the native insertion line spans the top edge of the target row");
     assert_eq!(f.json(), before);
     up(fourth);
+    assert!(ferroui_controls::ToolTip::get_service_enabled(&long));
     let mut expected = order.clone();
     let moved = expected.remove(1);
     expected.insert(3, moved);

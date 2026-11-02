@@ -168,6 +168,19 @@ impl EditorShell {
         content.children().add(icon);
         let label = TextBlock::new();
         label.set_text_trimming(<dyn ferroui_base::media::TextTrimming>::character_ellipsis());
+        // Page-name popups must not cover the next page a pointer is about
+        // to grab. Accessible names always retain the complete page title.
+        ToolTip::set_placement(&button, ferroui_controls::PlacementMode::Right);
+        let weak = Rc::downgrade(self);
+        let text = label.downgrade();
+        ToolTip::add_tool_tip_opening_handler(&button, move |_, event| {
+            let clipped = text.upgrade().is_some_and(|label| {
+                label.text_layout().text_lines().iter().any(|line| line.has_collapsed())
+            });
+            if !clipped || weak.upgrade().is_none_or(|shell| shell.page_drag.borrow().is_some()) {
+                event.set_cancel(true);
+            }
+        });
         label.set_vertical_alignment(VerticalAlignment::Center);
         Grid::set_column(&label, 1);
         content.children().add(label.clone());

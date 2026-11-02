@@ -154,6 +154,9 @@ export async function pageInspectorRegressions(page, reference, check, helpers, 
         await page.mouse.move(first.x + first.width / 2, first.y + 3, { steps: 5 });
     };
     await beginReorder();
+    // Hold past the native 400ms tooltip delay. A popup from this hovered page
+    // must not intercept the next press on the neighboring row after Escape.
+    await page.waitForTimeout(500);
     await frames(page);
     const preview = PNG.sync.read(await captureNativeScreenshot(mode + "-page-reorder", { controls: ["PagesViewport", "ActivePage"] }));
     let blue = 0;

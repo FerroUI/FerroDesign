@@ -8,7 +8,9 @@ export async function nudgePreferences(page, reference, check, helpers) {
     await clickWorld(page, 82, 56);
     const original = await documentState(page);
     const open = async () => {
+        const before = (await state(page)).sceneFrames;
         assert.equal(await page.evaluate(() => globalThis.ferroDesign.ferroDesignCommand("nudge-settings")), true);
+        await helpers.waitForNativeScene(page, before, "Show nudge amount dialog");
         await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.NudgeSmall?.focused);
     };
     const replace = async (name, value) => {
@@ -48,11 +50,19 @@ export async function nudgePreferences(page, reference, check, helpers) {
         }
         assert.equal(phone.NudgeBig.text, "8.5");
         await replace("NudgeSmall", "4");
+        const beforeClose = (await state(page)).sceneFrames;
         await page.keyboard.press("Escape");
+        await helpers.waitForNativeScene(page, beforeClose, "Dismiss nudge amount dialog");
+        await page.waitForFunction(() => !JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.ModalBackdrop.visible);
         await open();
         assert.equal((await state(page)).chrome.NudgeSmall.text, "0.125");
         await clickNative(page, "NudgeReset");
+        await page.waitForFunction(() => {
+            const c = JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome;
+            return c.NudgeSmall?.text === "1" && c.NudgeBig?.text === "10";
+        });
         await clickNative(page, "CloseModalButton");
+        await page.waitForFunction(() => !JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.ModalBackdrop.visible);
         assert.deepEqual(await documentState(page), original);
         assert.deepEqual(await stored(), [1, 10]);
         check("Fractional and large nudges edit precise positions and undo exactly; phone preferences validate, retain applied values, and discard Escape drafts");
