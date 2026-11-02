@@ -84,21 +84,24 @@ impl DesignCanvas {
         true
     }
 
-    pub(super) fn multi_resize_modifier(&self, event: &KeyEventArgs, pressed: bool) -> bool {
+    pub(super) fn resize_modifier(&self, event: &KeyEventArgs, pressed: bool) -> bool {
         let flag = match event.key {
             Key::LeftAlt | Key::RightAlt => KeyModifiers::ALT,
             Key::LeftShift | Key::RightShift => KeyModifiers::SHIFT,
+            Key::LeftCtrl | Key::RightCtrl => KeyModifiers::CONTROL,
+            Key::LWin | Key::RWin => KeyModifiers::META,
             _ => return false,
         };
         let mut gesture = self.gesture.borrow_mut();
-        let Gesture::MultiResize(drag) = &mut *gesture else {
-            return false;
-        };
+        let Some(screen) = self.selection_pointer.get() else { return false; };
         let revision = self.editor.borrow().revision;
-        if let Some(screen) = self.selection_pointer.get() {
-            let mut mods = event.key_modifiers;
-            mods.set(flag, pressed);
-            drag.update(self, self.viewport.get().screen_to_world(screen), mods);
+        let mut mods = event.key_modifiers;
+        mods.set(flag, pressed);
+        let world = self.viewport.get().screen_to_world(screen);
+        match &mut *gesture {
+            Gesture::MultiResize(drag) => drag.update(self, world, mods),
+            Gesture::Resize(drag) => drag.update(self, world, mods),
+            _ => return false,
         }
         drop(gesture);
         if self.editor.borrow().revision != revision {
@@ -191,7 +194,7 @@ impl MultiResize {
             }
         }
         drop(grids);
-        if session.preview(&mut editor, pivot, f) {
+        if session.preview_selection(&mut editor, pivot, f, modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META)) {
             self.visible = Rect::new(
                 pivot.x + (bounds.x - pivot.x) * f.x,
                 pivot.y + (bounds.y - pivot.y) * f.y,
@@ -220,7 +223,7 @@ impl MultiResize {
             } else {
                 CanvasEvent::Selection
             });
-        } else if !self.painted
+        } else if (!self.painted || self.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META))
             && self.version == canvas.editor.borrow().render_change_token()
             && self.selected == canvas.editor.borrow().selection
             && !canvas.cycle_pointer_click(self.origin, self.modifiers)

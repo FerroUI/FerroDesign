@@ -187,25 +187,21 @@ impl AltDrag {
         canvas.set_handle_feedback(Some(cursor), None);
     }
 
-    pub(super) fn render(&self, ctx: &mut DrawingContext, editor: &Editor, visible: Rect, scale: f64) {
+    pub(super) fn render(&self, ctx: &mut DrawingContext, canvas: &DesignCanvas, editor: &Editor, visible: Rect, scale: f64) {
         let Some(target) = self.target.filter(|_| self.copy && self.valid(editor)) else {
             return;
         };
         let delta = target.position - self.start;
         let transform = ctx.push_transform(Matrix::create_translation(delta.x, delta.y));
-        let mut painter = self.painter.borrow_mut();
-        painter.set_raster_scale(scale);
-        painter.render_editor(
-            ctx,
-            editor,
-            &self.roots,
-            Rect::new(
-                visible.x - delta.x,
-                visible.y - delta.y,
-                visible.width,
-                visible.height,
-            ),
-        );
+        let translated = Rect::new(visible.x - delta.x, visible.y - delta.y, visible.width, visible.height);
+        if canvas.show_outlines.get() {
+            canvas.outlines.borrow_mut().render(ctx, editor, translated, canvas.viewport.get().zoom,
+                canvas.outline_hidden.get(), canvas.outline_bounds.get(), canvas.dark.get(), &self.roots);
+        } else {
+            let mut painter = self.painter.borrow_mut();
+            painter.set_raster_scale(scale);
+            painter.render_editor(ctx, editor, &self.roots, translated);
+        }
         ctx.pop(transform);
     }
 

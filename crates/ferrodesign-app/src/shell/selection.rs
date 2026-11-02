@@ -154,7 +154,8 @@ impl EditorShell {
                     || editor.has_active_transaction()
                     || !editor.document.nodes.contains_key(&id)
                     || editor.document.page_of(id) != Some(page)
-                    || !editor.document.effective_visible(id)
+                    || (!editor.document.effective_visible(id)
+                        && !(shell.canvas.show_outlines.get() && shell.canvas.outline_hidden.get()))
                 {
                     return;
                 }

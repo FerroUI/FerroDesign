@@ -233,3 +233,128 @@ fn native_page_cameras_reset_on_same_id_document_import_and_history_crossings() 
     render();
     assert_eq!(shell.canvas.viewport.get(), imported_fit);
 }
+
+#[test]
+fn native_page_copy_and_delete_restore_active_artwork_and_camera_in_one_command() {
+    let f = Fixture::new(false);
+    let shell = &f.shell;
+    let draw = || { f.window.capture_rendered_frame().unwrap(); };
+    draw();
+    assert!(!shell.control::<MenuItem>("PageDelete").is_enabled());
+    assert!(!shell.command("delete-page"));
+    let source = shell.editor.borrow().active_page;
+    let original = f.json();
+    shell.canvas.set_zoom(0.625);
+    let source_camera = shell.canvas.viewport.get();
+    let width = shell.field("WidthField");
+    assert!(width.focus());
+    width.set_text(Some("1/0"));
+    assert!(!shell.command("duplicate-page"));
+    assert_eq!(f.json(), original);
+    assert!(width.focus());
+    f.key(&width, Key::Escape);
+    activate_menu(&f, "PageDuplicate");
+    draw();
+    let copy = shell.editor.borrow().active_page;
+    assert_ne!(copy, source);
+    assert_eq!(shell.canvas.viewport.get(), source_camera);
+    assert_eq!(row_at(&f, 1).is_checked(), Some(true));
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.control::<MenuItem>("PageDelete").is_enabled());
+    let copied = f.json();
+
+    shell.canvas.set_zoom(2.5);
+    let copy_camera = shell.canvas.viewport.get();
+    activate_menu(&f, "PageDelete");
+    draw();
+    assert_eq!(shell.editor.borrow().active_page, source);
+    assert_eq!(shell.canvas.viewport.get(), source_camera);
+    assert!(shell.canvas.is_focused());
+    assert_eq!(shell.editor.borrow().history_len(), 2);
+    assert!(!shell.control::<MenuItem>("PageDelete").is_enabled());
+    assert!(shell.command("undo"));
+    draw();
+    assert_eq!(shell.editor.borrow().active_page, copy);
+    assert_eq!(shell.canvas.viewport.get(), copy_camera);
+    assert_eq!(f.json(), copied);
+    assert!(shell.command("undo"));
+    draw();
+    assert_eq!(f.json(), original);
+    assert_eq!(shell.editor.borrow().selection, [f.id]);
+    assert_eq!(shell.canvas.viewport.get(), source_camera);
+    assert!(shell.command("redo"));
+    draw();
+    assert_eq!(shell.canvas.viewport.get(), copy_camera);
+    assert_eq!(f.json(), copied);
+}
+
+#[test]
+fn native_page_drag_reorders_on_release_keeps_canvas_state_and_cancels_at_edges() {
+    let f = Fixture::new(false);
+    let s = &f.shell;
+    let active = s.editor.borrow().active_page;
+    for i in 0..22 { s.editor.borrow_mut().document.add_page(format!("Scene {i}")); }
+    s.editor.borrow_mut().refresh();
+    s.refresh();
+    f.window.capture_rendered_frame().unwrap();
+    let view = s.control::<ferroui_controls::ScrollViewer>("PagesViewport");
+    let camera = s.canvas.viewport.get();
+    let before = f.json();
+    let ids = || s.editor.borrow().document.pages.iter().map(|p| p.id).collect::<Vec<_>>();
+    let order = ids();
+    let point = |index, fraction| {
+        let row = row_at(&f, index);
+        row.translate_point(ferroui_base::Point::new(20., row.bounds().height * fraction), &f.window).unwrap()
+    };
+    let start = point(1, 0.5);
+    let third = point(2, 0.8);
+    let fourth = point(3, 0.8);
+    let down = |p| {
+        f.window.mouse_move(p, RawInputModifiers::NONE);
+        f.window.mouse_down(p, MouseButton::Left, RawInputModifiers::NONE);
+    };
+    let move_to = |p| f.window.mouse_move(p, RawInputModifiers::LEFT_MOUSE_BUTTON);
+    let up = |p| f.window.mouse_up(p, MouseButton::Left, RawInputModifiers::NONE);
+    down(start); move_to(third);
+    assert!(s.has_page_drag());
+    assert_eq!(f.json(), before);
+    up(fourth);
+    let mut expected = order.clone();
+    let moved = expected.remove(1);
+    expected.insert(3, moved);
+    assert_eq!(ids(), expected);
+    assert_eq!(s.editor.borrow().active_page, active);
+    assert_eq!(s.editor.borrow().selection, [f.id]);
+    assert_eq!(s.canvas.viewport.get(), camera);
+    assert_eq!(s.editor.borrow().history_len(), 1);
+    assert!(s.command("undo"));
+    f.window.capture_rendered_frame().unwrap();
+    assert_eq!(f.json(), before);
+
+    let edge = view.translate_point(ferroui_base::Point::new(20., view.bounds().height - 1.), &f.window).unwrap();
+    let outside = view.translate_point(ferroui_base::Point::new(-9., view.bounds().height - 1.), &f.window).unwrap();
+    down(start); move_to(edge);
+    assert!(s.scroll_page_drag() && view.offset().y > 0.);
+    assert_eq!(f.json(), before);
+    press(&f, Key::Escape, PhysicalKey::Escape);
+    assert!(!s.has_page_drag());
+    up(edge);
+    assert_eq!(f.json(), before);
+    view.set_offset(ferroui_base::Vector::default());
+    f.window.capture_rendered_frame().unwrap();
+    down(start); move_to(third); up(outside);
+    assert_eq!(f.json(), before);
+    assert_eq!(s.editor.borrow().history_len(), 0);
+    assert!(s.editor.borrow().can_redo());
+    down(start); move_to(third);
+    assert!(s.command("redo"));
+    up(third);
+    assert_eq!(f.json(), before);
+    assert!(s.editor.borrow().can_redo());
+    down(start); move_to(edge);
+    for _ in 0..8 { assert!(s.scroll_page_drag()); }
+    up(edge);
+    assert!(ids().iter().position(|id| *id == order[1]).unwrap() > 4);
+    assert_eq!(s.editor.borrow().active_page, active);
+    assert_eq!(s.editor.borrow().history_len(), 1);
+}

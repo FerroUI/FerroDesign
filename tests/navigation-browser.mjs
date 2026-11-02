@@ -1,3 +1,4 @@
+import { nudgePreferences } from "./nudge-browser.mjs";
 import { rulerGuides } from "./ruler-guides-browser.mjs";
 import assert from "node:assert/strict";
 
@@ -136,4 +137,5 @@ export async function navigationRegressions(page, reference, check, helpers) {
     assert.deepEqual(await documentState(page), document);
     check("On a 320-pixel phone, native recovery controls inspect a selection, return to the canvas, and reopen the previous drawer");
     await rulerGuides(page, reference, check, helpers);
+    await nudgePreferences(page, reference, check, helpers);
 }

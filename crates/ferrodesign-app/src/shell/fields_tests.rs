@@ -20,11 +20,17 @@ mod action_search_tests;
 #[path = "marquee_input_tests.rs"]
 mod marquee_input_tests;
 
+#[path = "outline_input_tests.rs"]
+mod outline_input_tests;
+
 #[path = "measure_input_tests.rs"]
 mod measure_input_tests;
 
 #[path = "preview_input_tests.rs"]
 mod preview_input_tests;
+
+#[path = "nudge_tests.rs"]
+mod nudge_tests;
 
 #[path = "ruler_input_tests.rs"]
 mod ruler_input_tests;

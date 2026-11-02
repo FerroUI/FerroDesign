@@ -163,7 +163,7 @@ impl EditorShell {
         }
         // Changing chrome cannot splice a held canvas gesture or an IME session.
         // A completed inspector edit uses its ordinary commit/validation path.
-        if self.canvas.has_pointer_gesture() || self.has_layer_drag()
+        if self.canvas.has_pointer_gesture() || self.has_layer_drag() || self.has_page_drag()
             || self.editor.borrow().has_active_transaction() && self.inline_text.get().is_none()
             || self.inline_text.get().is_some() && self.field("InlineTextBox").is_composing_text()
         {

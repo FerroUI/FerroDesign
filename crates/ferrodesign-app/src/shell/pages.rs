@@ -1,5 +1,8 @@
 //! Keep page controls stable while names, order and active-page state change.
 use super::*;
+#[path = "page_drag.rs"]
+mod drag;
+pub(super) use drag::PageDrag;
 use super::layer_rename::NameRow;
 use ferroui_base::{input::{KeyModifiers, NavigationMethod}, interactivity::RoutingStrategies};
 use ferroui_controls::{MenuItem, ToolTip, automation::AutomationProperties, primitives::ToggleButton};
@@ -23,6 +26,13 @@ struct PageRow {
 
 impl EditorShell {
     pub(super) fn wire_page_menu(self: &Rc<Self>) {
+        self.wire_page_drag();
+        for (name, command) in [("PageDuplicate", "duplicate-page"), ("PageDelete", "delete-page")] {
+            let weak = Rc::downgrade(self);
+            self.control::<MenuItem>(name).click(move |_, _| {
+                if let Some(shell) = weak.upgrade() { shell.command(command); }
+            });
+        }
         for (name, offset) in [("PageMoveUp", -1), ("PageMoveDown", 1)] {
             let weak = Rc::downgrade(self);
             self.control::<MenuItem>(name).click(move |_, _| {
@@ -45,6 +55,23 @@ impl EditorShell {
         self.page_list.borrow_mut().cameras.remove(&id);
     }
 
+    pub(super) fn duplicate_workspace_page(&self) -> bool {
+        let camera = self.canvas.page_camera();
+        let result = self.editor.borrow_mut().duplicate_active_page();
+        match result {
+            Ok(id) => {
+                let mut list = self.page_list.borrow_mut();
+                if let Some(camera) = camera {
+                    list.cameras.insert(id, camera);
+                } else {
+                    list.cameras.remove(&id);
+                }
+                true
+            }
+            Err(error) => { self.toast(&error.to_string()); false }
+        }
+    }
+
     pub(super) fn refresh_pages(self: &Rc<Self>) {
         // The player owns its temporary camera and may navigate across pages.
         if self.prototype.is_active() { return; }
@@ -62,16 +89,16 @@ impl EditorShell {
             list.cameras.clear();
         } else if active_changed {
             if let (Some(id), Some(camera)) = (previous, self.canvas.page_camera()) {
-                if editor.document.page(id).is_some() || editor.can_redo() {
+                if editor.document.page(id).is_some() || editor.can_revisit_page(id) {
                     list.cameras.insert(id, camera);
                 }
             }
         }
-        // A removed page can reappear through Redo. Once that history branch
-        // closes, retain only views belonging to pages still present.
-        if names_changed && !editor.can_redo() && !list.cameras.is_empty() {
+        // A deleted or undone page can reappear through history. A camera
+        // survives exactly while the page is live or history can reopen it.
+        if names_changed && !list.cameras.is_empty() {
             let live: BTreeSet<_> = pages.iter().map(|page| page.id).collect();
-            list.cameras.retain(|id, _| live.contains(id));
+            list.cameras.retain(|id, _| live.contains(id) || editor.can_revisit_page(*id));
         }
         let title_changed = list.title != editor.document.name;
         if !replaced && !active_changed && !names_changed && !title_changed {
@@ -123,6 +150,7 @@ impl EditorShell {
             if row.button.is_checked() != Some(current) { row.button.set_is_checked(Some(current)); }
             if current { selected = Some(index); }
         }
+        self.control::<MenuItem>("PageDelete").set_is_enabled(list.rows.len() > 1);
         self.control::<MenuItem>("PageMoveUp").set_is_enabled(selected.is_some_and(|i| i > 0));
         self.control::<MenuItem>("PageMoveDown").set_is_enabled(selected.is_some_and(|i| i + 1 < list.rows.len()));
         if let Some(index) = selected.filter(|_| active_changed || names_changed) { list.rows[index].host.bring_into_view(); }
@@ -143,6 +171,11 @@ impl EditorShell {
         label.set_vertical_alignment(VerticalAlignment::Center);
         Grid::set_column(&label, 1);
         content.children().add(label.clone());
+        let marker = Border::new();
+        marker.classes().add("layer-insertion");
+        marker.set_is_hit_test_visible(false);
+        Grid::set_column_span(&marker, 2);
+        content.children().add(marker);
         button.set_content(Some(Control::boxed(content)));
         host.children().add(button.clone());
         let twice = Rc::new(Cell::new(false));
@@ -201,6 +234,7 @@ impl EditorShell {
             }
             e.set_handled(true);
         });
+        self.wire_page_drag_source(&button, id);
         PageRow { id, name: String::new(), host, button, label }
     }
 
@@ -231,7 +265,7 @@ impl EditorShell {
         let mut editor = self.editor.borrow_mut();
         let Some(index) = editor.document.pages.iter().position(|p| p.id == editor.active_page) else { return; };
         let Some(next) = index.checked_add_signed(offset).filter(|&i| i < editor.document.pages.len()) else { return; };
-        editor.transact("Reorder pages", |doc| doc.pages.swap(index, next));
+        editor.move_page_to(index, next);
         drop(editor);
         self.changed();
         self.canvas.focus();

@@ -111,4 +111,58 @@ export async function pageInspectorRegressions(page, reference, check, helpers, 
     assert.deepEqual(await documentState(page), beforePages);
     check("The native page menu renames in place and reorders pages while preserving the active page and exact undo");
 
+    await activateRow(firstPage.chrome.ActivePage, firstPage.activePage);
+    const parent = await state(page), original = await documentState(page);
+    const menuAction = async id => {
+        await clickNative(page, "PageActionsButton");
+        await clickNative(page, id);
+        await frames(page);
+    };
+    await menuAction("PageDuplicate");
+    const duplicated = await documentState(page), duplicate = duplicated.pages[1], src = original.pages[0];
+    assert.equal(duplicate.name, "Copy of " + src.name);
+    assert.equal(duplicated.pages[0].id, src.id);
+    assert.equal(duplicated.pages[2].id, current);
+    assert.equal(duplicate.children.length, src.children.length);
+    assert.ok(src.children.length > 0 && duplicate.children.every(id => !original.nodes[id]));
+    assert.equal((await state(page)).activePage, duplicate.id);
+    assert.deepEqual(camera(await state(page)), camera(parent));
+    assert.equal((await state(page)).historyLength, parent.historyLength + 1);
+    await setPercent(75);
+    const copyView = camera(await state(page));
+    await menuAction("PageDelete");
+    assert.equal((await state(page)).activePage, current);
+    assert.deepEqual((await documentState(page)).nodes, original.nodes);
+    await page.keyboard.press("Control+z");
+    await frames(page);
+    assert.equal((await state(page)).activePage, duplicate.id);
+    assert.deepEqual(camera(await state(page)), copyView);
+    assert.deepEqual(await documentState(page), duplicated);
+    await page.keyboard.press("Control+z");
+    await frames(page);
+    assert.equal((await state(page)).activePage, src.id);
+    assert.deepEqual(await documentState(page), original);
+    check("Duplicating a populated page preserves its view and gives layers fresh IDs; deleting and undoing restores the exact page and camera");
+
+    const row = secondPage.chrome.ActivePage, first = firstPage.chrome.ActivePage;
+    const beginReorder = async () => {
+        await page.mouse.move(row.x + row.width / 2, row.y + row.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(first.x + first.width / 2, first.y + 3, { steps: 5 });
+    };
+    await beginReorder();
+    assert.deepEqual(await documentState(page), original);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    assert.deepEqual(await documentState(page), original);
+    await beginReorder();
+    await page.mouse.up();
+    await page.waitForFunction(id => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).pages[0].id === id, current);
+    assert.equal((await state(page)).activePage, src.id);
+    assert.deepEqual(camera(await state(page)), camera(parent));
+    await page.keyboard.press("Control+z");
+    await frames(page);
+    assert.deepEqual(await documentState(page), original);
+    check("Dragging an inactive page reorders on release, keeps the current canvas and camera, and cancels or undoes exactly");
+
 }

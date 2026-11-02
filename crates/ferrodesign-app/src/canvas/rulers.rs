@@ -406,11 +406,7 @@ impl DesignCanvas {
                     (true, Key::Up) | (false, Key::Left) => -1.,
                     _ => return true,
                 };
-                let step = if e.key_modifiers.contains(KeyModifiers::SHIFT) {
-                    10.
-                } else {
-                    1.
-                };
+                let step = self.nudge.get().step(e.key_modifiers.contains(KeyModifiers::SHIFT));
                 let mut position = guide.position + sign * step;
                 if let Some(node) = self.editor.borrow().document.nodes.get(&id.owner) {
                     position = position.clamp(

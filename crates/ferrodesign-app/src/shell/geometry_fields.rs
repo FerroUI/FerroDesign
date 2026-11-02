@@ -209,13 +209,17 @@ impl EditorShell {
                 Key::Down => -1.0,
                 _ => return,
             };
+            let (Some(shell), Some(field)) = (weak_shell.upgrade(), weak_field.upgrade()) else { return; };
+            // Angle and fine-step increments have their own units.
+            let amounts = if matches!(property, GeometryField::Rotation) {
+                platform::NudgeAmounts::default()
+            } else { shell.canvas.nudge.get() };
             let step = match event.key_modifiers {
-                value if value.is_empty() => 1.0,
-                KeyModifiers::SHIFT => 10.0,
+                value if value.is_empty() => amounts.small,
+                KeyModifiers::SHIFT => amounts.big,
                 KeyModifiers::ALT => 0.1,
                 _ => return,
             };
-            let (Some(shell), Some(field)) = (weak_shell.upgrade(), weak_field.upgrade()) else { return; };
             if shell.updating.get() || field.is_composing_text() || !field.is_enabled() { return; }
             event.set_handled(true);
             let text = field.text().unwrap_or_default();

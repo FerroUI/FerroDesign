@@ -365,3 +365,75 @@ fn selection_rotation_moves_the_origin_then_uses_one_keyboard_or_coalesced_point
     assert_eq!(fixture.json(),before);assert_eq!(shell.editor.borrow().selection,[a,b]);
     assert!(shell.editor.borrow().can_redo());
 }
+
+#[test]
+fn frame_resize_switches_constraints_at_a_stationary_pointer_and_keeps_child_pixels_in_place() {
+    use ferroui_base::input::PhysicalKey;
+    let fixture = Fixture::new(false);
+    let shell = &fixture.shell;
+    let window = &fixture.window;
+    let canvas = &shell.canvas;
+    let mut doc = core::Document::new("Frame with an anchored child");
+    let frame = doc.insert_node(1, Node::new(NodeKind::Frame, "Viewport", 40., 60., 200., 130.)
+        .with_fill(core::Color::WHITE)).unwrap();
+    let mut child = Node::new(NodeKind::Rectangle, "Red inset", 80., 30., 40., 28.)
+        .with_fill(core::Color::rgb(232, 12, 32));
+    child.constraints.horizontal = core::Constraint::Stretch;
+    let child = doc.insert_node(frame, child).unwrap();
+    let mut editor = Editor::new(doc);
+    editor.selection = vec![frame];
+    *shell.editor.borrow_mut() = editor;
+    shell.refresh();
+    window.capture_rendered_frame().unwrap();
+    canvas.snap.set(false);
+    let view = core::Viewport { zoom: 1., pan: Point::new(80., 70.), ..canvas.viewport.get() };
+    canvas.update_camera(view);
+    assert!(canvas.focus());
+    window.capture_rendered_frame().unwrap();
+    let point = |x, y| {
+        let p = view.world_to_screen(Point::new(x, y));
+        canvas.translate_point(ferroui_base::Point::new(p.x, p.y), window).unwrap()
+    };
+    let red_pixel = || {
+        let pixel = point(140., 104.);
+        let bitmap = window.capture_rendered_frame().unwrap();
+        let mut rgba = [0; 4];
+        bitmap.copy_pixels(ferroui_base::PixelRect::new(pixel.x as i32, pixel.y as i32, 1, 1), &mut rgba, 4);
+        rgba
+    };
+    let sizes = || {
+        let e = shell.editor.borrow();
+        (e.document.nodes[&frame].bounds(), e.document.nodes[&child].bounds())
+    };
+    let before = fixture.json();
+    let pt = point(40., 125.);
+    let end = point(100., 125.);
+    let plain = RawInputModifiers::NONE;
+    let ctrl = RawInputModifiers::CONTROL;
+    let held = RawInputModifiers::LEFT_MOUSE_BUTTON;
+    { let p = red_pixel(); assert!(p[1] < 30 && p[0].max(p[2]) > 210, "Expected red content at the original world point: {p:?}"); }
+    window.mouse_move(pt, plain);
+    window.mouse_down(pt, MouseButton::Left, plain);
+    window.mouse_move(end, held);
+    assert_eq!(sizes().1.width, 0.);
+    { let p = red_pixel(); assert!(p[1] > 210, "Expected the bare frame while constraints collapse the child: {p:?}"); }
+    window.key_press(Key::LeftCtrl, ctrl, PhysicalKey::ControlLeft, None);
+    assert_eq!(sizes(), (core::Rect::new(100., 60., 140., 130.), core::Rect::new(20., 30., 40., 28.)));
+    { let p = red_pixel(); assert!(p[1] < 30 && p[0].max(p[2]) > 210, "Expected red content at the original world point: {p:?}"); }
+    window.key_release(Key::LeftCtrl, plain, PhysicalKey::ControlLeft, None);
+    assert_eq!(sizes().1.width, 0.);
+    { let p = red_pixel(); assert!(p[1] > 210, "Expected the bare frame while constraints collapse the child: {p:?}"); }
+    window.key_press(Key::Escape, plain, PhysicalKey::Escape, None);
+    window.mouse_up(end, MouseButton::Left, plain);
+    assert_eq!(fixture.json(), before);
+    assert_eq!(shell.editor.borrow().history_len(), 0);
+
+    // Holding the modifier before the press still works when release is the only drag sample.
+    window.mouse_down(pt, MouseButton::Left, ctrl);
+    window.mouse_up(end, MouseButton::Left, ctrl);
+    assert_eq!(sizes().1, core::Rect::new(20., 30., 40., 28.));
+    { let p = red_pixel(); assert!(p[1] < 30 && p[0].max(p[2]) > 210, "Expected red content at the original world point: {p:?}"); }
+    assert_eq!(shell.editor.borrow().history_len(), 1);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(), before);
+}

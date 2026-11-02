@@ -26,6 +26,7 @@ mod text;
 mod variables;
 mod zoom;
 mod ruler_guides;
+mod nudge;
 mod toolbar;
 mod scale;
 mod workspace;
@@ -80,10 +81,12 @@ pub struct EditorShell {
     geometry_scrub: RefCell<Option<geometry_scrub::Scrub>>,
     inspector_drafts: RefCell<Vec<std::rc::Weak<fields::InspectorDraft>>>,
     panel_state: panels::PanelState,
+    nudge_form: RefCell<Option<nudge::NudgeForm>>,
     expanded: RefCell<BTreeSet<NodeId>>,
     layer_buttons: RefCell<BTreeMap<NodeId, WeakRef<Button>>>,
     layer_projection: RefCell<LayerProjection>,
     layer_drag: RefCell<layer_drag::LayerDrag>,
+    page_drag: RefCell<Option<pages::PageDrag>>,
     page_list: RefCell<pages::PageList>,
     assets: Cell<bool>,
     inspector_tab: Cell<u8>,
@@ -149,10 +152,12 @@ impl EditorShell {
             geometry_scrub: RefCell::new(None),
             inspector_drafts: RefCell::new(Vec::new()),
             panel_state: panels::PanelState::default(),
+            nudge_form: RefCell::new(None),
             expanded: RefCell::new(expanded),
             layer_buttons: RefCell::new(BTreeMap::new()),
             layer_projection: RefCell::new(LayerProjection::default()),
             layer_drag: RefCell::default(),
+            page_drag: RefCell::default(),
             page_list: RefCell::default(),
             assets: Cell::new(false),
             inspector_tab: Cell::new(0),
@@ -249,6 +254,7 @@ impl EditorShell {
     }
     fn wire(self: &Rc<Self>) {
         self.wire_action_dialog();
+        self.wire_nudge_backdrop();
         self.wire_inline_text();
         self.wire_zoom();
         self.wire_panels();
@@ -849,7 +855,7 @@ impl EditorShell {
         drop(projection);
         let mut popup_items = self.open_tool_items();
         if self.button("PageActionsButton").flyout().is_some_and(|f| f.is_open()) {
-            popup_items.extend(["PageRename", "PageMoveUp", "PageMoveDown"].map(|name| (name, self.control(name))));
+            popup_items.extend(["PageRename", "PageDuplicate", "PageMoveUp", "PageMoveDown", "PageDelete"].map(|name| (name, self.control(name))));
         }
         for (name, item) in popup_items {
             if item.is_attached_to_visual_tree() {
@@ -868,7 +874,7 @@ impl EditorShell {
                 if let Some(control) = visual.cast::<Control>() {
                     if let Some(name) = control
                         .name()
-                        .filter(|name| ["Paint", "Effect", "Interaction", "RichText", "Paragraph", "StrokeWidth", "StrokeProfile", "Variable", "Guide", "Component", "Compositing", "Crop", "Layout", "Action", "SelectLayer", "SelectSame", "Affine", "FramePreset", "Style", "Rename", "Ruler"]
+                        .filter(|name| ["Paint", "Effect", "Interaction", "RichText", "Paragraph", "StrokeWidth", "StrokeProfile", "Variable", "Guide", "Component", "Compositing", "Crop", "Layout", "Action", "SelectLayer", "SelectSame", "Affine", "FramePreset", "Style", "Rename", "Ruler", "Nudge"]
                             .iter().any(|prefix| name.starts_with(prefix)))
                     {
                         chrome.insert(name, native_bounds(&control));
@@ -900,7 +906,8 @@ impl EditorShell {
         for group in [json!({
             "revision":editor.revision,"documentRevision":editor.document.revision,"nodeCount":editor.document.nodes.len(),
             "selectionCount":editor.selection.len(),"selection":editor.selection,"selectionBounds":selection_bounds,
-            "tool":self.canvas.tool.get().name(),"rulersVisible": self.canvas.show_rulers.get(), "zoom":v.zoom,"pan":{"x":v.pan.x,"y":v.pan.y},
+            "tool":self.canvas.tool.get().name(),"rulersVisible": self.canvas.show_rulers.get(), "outlineView": {"enabled":self.canvas.show_outlines.get(),
+                "includeHidden": self.canvas.outline_hidden.get(), "objectBounds":self.canvas.outline_bounds.get()}, "zoom":v.zoom,"pan":{"x":v.pan.x,"y":v.pan.y},
             "selectGroups":self.canvas.select_groups.get(),"measurementTarget":self.canvas.measurement_target(),
             "prototypeSelectionIndex":self.canvas.prototype_selection_index_stats(),
             "zoomLabel":self.button("ZoomValueButton").content().and_then(|value| value.downcast_ref::<String>().cloned()),
@@ -1796,6 +1803,10 @@ impl EditorShell {
     }
 
     pub fn command(self: &Rc<Self>, command: &str) -> bool {
+        if command != "storage-status" && self.has_page_drag() {
+            self.finish_page_drag(false);
+            if matches!(command, "undo" | "redo") { return true; }
+        }
         if command != "storage-status" && self.geometry_scrub.borrow().is_some() {
             let cancel = matches!(command, "undo" | "redo");
             self.finish_geometry_scrub(!cancel);
@@ -1832,7 +1843,7 @@ impl EditorShell {
         self.canvas.finish_network_bucket();
         self.canvas.finish_stroke_width_edit();
         self.finish_inline_text(true);
-        if matches!(command, "new" | "add-page" | "open" | "import-json" | "save" | "export-json" | "export-svg" | "export-png" | "export-xaml")
+        if matches!(command, "new" | "add-page" | "duplicate-page" | "delete-page" | "open" | "import-json" | "save" | "export-json" | "export-svg" | "export-png" | "export-xaml")
             && !self.flush_inspector_drafts() {
             self.toast("Correct the inspector value or press Escape before continuing.");
             return false;
@@ -2005,7 +2016,9 @@ impl EditorShell {
                 self.quick_actions();
                 return true;
             }
+            "nudge-settings" => { self.nudge_dialog(); return true; }
             "close-modal" => {
+                if self.nudge_form.borrow().is_some() { return self.apply_nudge_settings(); }
                 self.close_modal();
                 return true;
             }
@@ -2057,6 +2070,17 @@ impl EditorShell {
             }
             "theme" => {
                 self.canvas.dark.set(!self.canvas.dark.get());
+                self.canvas.invalidate_visual();
+                return true;
+            }
+            "show-outlines" | "outline-bounds" | "outline-hidden" => {
+                let option = match command {
+                    "show-outlines" => &self.canvas.show_outlines,
+                    "outline-bounds" => &self.canvas.outline_bounds,
+                    _ => &self.canvas.outline_hidden,
+                };
+                option.set(!option.get());
+                self.sync_outline_options();
                 self.canvas.invalidate_visual();
                 return true;
             }
@@ -2330,6 +2354,12 @@ impl EditorShell {
             }
             "flip" => self.modify("Flip horizontal", |n| n.flip_x = !n.flip_x),
             "add-page" => self.add_workspace_page(),
+            "duplicate-page" | "delete-page" => {
+                self.canvas.cancel_active_edit();
+                let changed = if command == "duplicate-page" { self.duplicate_workspace_page() }
+                    else { self.editor.borrow_mut().delete_active_page() };
+                if !changed { return false; }
+            }
             "new" => {
                 let document = core::Document::new("Untitled");
                 *self.editor.borrow_mut() = Editor::new(document);
@@ -2479,12 +2509,14 @@ impl EditorShell {
         if !self.updating.get() && !self.flush_inspector_drafts() { return; }
         self.release_panel_drag();
         self.visible("ModalBackdrop", false);
+        self.nudge_form.borrow_mut().take();
         self.reset_action_search();
         self.paint_region.set(None);
         self.canvas.focus();
         self.sync_document_draft_dirty();
     }
     fn modal(&self, title: &str, description: &str) {
+        self.nudge_form.borrow_mut().take();
         self.reset_action_search();
         self.configure_panel(title);
         self.text("ModalTitle", title);
@@ -3196,6 +3228,7 @@ const BLEND_OPTIONS: &[(&str, core::BlendMode)] = &[
     ("Pass through", core::BlendMode::PassThrough),
 ];
 const FILE_ACTIONS: &[(&str, &str)] = &[
+    ("Preferences · Nudge amount…", "nudge-settings"),
     ("New design", "new"),
     ("Open design or SVG…  Ctrl+O", "open"),
     ("Place image…", "place-image"),
@@ -3324,10 +3357,12 @@ const ACTIONS: &[(&str, &str)] = &[
     ("Update instances", "sync-instances"),
     ("Local variables", "variables"),
     ("Local styles", "styles"),
+    ("Show outlines   Ctrl/⌘+Shift+O", "show-outlines"),
     ("Toggle grid", "grid"),
     ("Layout grid guides…", "layout-grid-settings"),
     ("Toggle rulers  Shift+R", "rulers"),
     ("Adjust ruler guides…", "ruler-guide-settings"),
+    ("Preferences · Nudge amount…", "nudge-settings"),
     ("Toggle pixel and object snapping", "snapping"),
     ("Show or hide UI  Ctrl+\\", "toggle-ui"),
     ("Minimize or expand UI  Ctrl+Shift+\\", "minimize-ui"),

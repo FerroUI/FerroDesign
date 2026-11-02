@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { frameResizeConstraints } from "./frame-resize-browser.mjs";
+import { outlineView } from "./outlines-browser.mjs";
 import { rotationRegressions } from "./rotation-browser.mjs";
 import { layerKeyboardNavigation } from "./layer-navigation-browser.mjs";
 import { layerTreeDrag } from "./layer-tree-browser.mjs";
@@ -515,8 +517,10 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     assert.equal((await state(page)).historyLength, beforePreview.history);
     check("Holding a shared edge updates both widths and their native inspector readout before release; Escape restores the original width and history");
 
+    await frameResizeConstraints(page, reference, check, helpers);
     await layerKeyboardNavigation(page, reference, check, helpers);
     await layerTreeDrag(page, reference, check, helpers);
+    await outlineView(page, reference, check, helpers, mode);
     await rotationRegressions(page, reference, check, helpers, mode);
 
 }

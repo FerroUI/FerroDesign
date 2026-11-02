@@ -290,7 +290,7 @@ fn marquee_preview_switches_hierarchy_at_the_stationary_pointer_and_rejects_stal
     let start = Point::new(-10.0, -10.0);
     let end = Point::new(110.0, 110.0);
     let mut drag = Marquee::new(&canvas.editor.borrow(), start, false);
-    assert!(drag.update(&canvas.editor.borrow(), end, KeyModifiers::empty()));
+    assert!(drag.update(&canvas, &canvas.editor.borrow(), end, KeyModifiers::empty()));
     assert_eq!(drag.preview, [frame]);
     *canvas.gesture.borrow_mut() = Gesture::Marquee(drag);
     let mut event = KeyEventArgs::new();
@@ -306,6 +306,6 @@ fn marquee_preview_switches_hierarchy_at_the_stationary_pointer_and_rejects_stal
     *canvas.editor.borrow_mut() = replacement;
     let mut gesture = canvas.gesture.borrow_mut();
     let Gesture::Marquee(drag) = &mut *gesture else { panic!("lost marquee") };
-    assert!(!drag.update(&canvas.editor.borrow(), end, KeyModifiers::empty()));
+    assert!(!drag.update(&canvas, &canvas.editor.borrow(), end, KeyModifiers::empty()));
     assert!(drag.preview.is_empty());
 }

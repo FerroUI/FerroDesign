@@ -247,8 +247,10 @@
               <Button.Flyout>
                 <MenuFlyout Placement="BottomEdgeAlignedRight">
                   <MenuItem Name="PageRename" Header="Rename page"/>
+                  <MenuItem Name="PageDuplicate" Header="Duplicate page"/>
                   <MenuItem Name="PageMoveUp" Header="Move page up"/>
                   <MenuItem Name="PageMoveDown" Header="Move page down"/>
+                  <MenuItem Name="PageDelete" Header="Delete page"/>
                 </MenuFlyout>
               </Button.Flyout>
             </Button>
@@ -320,6 +322,10 @@
                       <Button Name="Zoom200" Content="200%"/>
                       <Button Name="ZoomFitPage" Content="Fit page   ⇧1"/>
                       <Button Name="ZoomFitSelection" Content="Fit selection   ⇧2"/>
+                      <Separator/>
+                      <CheckBox Name="ZoomOutlines" Content="Show outlines" ToolTip.Tip="Ctrl or Command + Shift + O"/>
+                      <CheckBox Name="ZoomHiddenOutlines" Content="Include hidden layers"/>
+                      <CheckBox Name="ZoomOutlineBounds" Content="Include object bounds"/>
                     </StackPanel>
                   </Flyout>
                 </Button.Flyout>

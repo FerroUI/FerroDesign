@@ -7,7 +7,7 @@ This is an implementation inventory, not a claim of complete Figma parity. “UI
 | Area | Implemented | Limit |
 | --- | --- | --- |
 | Shell | Compiled XAML navigation rail, pages/layers, contextual page/layer inspector, bottom toolbar, native actions/toasts, current document/page caption, movable modeless authoring palettes | Editor chrome follows the public design-file reference. Its pixel match remains unmeasured. The [same-frame comparison](FIGMA_ARTWORK_REFERENCE.md) measures exported artwork |
-| Pages | Add and switch pages; separate roots, backgrounds and flow starts | No cloud projects or team file browser |
+| Pages | Add, rename, reorder, duplicate, delete and switch pages with independent cameras, backgrounds and flow starts | No cloud projects or team file browser |
 | Layers | Select, search, navigate by keyboard, extend a range, preserve selected paths on collapse, rename, hide, lock and change stacking order | Native ItemsControl/VirtualizingStackPanel realizes viewport rows; selection refresh retains the item source. Browser tests check bounded rows for 10,000 layers |
 | Canvas | Pan, pointer-anchored zoom, fit page/selection, adaptive rulers, and editable page and frame guides with snapping and exact coordinates | No multiplayer cursors or synced views |
 | Selection | Indexed shape/clip/mask-aware hits, shift selection, marquee, overlap cycling, parent/child/sibling navigation, explicit group preference, deep Ctrl/Command picking and native Select Layer menu | Group preference is local to the editor session; this does not establish every Figma selection preference |

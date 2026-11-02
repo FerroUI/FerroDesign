@@ -190,7 +190,12 @@ pub struct DesignCanvas {
     prototype_press: Cell<Option<(NodeId, Point, bool)>>,
     space: Cell<bool>,
     initialized: Cell<bool>,
+    pub show_outlines: Cell<bool>,
+    pub outline_hidden: Cell<bool>,
+    pub outline_bounds: Cell<bool>,
+    outlines: RefCell<crate::renderer::outlines::OutlineScene>,
     pub show_grid: Cell<bool>,
+    pub(crate) nudge: Cell<crate::platform::NudgeAmounts>,
     pub show_rulers: Cell<bool>,
     rulers: RefCell<rulers::Rulers>,
     pub dark: Cell<bool>,
@@ -248,7 +253,12 @@ impl DesignCanvas {
             prototype_press: Cell::new(None),
             space: Cell::new(false),
             initialized: Cell::new(false),
+            show_outlines: Cell::new(false),
+            outline_hidden: Cell::new(false),
+            outline_bounds: Cell::new(true),
+            outlines: RefCell::default(),
             show_grid: Cell::new(false),
+            nudge: Cell::new(crate::platform::NudgeAmounts::load()),
             show_rulers: Cell::new(false),
             rulers: RefCell::default(),
             dark: Cell::new(false),
@@ -399,6 +409,7 @@ impl DesignCanvas {
                     "group"
                 }),
                 Key::S => Some("save"),
+                Key::O if shift && !alt => Some("show-outlines"),
                 Key::O => Some("open"),
                 Key::F if !alt && !shift => Some("find-layers"),
                 Key::R if !alt && !shift => Some("rename-layer"),
@@ -493,8 +504,9 @@ impl DesignCanvas {
     // on the target. Geometry handles own their hit area before layer measurement.
     fn hover_edit_handle(&self, world: Point, modifiers: KeyModifiers) -> bool {
         if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META) && self.hover_rotation(world) { return true; }
-        if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META) && self.multi_resize_hover(world) { return true; }
-        let resize = (!modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META))
+        let can_resize = self.resize_with_modifiers(modifiers);
+        if can_resize && self.multi_resize_hover(world) { return true; }
+        let resize = can_resize
             .then(|| self.handle_at(world)).flatten();
         self.set_resize_hover(resize);
         if resize.is_some() {
@@ -659,8 +671,12 @@ impl DesignCanvas {
             self.set_resize_hover(None);
             return;
         }
-        if matches!(*self.gesture.borrow(), Gesture::MultiResize(_)) {
-            if let Gesture::MultiResize(drag) = self.gesture.replace(Gesture::None) { drag.cancel(self); }
+        if matches!(*self.gesture.borrow(), Gesture::MultiResize(_) | Gesture::Resize(_)) {
+            match self.gesture.replace(Gesture::None) {
+                Gesture::MultiResize(drag) => drag.cancel(self),
+                Gesture::Resize(drag) => drag.cancel(self),
+                _ => unreachable!(),
+            }
             return;
         }
         if matches!(*self.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_)) {
@@ -1032,10 +1048,11 @@ impl InputElementImpl for DesignCanvas {
                 let deep = e.key_modifiers().intersects(KeyModifiers::CONTROL | KeyModifiers::META);
                 if scaling && !deep && this.press_scale_handle(world) { return; }
                 if !deep && this.press_rotation(world, screen, e.key_modifiers(), e.click_count()) { return; }
-                if !deep && this.press_multi_resize(world, screen, e.key_modifiers(), e.click_count()) { return; }
+                let can_resize = this.resize_with_modifiers(e.key_modifiers());
+                if can_resize && this.press_multi_resize(world, screen, e.key_modifiers(), e.click_count()) { return; }
                 if !scaling && this.corner_radius_press(world, e.key_modifiers()) { return; }
                 this.clear_corner_radius_hover();
-                let handle = if scaling || deep { None } else { this.handle_at(world) };
+                let handle = if scaling || !can_resize { None } else { this.handle_at(world) };
                 if handle.is_none() && !deep && this.press_ruler(screen, e.pointer().id(), e.key_modifiers(), false) { return; }
                 this.forget_selected_ruler();
                 if handle.is_none() && this.press_alt_drag(world, screen, e.key_modifiers()) { return; }
@@ -1051,12 +1068,11 @@ impl InputElementImpl for DesignCanvas {
                             editor.begin_node_transaction(&[id], "Move line endpoint");
                             *this.gesture.borrow_mut() = Gesture::LineEndpoint(drag);
                         }
-                    } else if matches!(hit.handle, resize::Handle::Edge(_)) {
+                    } else if deep || matches!(hit.handle, resize::Handle::Edge(_)) {
                         *this.gesture.borrow_mut() = Gesture::EdgePress {
                             hit, world, screen, modifiers: e.key_modifiers(), clicks: e.click_count(),
                         };
-                    } else if let Some(drag) = resize::ResizeDrag::new(node, hit, world) {
-                        editor.begin_node_transaction(&[id], "Resize");
+                    } else if let Some(drag) = resize::ResizeDrag::new(&mut editor, hit, world) {
                         *this.gesture.borrow_mut() = Gesture::Resize(drag);
                     }
                 } else {
@@ -1243,7 +1259,7 @@ impl InputElementImpl for DesignCanvas {
             Gesture::Rotate(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::RotationOrigin(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::AltDrag(drag) => drag.update(this, world, e.key_modifiers()),
-            Gesture::Marquee(drag) => { drag.update(&this.editor.borrow(), world, e.key_modifiers()); }
+            Gesture::Marquee(drag) => { drag.update(this, &this.editor.borrow(), world, e.key_modifiers()); }
             Gesture::Draw(drag) => drag.update(this, world, e.key_modifiers(), false),
             Gesture::LineEndpoint(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::Pencil { id, origin } => {
@@ -1453,10 +1469,11 @@ impl InputElementImpl for DesignCanvas {
             }
             Gesture::Rotate(drag) => drag.finish(this),
             Gesture::MultiResize(drag) => drag.finish(this),
+            Gesture::Resize(drag) => drag.finish(this),
             Gesture::AltDrag(drag) => drag.finish(this, this.world(release_screen), e.key_modifiers()),
             Gesture::Marquee(mut drag) => {
                 let mut editor = this.editor.borrow_mut();
-                if drag.update(&editor, this.world(release_screen), e.key_modifiers())
+                if drag.update(this, &editor, this.world(release_screen), e.key_modifiers())
                     && editor.selection != drag.preview {
                     editor.selection = drag.preview;
                     drop(editor);
@@ -1488,7 +1505,6 @@ impl InputElementImpl for DesignCanvas {
             }
             Gesture::Move { .. }
             | Gesture::LineEndpoint(_)
-            | Gesture::Resize(_)
             | Gesture::VectorPoint { .. }
             | Gesture::VectorBend { .. }
             | Gesture::NetworkPoint { .. }
@@ -1575,7 +1591,7 @@ impl InputElementImpl for DesignCanvas {
         Self::parent_on_lost_focus(this, e);
         this.cancel_guide_drag();
         this.clear_measurement();
-        if matches!(*this.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_) | Gesture::MultiResize(_) | Gesture::Rotate(_) | Gesture::RotationOrigin(_)) {
+        if matches!(*this.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_) | Gesture::Resize(_) | Gesture::MultiResize(_) | Gesture::Rotate(_) | Gesture::RotationOrigin(_)) {
             this.cancel();
         }
         // KeyUp is routed to the new focus owner.
@@ -1594,7 +1610,7 @@ impl InputElementImpl for DesignCanvas {
         }
         if this.ruler_alt(e.key, true) || this.ruler_key(e) { e.set_handled(true); return; }
         if this.rotation_key(e) { e.set_handled(true); return; }
-        if this.rotation_modifier(e, true) || this.multi_resize_modifier(e, true) || this.marquee_modifier(e, true) || this.alt_drag_modifier(e, true) {
+        if this.rotation_modifier(e, true) || this.resize_modifier(e, true) || this.marquee_modifier(e, true) || this.alt_drag_modifier(e, true) {
             e.set_handled(true);
             return;
         }
@@ -1695,7 +1711,7 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
-        let step = if shift { 10.0 } else { 1.0 };
+        let step = this.nudge.get().step(shift);
         let delta = match e.key {
             Key::Left => Some((-step, 0.0)),
             Key::Right => Some((step, 0.0)),
@@ -1705,7 +1721,15 @@ impl InputElementImpl for DesignCanvas {
         };
         if let Some((x, y)) = delta {
             this.cancel_layout_drag();
-            if let (Some(id), Some(point)) = (this.vector_node.get(), this.vector_point.get()) {
+            if let Some(id) = this.vector_node.get() {
+                if let Some(point) = this.network_point.get() {
+                    let changed = this.editor.borrow_mut().nudge_network_points(id, point,
+                        &this.network_vertices.borrow(), Point::new(x, y));
+                    if changed { this.emit(CanvasEvent::Document); this.invalidate_visual(); }
+                    e.set_handled(true);
+                    return;
+                }
+                let Some(point) = this.vector_point.get() else { e.set_handled(true); return; };
                 let mut editor = this.editor.borrow_mut();
                 let world = editor
                     .document
@@ -1717,8 +1741,9 @@ impl InputElementImpl for DesignCanvas {
                 if let Some(world) = world {
                     editor.move_vector_point(id, point, world + Point::new(x, y));
                 }
-            } else {
-                this.editor.borrow_mut().move_selection(x, y);
+            } else if !this.editor.borrow_mut().nudge_selection(Point::new(x, y)) {
+                e.set_handled(true);
+                return;
             }
             this.emit(CanvasEvent::Document);
             this.invalidate_visual();
@@ -1727,7 +1752,7 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_key_up(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_up(this, e);
-        if this.ruler_alt(e.key, false) || this.rotation_modifier(e, false) || this.multi_resize_modifier(e, false) || this.marquee_modifier(e, false) || this.alt_drag_modifier(e, false) {
+        if this.ruler_alt(e.key, false) || this.rotation_modifier(e, false) || this.resize_modifier(e, false) || this.marquee_modifier(e, false) || this.alt_drag_modifier(e, false) {
             e.set_handled(true);
             return;
         }
@@ -2008,6 +2033,8 @@ impl VisualImpl for DesignCanvas {
             "#181818"
         } else if this.dark.get() {
             "#252525"
+        } else if this.show_outlines.get() && prototype_scene.is_none() {
+            "#FCFCFC"
         } else {
             &page_hex
         });
@@ -2049,9 +2076,14 @@ impl VisualImpl for DesignCanvas {
             let mut painter = this.painter.borrow_mut();
             painter.set_raster_scale(v.zoom * display_scale);
             if prototype_scene.is_none() && this.presentation.get().is_none() {
-                painter.render_editor(ctx, &editor, roots, v.visible_rect());
+                if this.show_outlines.get() {
+                    this.outlines.borrow_mut().render(ctx, &editor, v.visible_rect(), v.zoom,
+                        this.outline_hidden.get(), this.outline_bounds.get(), this.dark.get(), &[]);
+                } else {
+                    painter.render_editor(ctx, &editor, roots, v.visible_rect());
+                }
                 if let Gesture::AltDrag(drag) = &*this.gesture.borrow() {
-                    drag.render(ctx, &editor, v.visible_rect(), v.zoom * display_scale);
+                    drag.render(ctx, this, &editor, v.visible_rect(), v.zoom * display_scale);
                 }
             } else {
                 painter.render(ctx, doc, roots, v.visible_rect());

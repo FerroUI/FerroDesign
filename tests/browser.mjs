@@ -25,6 +25,8 @@ import { effectAuthoringRegressions } from "./effects-browser.mjs";
 import { inspectorLifecycleRegressions } from "./inspector-lifecycle-browser.mjs";
 import { floatingPanelRegressions } from "./panels-browser.mjs";
 import { layoutTransferRegressions } from "./layout-transfer-browser.mjs";
+import { frameResizeConstraints } from "./frame-resize-browser.mjs";
+import { outlineView } from "./outlines-browser.mjs";
 import { rotationRegressions } from "./rotation-browser.mjs";
 import { selectionRegressions } from "./selection-browser.mjs";
 import { matchingRegressions } from "./matching-browser.mjs";
@@ -1199,6 +1201,12 @@ try {
                 nativeHelpers, output, mode));
             // The selection suite includes rotation. An explicitly requested
             // rotation-only run captures the same real input and pixels.
+            if (selectedScenarios?.has("frame-resize")) {
+                await scenario("frame-resize", () => frameResizeConstraints(page, svgDocument, check, nativeHelpers));
+            }
+            if (selectedScenarios?.has("outlines")) {
+                await scenario("outlines", () => outlineView(page, svgDocument, check, nativeHelpers, mode));
+            }
             if (selectedScenarios?.has("rotation")) {
                 await scenario("rotation", () => rotationRegressions(page, svgDocument, check, nativeHelpers, mode));
             }

@@ -44,6 +44,12 @@ impl Hit {
 }
 
 impl DesignCanvas {
+    pub(super) fn resize_with_modifiers(&self, modifiers: KeyModifiers) -> bool {
+        if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META) { return true; }
+        let editor = self.editor.borrow();
+        editor.selection.iter().any(|id| editor.document.nodes.get(id).is_some_and(Node::can_resize_around_contents))
+    }
+
     // An unpainted side can cross a rounded corner, a star cutout, or another layer.
     // Keep the press eligible for ordinary picking until the pointer becomes a drag.
     pub(super) fn activate_edge_drag(&self, gesture: &mut Gesture, pointer: Point) {
@@ -51,9 +57,7 @@ impl DesignCanvas {
         if pointer.distance(screen) < 3.0 { return; }
         let mut editor = self.editor.borrow_mut();
         if editor.selection.as_slice() != [hit.id] || editor.document.effective_locked(hit.id) { return; }
-        let Some(node) = editor.document.nodes.get(&hit.id) else { return; };
-        if let Some(drag) = ResizeDrag::new(node, hit, world) {
-            editor.begin_node_transaction(&[hit.id], "Resize");
+        if let Some(drag) = ResizeDrag::new(&mut editor, hit, world) {
             *gesture = Gesture::Resize(drag);
         }
     }
@@ -125,6 +129,7 @@ impl DesignCanvas {
 }
 
 pub(super) struct ResizeDrag {
+    session: core::SelectionResize,
     id: NodeId,
     original: Rect,
     local: core::Transform,
@@ -135,15 +140,19 @@ pub(super) struct ResizeDrag {
 }
 
 impl ResizeDrag {
-    pub(super) fn new(node: &Node, hit: Hit, press: Point) -> Option<Self> {
+    pub(super) fn new(editor: &mut Editor, hit: Hit, press: Point) -> Option<Self> {
+        let node = editor.document.nodes.get(&hit.id)?;
+        let original = node.bounds();
+        let local = node.local_transform();
         Some(Self {
-            id: node.id,
-            original: node.bounds(),
-            local: node.local_transform(),
+            id: hit.id,
+            original,
+            local,
             world: hit.transform,
             inverse: hit.transform.inverse()?,
             press,
             axes: hit.handle.axes(),
+            session: editor.begin_single_resize(hit.id)?,
         })
     }
 
@@ -161,7 +170,7 @@ impl ResizeDrag {
         }
     }
 
-    pub(super) fn update(&self, canvas: &DesignCanvas, pointer: Point, modifiers: KeyModifiers) {
+    pub(super) fn update(&mut self, canvas: &DesignCanvas, pointer: Point, modifiers: KeyModifiers) {
         let mut editor = canvas.editor.borrow_mut();
         canvas.layout_grids.borrow_mut().clear_snap();
         if editor.document.effective_locked(self.id) {
@@ -224,9 +233,22 @@ impl ResizeDrag {
             self.local.apply(original_anchor)
                 - node.local_transform_for_bounds(zero).apply(self.anchor(size.x, size.y, centered))
         };
-        if node.bounds() != Rect::new(position.x, position.y, size.x, size.y) {
-            editor.resize_node_and_position(self.id, size.x, size.y, position);
-        }
+        let bounds = Rect::new(position.x, position.y, size.x, size.y);
+        self.session.preview_layer(&mut editor, bounds, modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META));
+    }
+
+    pub(super) fn cancel(self, canvas: &DesignCanvas) {
+        self.session.cancel(&mut canvas.editor.borrow_mut());
+        canvas.set_resize_hover(None);
+        canvas.layout_grids.borrow_mut().clear_snap();
+        canvas.invalidate_visual();
+        canvas.emit(CanvasEvent::Selection);
+    }
+
+    pub(super) fn finish(self, canvas: &DesignCanvas) {
+        let changed = self.session.commit(&mut canvas.editor.borrow_mut());
+        canvas.set_resize_hover(None);
+        canvas.emit(if changed { CanvasEvent::Document } else { CanvasEvent::Selection });
     }
 }
 
@@ -387,7 +409,6 @@ mod tests {
             let world = transform.apply(grab);
             let hit = canvas.handle_at(world).unwrap();
             assert_eq!(hit.handle, Handle::Edge(edge));
-            let drag = ResizeDrag::new(&original, hit, world).unwrap();
             let delta = Point::new(
                 if axes.x == 0.0 { 13.0 } else { 10.0 * axes.x },
                 if axes.y == 0.0 { 11.0 } else { 10.0 * axes.y },
@@ -413,10 +434,8 @@ mod tests {
                         size.x = size.y * 2.0;
                     }
                 }
+                let mut drag = ResizeDrag::new(&mut canvas.editor.borrow_mut(), hit, world).unwrap();
                 let anchor = transform.apply(drag.anchor(original.width, original.height, centered));
-                let mut editor = canvas.editor.borrow_mut();
-                editor.begin_node_transaction(&[id], "Resize");
-                drop(editor);
                 drag.update(&canvas, transform.apply(grab + delta), mods);
                 let editor = canvas.editor.borrow();
                 let current = &editor.document.nodes[&id];

@@ -1,4 +1,6 @@
 //! Host services only. The editor UI and artwork are rendered by FerroUI.
+mod nudge;
+pub(crate) use nudge::NudgeAmounts;
 #[cfg(not(target_os = "emscripten"))]
 static NATIVE_SAVE_SUCCEEDED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);

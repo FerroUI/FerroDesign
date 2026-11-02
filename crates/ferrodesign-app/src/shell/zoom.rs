@@ -13,10 +13,28 @@ impl EditorShell {
         }
     }
 
+    pub(super) fn sync_outline_options(&self) {
+        let enabled = self.canvas.show_outlines.get();
+        for (name, checked) in [("ZoomOutlines", enabled), ("ZoomHiddenOutlines", self.canvas.outline_hidden.get()),
+            ("ZoomOutlineBounds", self.canvas.outline_bounds.get())] {
+            let control = self.control::<CheckBox>(name);
+            control.set_is_checked(Some(checked));
+            control.set_is_enabled(enabled || name == "ZoomOutlines");
+        }
+    }
+
     pub(super) fn wire_zoom(self: &Rc<Self>) {
         let owner = self.button("ZoomValueButton");
         let flyout = owner.flyout().expect("ZoomValueButton flyout");
         let weak = Rc::downgrade(self);
+        self.sync_outline_options();
+        for (name, command) in [("ZoomOutlines", "show-outlines"), ("ZoomHiddenOutlines", "outline-hidden"),
+            ("ZoomOutlineBounds", "outline-bounds")] {
+            let weak = Rc::downgrade(self);
+            self.control::<CheckBox>(name).click(move |_, _| {
+                if let Some(shell) = weak.upgrade() { shell.command(command); }
+            });
+        }
         let popup = flyout.downgrade();
         owner.click(move |_, _| {
             if let Some(shell) = weak.upgrade().filter(|_| popup.upgrade().is_some_and(|f| f.is_open())) {

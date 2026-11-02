@@ -228,22 +228,7 @@ impl EditorShell {
             self.end_layer_drag(false);
             return false;
         }
-        let bounds = view.bounds();
-        if point.x >= 0.0 && point.x < bounds.width && point.y >= 0.0 && point.y <= bounds.height {
-            let edge = 24.0_f64.min(bounds.height / 4.0);
-            let delta = if point.y < edge {
-                point.y - edge
-            } else {
-                (point.y + edge - bounds.height).max(0.0)
-            };
-            let offset = view.offset();
-            let y = (offset.y + delta).clamp(0.0, view.scroll_bar_maximum().y.max(0.0));
-            if y != offset.y {
-                view.set_offset(Vector::new(offset.x, y));
-                view.update_layout();
-                self.update_layer_drop_marker(point);
-            }
-        }
+        if scroll_near_edge(&view, point) { self.update_layer_drop_marker(point); }
         true
     }
 
@@ -356,4 +341,25 @@ fn marker_class(slot: LayerRowSlot) -> &'static str {
         LayerRowSlot::Inside => "insert-inside",
         LayerRowSlot::Below => "insert-below",
     }
+}
+
+/// Scroll by the pointer’s depth into either edge of an arranged sidebar list.
+pub(super) fn scroll_near_edge(view: &ScrollViewer, point: UiPoint) -> bool {
+    let bounds = view.bounds();
+    if point.x >= 0.0 && point.x < bounds.width && point.y >= 0.0 && point.y <= bounds.height {
+        let edge = 24.0_f64.min(bounds.height / 4.0);
+        let delta = if point.y < edge {
+            point.y - edge
+        } else {
+            (point.y + edge - bounds.height).max(0.0)
+        };
+        let offset = view.offset();
+        let y = (offset.y + delta).clamp(0.0, view.scroll_bar_maximum().y.max(0.0));
+        if y != offset.y {
+            view.set_offset(Vector::new(offset.x, y));
+            view.update_layout();
+            return true;
+        }
+    }
+    false
 }
