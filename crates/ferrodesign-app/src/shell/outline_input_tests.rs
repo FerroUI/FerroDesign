@@ -99,3 +99,62 @@ fn outline_shortcut_paints_and_picks_clipped_and_hidden_artwork_without_editing(
     assert_eq!(shell.editor.borrow().history_len(), 0);
     assert_eq!(f.json(), initial);
 }
+
+#[test]
+fn outline_hits_distinguish_stroke_placement_boolean_operands_and_optional_object_bounds() {
+    let _fixture = Fixture::new(false);
+    let mut doc = core::Document::new("Outline hits");
+    for (x, alignment) in [
+        (20., core::StrokeAlign::Inside),
+        (120., core::StrokeAlign::Center),
+        (220., core::StrokeAlign::Outside),
+    ] {
+        let mut rect = Node::new(NodeKind::Rectangle, "Stroke", x, 40., 60., 60.);
+        let mut stroke = core::Stroke::new(core::Color::BLACK, 12.);
+        stroke.align = alignment;
+        rect.strokes.push(stroke);
+        doc.insert_node(1, rect).unwrap();
+    }
+    let boolean = doc
+        .insert_node(
+            1,
+            Node::new(NodeKind::Boolean, "Union", 360., 30., 120., 70.),
+        )
+        .unwrap();
+    let left = doc
+        .insert_node(
+            boolean,
+            Node::new(NodeKind::Rectangle, "Left", 0., 0., 70., 70.),
+        )
+        .unwrap();
+    let right = doc
+        .insert_node(
+            boolean,
+            Node::new(NodeKind::Rectangle, "Right", 50., 0., 70., 70.),
+        )
+        .unwrap();
+    let ellipse = doc
+        .insert_node(
+            1,
+            Node::new(NodeKind::Ellipse, "Bounds", 550., 40., 70., 60.),
+        )
+        .unwrap();
+    let mut e = Editor::new(doc);
+    let mut scene = crate::renderer::outlines::OutlineScene::default();
+    let mut hits = |editor: &Editor, x, y, bounds| {
+        scene.hits(editor, Point::new(x, y), 1., false, bounds, false)
+    };
+    // Inner and outer edges of the authored paint band stay 12 units apart.
+    assert_eq!(hits(&e, 32., 70., false), [2]);
+    assert_eq!(hits(&e, 114., 70., false), [3]);
+    assert_eq!(hits(&e, 126., 70., false), [3]);
+    assert_eq!(hits(&e, 208., 70., false), [4]);
+    assert!(hits(&e, 27., 70., false).is_empty());
+    assert!(hits(&e, 410., 65., false).contains(&right));
+    assert!(hits(&e, 430., 65., false).contains(&left));
+    assert!(hits(&e, 552., 40., false).is_empty());
+    assert_eq!(hits(&e, 552., 40., true), [ellipse]);
+    e.update_nodes(&[ellipse], "Translate", |n| n.x += 50.);
+    assert!(hits(&e, 552., 40., true).is_empty());
+    assert_eq!(hits(&e, 602., 40., true), [ellipse]);
+}

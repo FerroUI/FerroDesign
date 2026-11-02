@@ -18,6 +18,7 @@ pub(in crate::shell) struct PageDrag {
     active: bool,
     slot: Option<usize>,
     marker: Option<(Ref<Grid>, &'static str)>,
+    line: Option<Ref<Border>>,
     timer: Option<Rc<dyn IDisposable>>,
 }
 
@@ -61,6 +62,7 @@ impl EditorShell {
                     active: false,
                     slot: None,
                     marker: None,
+                    line: None,
                     timer: None,
                 }));
             },
@@ -247,6 +249,9 @@ impl EditorShell {
         }
         if let Some((row, class)) = drag.marker.take() {
             row.classes().remove(class);
+            if let Some(line) = &drag.line {
+                row.children().remove(line.clone());
+            }
         }
         drag.slot = slot;
         if let Some(slot) = slot {
@@ -258,6 +263,17 @@ impl EditorShell {
             } else {
                 "insert-above"
             };
+            let line = drag.line.get_or_insert_with(|| {
+                let line = Border::new();
+                line.classes().add("layer-insertion");
+                // A solid two-DIP rectangle remains visible even when its height
+                // is smaller than the two opposed strokes of an outlined Border.
+                line.set_border_thickness(ferroui_base::Thickness::default());
+                line.set_background(Some(icons::brush("#0D99FF")));
+                line.set_is_hit_test_visible(false);
+                line
+            });
+            row.children().add(line.clone());
             row.classes().add(class);
             drag.marker = Some((row.clone(), class));
         }
@@ -272,6 +288,9 @@ impl EditorShell {
         }
         if let Some((row, class)) = drag.marker {
             row.classes().remove(class);
+            if let Some(line) = drag.line {
+                row.children().remove(line);
+            }
         }
         if !drag.active {
             return;

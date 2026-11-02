@@ -171,11 +171,6 @@ impl EditorShell {
         label.set_vertical_alignment(VerticalAlignment::Center);
         Grid::set_column(&label, 1);
         content.children().add(label.clone());
-        let marker = Border::new();
-        marker.classes().add("layer-insertion");
-        marker.set_is_hit_test_visible(false);
-        Grid::set_column_span(&marker, 2);
-        content.children().add(marker);
         button.set_content(Some(Control::boxed(content)));
         host.children().add(button.clone());
         let twice = Rc::new(Cell::new(false));

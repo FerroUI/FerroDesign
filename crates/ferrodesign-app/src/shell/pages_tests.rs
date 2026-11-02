@@ -315,8 +315,21 @@ fn native_page_drag_reorders_on_release_keeps_canvas_state_and_cancels_at_edges(
     };
     let move_to = |p| f.window.mouse_move(p, RawInputModifiers::LEFT_MOUSE_BUTTON);
     let up = |p| f.window.mouse_up(p, MouseButton::Left, RawInputModifiers::NONE);
+    let insertion_ink = || {
+        let frame = f.window.capture_rendered_frame().unwrap();
+        let edge = point(3, 0.);
+        let mut rgba = [0; 32 * 4 * 4];
+        frame.copy_pixels(ferroui_base::PixelRect::new(edge.x as i32, edge.y as i32 - 1, 32, 4), &mut rgba, 32 * 4);
+        let bgra = frame.format() == Some(ferroui_base::platform::PixelFormat::BGRA8888);
+        rgba.chunks_exact(4).filter(|p| {
+            let (r, b) = if bgra { (p[2], p[0]) } else { (p[0], p[2]) };
+            r < 90 && p[1] > 90 && b > p[1].saturating_add(40)
+        }).count()
+    };
+    assert_eq!(insertion_ink(), 0);
     down(start); move_to(third);
     assert!(s.has_page_drag());
+    assert!(insertion_ink() >= 32, "the native insertion line spans the top edge of the target row");
     assert_eq!(f.json(), before);
     up(fourth);
     let mut expected = order.clone();

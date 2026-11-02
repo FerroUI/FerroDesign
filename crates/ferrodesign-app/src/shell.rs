@@ -894,8 +894,10 @@ impl EditorShell {
                 .get(index);
             chrome.insert("ActivePage".into(), native_bounds(&button));
             if let Some(row) = button.cast::<Grid>() {
-                if row.children().count() > 1 {
-                    chrome.insert("PageRenameEditor".into(), native_bounds(&row.children().get(1)));
+                let children = row.children();
+                if let Some(field) = (1..children.count()).map(|i| children.get(i))
+                    .find(|c| c.name().as_deref() == Some("PageRenameEditor")) {
+                    chrome.insert("PageRenameEditor".into(), native_bounds(&field));
                 }
             }
         }

@@ -115,6 +115,9 @@ export async function pageInspectorRegressions(page, reference, check, helpers, 
     const parent = await state(page), original = await documentState(page);
     const menuAction = async id => {
         await clickNative(page, "PageActionsButton");
+        if (id === "PageDuplicate") {
+            await captureNativeScreenshot(mode + "-page-actions", { controls: ["PageDuplicate", "PageDelete", "PageRename"] });
+        }
         await clickNative(page, id);
         await frames(page);
     };
@@ -151,6 +154,16 @@ export async function pageInspectorRegressions(page, reference, check, helpers, 
         await page.mouse.move(first.x + first.width / 2, first.y + 3, { steps: 5 });
     };
     await beginReorder();
+    await frames(page);
+    const preview = PNG.sync.read(await captureNativeScreenshot(mode + "-page-reorder", { controls: ["PagesViewport", "ActivePage"] }));
+    let blue = 0;
+    for (let y = Math.floor(first.y); y < first.y + 3; y++) {
+        for (let x = Math.ceil(first.x + 4); x < first.x + first.width - 4; x++) {
+            const i = (y * preview.width + x) * 4;
+            if (preview.data[i] < 90 && preview.data[i+1] > 90 && preview.data[i+2] > preview.data[i+1] + 40) blue++;
+        }
+    }
+    assert.ok(blue >= first.width * 0.6, "The page insertion line is visible at its target edge");
     assert.deepEqual(await documentState(page), original);
     await page.keyboard.press("Escape");
     await page.mouse.up();
