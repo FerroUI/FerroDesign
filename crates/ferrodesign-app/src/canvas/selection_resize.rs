@@ -94,12 +94,16 @@ impl DesignCanvas {
         let Gesture::MultiResize(drag) = &mut *gesture else {
             return false;
         };
+        let revision = self.editor.borrow().revision;
         if let Some(screen) = self.selection_pointer.get() {
             let mut mods = event.key_modifiers;
             mods.set(flag, pressed);
             drag.update(self, self.viewport.get().screen_to_world(screen), mods);
         }
         drop(gesture);
+        if self.editor.borrow().revision != revision {
+            self.emit(CanvasEvent::ResizePreview);
+        }
         self.invalidate_visual();
         true
     }

@@ -112,6 +112,7 @@ pub enum CanvasEvent {
     Selection,
     Document,
     Draft,
+    ResizePreview,
     Camera,
     Tool,
     EditText(NodeId),
@@ -1143,6 +1144,8 @@ impl InputElementImpl for DesignCanvas {
         }
         let mut gesture = this.gesture.borrow_mut();
         this.activate_edge_drag(&mut gesture, position);
+        let resize_revision = matches!(*gesture, Gesture::Resize(_) | Gesture::MultiResize(_))
+            .then(|| this.editor.borrow().revision);
         match &mut *gesture {
             Gesture::EdgePress { .. } => return,
             Gesture::None => {
@@ -1280,6 +1283,9 @@ impl InputElementImpl for DesignCanvas {
             }
         }
         drop(gesture);
+        if resize_revision.is_some_and(|revision| revision != this.editor.borrow().revision) {
+            this.emit(CanvasEvent::ResizePreview);
+        }
         this.invalidate_visual();
     }
     fn on_pointer_released(this: &Self, e: &PointerReleasedEventArgs) {
