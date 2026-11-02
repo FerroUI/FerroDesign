@@ -3,6 +3,7 @@ mod drawing;
 mod drag_copy;
 mod measure;
 mod resize;
+mod selection_resize;
 mod line_endpoint;
 mod network;
 mod network_bucket;
@@ -138,6 +139,7 @@ enum Gesture {
     Scale(scale::ScaleDrag),
     EdgePress { hit: resize::Hit, world: Point, screen: Point, modifiers: KeyModifiers, clicks: i32 },
     Resize(resize::ResizeDrag),
+    MultiResize(selection_resize::MultiResize),
     Rotate {
         node: Node,
         center: Point,
@@ -420,6 +422,7 @@ impl DesignCanvas {
     // Pointer movement and a modifier change at a stationary pointer must agree
     // on the target. Geometry handles own their hit area before layer measurement.
     fn hover_edit_handle(&self, world: Point, modifiers: KeyModifiers) -> bool {
+        if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META) && self.multi_resize_hover(world) { return true; }
         let resize = (!modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META))
             .then(|| self.handle_at(world)).flatten();
         self.set_resize_hover(resize);
@@ -574,6 +577,10 @@ impl DesignCanvas {
     }
     pub fn cancel(&self) {
         self.clear_measurement();
+        if matches!(*self.gesture.borrow(), Gesture::MultiResize(_)) {
+            if let Gesture::MultiResize(drag) = self.gesture.replace(Gesture::None) { drag.cancel(self); }
+            return;
+        }
         if matches!(*self.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_)) {
             *self.gesture.borrow_mut() = Gesture::None;
             self.set_resize_hover(None);
@@ -898,7 +905,7 @@ impl InputElementImpl for DesignCanvas {
         let world = this.viewport.get().screen_to_world(screen);
         this.pointer_presses.borrow_mut().record(e, screen, world, this.viewport.get(),
             this.editor.borrow().selection.len(), this.frames.get());
-        if matches!(*this.gesture.borrow(), Gesture::Scale(_)) { return; }
+        if matches!(*this.gesture.borrow(), Gesture::Scale(_) | Gesture::MultiResize(_)) { return; }
         if e.properties().is_right_button_pressed {
             if this.presentation.get().is_none() {
                 this.emit(CanvasEvent::ContextMenu);
@@ -933,6 +940,7 @@ impl InputElementImpl for DesignCanvas {
                 let scaling = this.tool.get() == Tool::Scale;
                 let deep = e.key_modifiers().intersects(KeyModifiers::CONTROL | KeyModifiers::META);
                 if scaling && !deep && this.press_scale_handle(world) { return; }
+                if !deep && this.press_multi_resize(world, screen, e.key_modifiers(), e.click_count()) { return; }
                 if !scaling && this.corner_radius_press(world, e.key_modifiers()) { return; }
                 this.clear_corner_radius_hover();
                 let handle = if scaling || deep { None } else { this.handle_at(world) };
@@ -1148,6 +1156,7 @@ impl InputElementImpl for DesignCanvas {
             move_drag @ Gesture::Move { .. } => this.update_free_move(move_drag, world, shift),
             Gesture::Scale(drag) => drag.update(&mut this.editor.borrow_mut(), world, e.key_modifiers().contains(KeyModifiers::ALT)),
             Gesture::Resize(drag) => drag.update(this, world, e.key_modifiers()),
+            Gesture::MultiResize(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::Rotate {
                 node,
                 center,
@@ -1352,6 +1361,7 @@ impl InputElementImpl for DesignCanvas {
             Gesture::Draw(drag) => drag.update(this, this.world(release_screen), e.key_modifiers(), true),
             Gesture::LineEndpoint(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
             Gesture::Resize(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
+            Gesture::MultiResize(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
             _ => {}
         }
         this.snap_guides.set((None, None));
@@ -1365,6 +1375,7 @@ impl InputElementImpl for DesignCanvas {
                     this.select_at_pointer(world, modifiers, clicks, None);
                 }
             }
+            Gesture::MultiResize(drag) => drag.finish(this),
             Gesture::AltDrag(drag) => drag.finish(this, this.world(release_screen), e.key_modifiers()),
             Gesture::Marquee(mut drag) => {
                 let mut editor = this.editor.borrow_mut();
@@ -1486,7 +1497,7 @@ impl InputElementImpl for DesignCanvas {
     fn on_lost_focus(this: &Self, e: &FocusChangedEventArgs) {
         Self::parent_on_lost_focus(this, e);
         this.clear_measurement();
-        if matches!(*this.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_)) {
+        if matches!(*this.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_) | Gesture::MultiResize(_)) {
             this.cancel();
         }
         // KeyUp is routed to the new focus owner.
@@ -1503,7 +1514,7 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
-        if this.marquee_modifier(e, true) || this.alt_drag_modifier(e, true) {
+        if this.multi_resize_modifier(e, true) || this.marquee_modifier(e, true) || this.alt_drag_modifier(e, true) {
             e.set_handled(true);
             return;
         }
@@ -1693,7 +1704,7 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_key_up(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_up(this, e);
-        if this.marquee_modifier(e, false) || this.alt_drag_modifier(e, false) {
+        if this.multi_resize_modifier(e, false) || this.marquee_modifier(e, false) || this.alt_drag_modifier(e, false) {
             e.set_handled(true);
             return;
         }
@@ -2120,7 +2131,10 @@ impl VisualImpl for DesignCanvas {
             Gesture::Marquee(drag) => Some(drag),
             _ => None,
         };
-        if scale_mode && marquee.is_none() { this.render_scale_handles(ctx, &editor, v); }
+        if marquee.is_none() && (scale_mode || (this.tool.get() == Tool::Select && editor.selection.len() > 1
+            && matches!(*gesture, Gesture::None | Gesture::MultiResize(_)))) {
+            this.render_scale_handles(ctx, &editor, v);
+        }
         let selection = match &*gesture {
             Gesture::Marquee(drag) => drag.preview.as_slice(),
             Gesture::AltDrag(drag) if drag.is_previewing(&editor) => &[],

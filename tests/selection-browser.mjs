@@ -456,4 +456,30 @@ export async function selectionRegressions(page, reference, check, helpers, outp
     assert.deepEqual(await documentState(page), copyBase.document);
     check("Option-drag previews and duplicates a frame, Ctrl+D repeats its spacing, and Escape and Undo restore every layer");
 
+    await importFixture(page, isolatedDocument(reference, [
+        rectangle(2, { x: 20, y: 20, width: 60, height: 50 }),
+        rectangle(3, { x: 140, y: 60, width: 40, height: 40 }),
+        rectangle(4, { x: 300, y: 170, width: 30, height: 30, locked: true }),
+    ], "Resize a multiple selection"));
+    await clickNative(page, "SelectTool");
+    await click({ x: 45, y: 45 }, [], [2]);
+    await click({ x: 158, y: 80 }, ["Shift"], [2, 3]);
+    const multiBase = await snapshot();
+    await moveWorld(page, 180, 60);
+    await page.mouse.down();
+    await moveWorld(page, 219, 61);
+    await page.mouse.up();
+    await page.waitForFunction(depth => JSON.parse(globalThis.ferroDesign.ferroDesignState()).historyLength === depth + 1, multiBase.history);
+    const resized = (await documentState(page)).nodes;
+    const sx = resized[2].width / 60;
+    assert.ok(sx > 1.18 && sx < 1.3);
+    assert.deepEqual([resized[2].x, resized[2].y, resized[2].height, resized[3].y, resized[3].height], [20, 20, 50, 60, 40]);
+    assert.ok(Math.abs(resized[3].x - (20 + 120 * sx)) < 1e-7);
+    assert.ok(Math.abs(resized[3].width - 40 * sx) < 1e-7);
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].width === 60);
+    assert.deepEqual(await documentState(page), multiBase.document);
+    await selected([2, 3]);
+    check("Dragging the shared Move edge resizes both selected layers and their spacing about the fixed opposite edge; one Undo restores the document");
+
 }

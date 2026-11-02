@@ -17,12 +17,13 @@ fn can_scale_from(bounds: Rect, index: usize) -> bool {
 
 pub(super) struct CachedBounds {
     version: core::EditorRenderToken,
+    resize: bool,
     page: NodeId,
     selection: Vec<NodeId>,
     bounds: Option<Rect>,
 }
 
-fn handle_at(bounds: Rect, pointer: Point, tolerance: f64) -> Option<usize> {
+pub(super) fn box_handle_at(bounds: Rect, pointer: Point, tolerance: f64, side_tolerance: f64) -> Option<usize> {
     // Prioritize painted corners over an edge when their hit areas meet.
     [0, 2, 6, 8]
         .into_iter()
@@ -43,7 +44,7 @@ fn handle_at(bounds: Rect, pointer: Point, tolerance: f64) -> Option<usize> {
             ]
             .into_iter()
             .filter(|(i, within, distance)| {
-                *within && *distance <= tolerance && can_scale_from(bounds, *i)
+                *within && *distance <= side_tolerance && can_scale_from(bounds, *i)
             })
             .min_by(|a, b| a.2.total_cmp(&b.2))
             .map(|(i, _, _)| i)
@@ -89,23 +90,26 @@ impl ScaleDrag {
 impl DesignCanvas {
     // Pointer moves and camera frames share one eligibility/hierarchy walk.
     // Selection changes do not advance the editor's render token.
-    fn scale_box(&self, editor: &Editor) -> Option<Rect> {
+    pub(super) fn transform_box(&self, editor: &Editor, resize: bool) -> Option<Rect> {
         if let Gesture::Scale(drag) = &*self.gesture.borrow() {
             return Some(drag.visible_bounds);
+        }
+        if let Gesture::MultiResize(drag) = &*self.gesture.borrow() {
+            return Some(drag.visible);
         }
         let version = editor.render_change_token();
         let mut cache = self.scale_bounds.borrow_mut();
         if let Some(entry) = cache.as_ref() {
-            if entry.version == version
+            if entry.resize == resize && entry.version == version
                 && entry.page == editor.active_page
                 && entry.selection == editor.selection
             {
                 return entry.bounds;
             }
         }
-        let bounds = editor.selection_scale_bounds();
+        let bounds = if resize { editor.multi_resize_bounds() } else { editor.selection_scale_bounds() };
         *cache = Some(CachedBounds {
-            version,
+            version, resize,
             page: editor.active_page,
             selection: editor.selection.clone(),
             bounds,
@@ -116,8 +120,8 @@ impl DesignCanvas {
     pub(super) fn press_scale_handle(&self, world: Point) -> bool {
         let mut editor = self.editor.borrow_mut();
         let Some(handle) = self
-            .scale_box(&editor)
-            .and_then(|bounds| handle_at(bounds, world, 7.0 / self.viewport.get().zoom))
+            .transform_box(&editor, false)
+            .and_then(|bounds| box_handle_at(bounds, world, 7.0 / self.viewport.get().zoom, 7.0 / self.viewport.get().zoom))
         else {
             return false;
         };
@@ -149,8 +153,8 @@ impl DesignCanvas {
 
     pub(super) fn update_scale_cursor(&self, world: Point) {
         let handle = self
-            .scale_box(&self.editor.borrow())
-            .and_then(|bounds| handle_at(bounds, world, 7.0 / self.viewport.get().zoom));
+            .transform_box(&self.editor.borrow(), false)
+            .and_then(|bounds| box_handle_at(bounds, world, 7.0 / self.viewport.get().zoom, 7.0 / self.viewport.get().zoom));
         let kind = match handle {
             Some(0 | 8) => Some(StandardCursorType::TopLeftCorner),
             Some(2 | 6) => Some(StandardCursorType::TopRightCorner),
@@ -167,7 +171,8 @@ impl DesignCanvas {
         editor: &Editor,
         view: Viewport,
     ) {
-        let Some(bounds) = self.scale_box(editor) else {
+        let resize = self.tool.get() == Tool::Select;
+        let Some(bounds) = self.transform_box(editor, resize) else {
             return;
         };
         let outline = pen(0xFF0D99FF, 1.0);
@@ -197,9 +202,11 @@ impl DesignCanvas {
                 &BoxShadows::default(),
             );
         }
+        let screen = Rect::new(top.x, top.y, bounds.width * view.zoom, bounds.height * view.zoom);
         if let Gesture::Scale(drag) = &*self.gesture.borrow() {
-            let screen = Rect::new(top.x, top.y, bounds.width * view.zoom, bounds.height * view.zoom);
             self.draw_size_badge(ctx, resize::BadgeValue::Scale(drag.factor), screen, view);
+        } else if resize && self.measurement_target().is_none() {
+            self.draw_size_badge(ctx, resize::BadgeValue::Dimensions(bounds.width, bounds.height), screen, view);
         }
     }
 }
@@ -211,9 +218,9 @@ mod tests {
     #[test]
     fn collapsed_sides_of_lines_do_not_offer_inert_scale_handles() {
         let line = Rect::new(10.0, 20.0, 150.0, 0.0);
-        assert_eq!(handle_at(line, line.center(), 5.0), None);
-        assert!(handle_at(line, anchor(line, 3), 5.0).is_some());
+        assert_eq!(box_handle_at(line, line.center(), 5.0, 5.0), None);
+        assert!(box_handle_at(line, anchor(line, 3), 5.0, 5.0).is_some());
         let point = Rect::new(10.0, 20.0, 0.0, 0.0);
-        assert_eq!(handle_at(point, point.center(), 5.0), None);
+        assert_eq!(box_handle_at(point, point.center(), 5.0, 5.0), None);
     }
 }

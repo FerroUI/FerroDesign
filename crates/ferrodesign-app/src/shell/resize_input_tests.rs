@@ -226,3 +226,57 @@ fn option_drag_creates_no_layer_before_drop_and_cancels_without_consuming_redo()
     assert_eq!(shell.editor.borrow().document.nodes.len(), 2);
     assert_eq!(shell.editor.borrow().history_len(), 1);
 }
+
+#[test]
+fn multi_resize_shared_move_handle_uses_final_pointer_sample_and_one_history_entry() {
+    let fixture = Fixture::with_kind(false, NodeKind::Rectangle);
+    let shell = &fixture.shell;
+    let canvas = &shell.canvas;
+    let mut doc = core::Document::new("Shared Move handles");
+    let a = doc.insert_node(1, Node::new(NodeKind::Rectangle, "A", 20.0, 20.0, 60.0, 50.0)).unwrap();
+    let b = doc.insert_node(1, Node::new(NodeKind::Rectangle, "B", 140.0, 60.0, 40.0, 40.0)).unwrap();
+    let mut editor = Editor::new(doc);
+    editor.selection = vec![a,b];
+    *shell.editor.borrow_mut() = editor;
+    shell.refresh();
+    fixture.window.capture_rendered_frame().unwrap();
+    let view = core::Viewport { zoom: 1.0, pan: Point::new(100.0, 75.0), ..canvas.viewport.get() };
+    canvas.viewport.set(view);
+    canvas.snap.set(false);
+    canvas.invalidate_visual();
+    fixture.window.capture_rendered_frame().unwrap();
+    let screen = |x, y| {
+        let p = view.world_to_screen(Point::new(x,y));
+        canvas.translate_point(ferroui_base::Point::new(p.x,p.y), &fixture.window).unwrap()
+    };
+    let before = fixture.json();
+    let edge = screen(180.0,60.0);
+    let end = screen(220.0,71.0);
+    fixture.window.mouse_down(edge, MouseButton::Left, RawInputModifiers::NONE);
+    assert!(!shell.editor.borrow().has_active_transaction());
+    fixture.window.mouse_up(end, MouseButton::Left, RawInputModifiers::NONE);
+    let bounds = |id| shell.editor.borrow().document.nodes[&id].bounds();
+    assert_eq!(bounds(a),core::Rect::new(20.0,20.0,75.0,50.0));
+    assert_eq!(bounds(b),core::Rect::new(170.0,60.0,50.0,40.0));
+    assert_eq!(shell.editor.borrow().selection,[a,b]);
+    assert_eq!(shell.editor.borrow().history_len(),1);
+    assert!(shell.command("undo"));
+    assert_eq!(fixture.json(),before);
+    fixture.window.mouse_down(edge, MouseButton::Left, RawInputModifiers::ALT);
+    fixture.window.mouse_move(end, RawInputModifiers::ALT | RawInputModifiers::LEFT_MOUSE_BUTTON);
+    assert_eq!(bounds(a),core::Rect::new(-20.0,20.0,90.0,50.0));
+    let mut shift = KeyEventArgs::new();
+    shift.set_routed_event(Some(InputElement::key_down_event()));
+    shift.key = Key::LeftShift;
+    shift.key_modifiers = ferroui_base::input::KeyModifiers::ALT;
+    canvas.raise_event(&shift);
+    assert!(shift.handled());
+    assert_eq!(bounds(a),core::Rect::new(-20.0,0.0,90.0,75.0));
+    let mut cancel = KeyEventArgs::new();
+    cancel.set_routed_event(Some(InputElement::key_down_event()));
+    cancel.key = Key::Escape;
+    canvas.raise_event(&cancel);
+    fixture.window.mouse_up(end, MouseButton::Left, RawInputModifiers::NONE);
+    assert_eq!(fixture.json(),before);
+    assert!(shell.editor.borrow().can_redo());
+}
