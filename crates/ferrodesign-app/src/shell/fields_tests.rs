@@ -73,6 +73,11 @@ impl Fixture {
                 ..Default::default()
             })
             .setup_without_starting();
+        // Headless input is stamped with wall-clock time; a long double-tap window keeps a
+        // test's double click a double click while the whole suite runs in parallel.
+        ferroui_base::FerroLocator::current_mutable()
+            .bind::<dyn ferroui_base::platform::IPlatformSettings>()
+            .to_constant(Rc::new(TestPlatformSettings::default()));
         builder
             .instance()
             .unwrap()
@@ -744,4 +749,44 @@ fn minimized_phone_keeps_selection_on_canvas_and_restores_drawer_after_hiding() 
     click("RestoreUiButton");
     assert!(visible("CompactHeader") && visible("LeftPanel"));
     assert_eq!(fixture.json(), before);
+}
+
+/// The headless platform settings with a double-tap window long enough for a loaded test run.
+#[derive(Default)]
+struct TestPlatformSettings(ferroui_base::platform::DefaultPlatformSettings);
+
+impl ferroui_base::platform::IPlatformSettings for TestPlatformSettings {
+    fn get_tap_size(&self, kind: ferroui_base::input::PointerType) -> ferroui_base::Size {
+        self.0.get_tap_size(kind)
+    }
+    fn get_double_tap_size(&self, kind: ferroui_base::input::PointerType) -> ferroui_base::Size {
+        self.0.get_double_tap_size(kind)
+    }
+    fn get_double_tap_time(&self, _kind: ferroui_base::input::PointerType) -> std::time::Duration {
+        std::time::Duration::from_secs(5)
+    }
+    fn hold_wait_duration(&self) -> std::time::Duration {
+        self.0.hold_wait_duration()
+    }
+    fn hotkey_configuration(&self) -> Rc<ferroui_base::input::platform::PlatformHotkeyConfiguration> {
+        self.0.hotkey_configuration()
+    }
+    fn preferred_application_language(&self) -> String {
+        self.0.preferred_application_language()
+    }
+    fn get_color_values(&self) -> ferroui_base::platform::PlatformColorValues {
+        self.0.get_color_values()
+    }
+    fn color_values_changed(
+        &self,
+        handler: Rc<dyn Fn(&ferroui_base::platform::PlatformColorValues)>,
+    ) -> Rc<dyn ferroui_base::reactive::IDisposable> {
+        self.0.color_values_changed(handler)
+    }
+    fn preferred_application_language_changed(
+        &self,
+        handler: Rc<dyn Fn()>,
+    ) -> Rc<dyn ferroui_base::reactive::IDisposable> {
+        self.0.preferred_application_language_changed(handler)
+    }
 }
