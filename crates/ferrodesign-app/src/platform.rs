@@ -1,4 +1,6 @@
 //! Host services only. The editor UI and artwork are rendered by FerroUI.
+mod nudge;
+pub(crate) use nudge::NudgeAmounts;
 #[cfg(not(target_os = "emscripten"))]
 static NATIVE_SAVE_SUCCEEDED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
@@ -12,6 +14,12 @@ static NATIVE_DRAFT_DIRTY: std::sync::atomic::AtomicBool =
 mod browser {
     use wasm_bindgen::prelude::*;
     #[wasm_bindgen(inline_js = r#"
+export function ferroArmScrub(x, y) { return globalThis.ferroDesignScrubPointer?.arm(x, y) || 0; }
+export function ferroRequestScrub(token) { globalThis.ferroDesignScrubPointer?.request(token); }
+export function ferroScrubCoordinate(token, axis, absolute) {
+  return globalThis.ferroDesignScrubPointer?.coordinate(token, axis, absolute) ?? absolute;
+}
+export function ferroEndScrub(token) { globalThis.ferroDesignScrubPointer?.end(token); }
 export function ferroLoad() { return globalThis.ferroDesignStorage?.load() || ''; }
 export function ferroSave(text) { return globalThis.ferroDesignStorage?.save(text) === true; }
 export function ferroSerializationPending(pending) { globalThis.ferroDesignStorage?.setSerializationPending(pending); }
@@ -77,6 +85,14 @@ export function ferroBytes(name, bytes, mime) {
 }
 "#)]
     extern "C" {
+        #[wasm_bindgen(js_name=ferroArmScrub)]
+        pub fn arm_scrub(x: f64, y: f64) -> u32;
+        #[wasm_bindgen(js_name=ferroRequestScrub)]
+        pub fn request_scrub(token: u32);
+        #[wasm_bindgen(js_name=ferroScrubCoordinate)]
+        pub fn scrub_coordinate(token: u32, axis: u32, absolute: f64) -> f64;
+        #[wasm_bindgen(js_name=ferroEndScrub)]
+        pub fn end_scrub(token: u32);
         #[wasm_bindgen(js_name=ferroLoad)]
         pub fn load() -> String;
         #[wasm_bindgen(js_name=ferroSave)]
@@ -99,12 +115,64 @@ export function ferroBytes(name, bytes, mime) {
         pub fn bytes(name: &str, bytes: &[u8], mime: &str);
     }
 }
+/// An optional browser lease. Native backends retain ordinary captured coordinates.
+#[derive(Default)]
+pub(crate) struct ScrubPointer(u32);
+
+impl ScrubPointer {
+    pub fn arm(_origin: ferroui_base::Point) -> Self {
+        #[cfg(target_os = "emscripten")]
+        { Self(browser::arm_scrub(_origin.x, _origin.y)) }
+        #[cfg(not(target_os = "emscripten"))]
+        { Self::default() }
+    }
+
+    pub fn matches(&self, token: u32) -> bool { token != 0 && self.0 == token }
+
+    pub fn token(&self) -> u32 { self.0 }
+
+    pub fn request(_token: u32) {
+        #[cfg(target_os = "emscripten")]
+        if _token != 0 { browser::request_scrub(_token); }
+    }
+
+    pub fn point(&self, absolute: ferroui_base::Point) -> ferroui_base::Point {
+        #[cfg(target_os = "emscripten")]
+        if self.0 != 0 {
+            return ferroui_base::Point::new(
+                browser::scrub_coordinate(self.0, 0, absolute.x),
+                browser::scrub_coordinate(self.0, 1, absolute.y),
+            );
+        }
+        absolute
+    }
+}
+
+impl Drop for ScrubPointer {
+    fn drop(&mut self) {
+        #[cfg(target_os = "emscripten")]
+        if self.0 != 0 { browser::end_scrub(self.0); }
+    }
+}
+
+// Native interaction tests pump real dispatcher timers, including autosave.
+// Keep their sessions thread-local. Atomic filesystem writes have separate
+// coverage against disposable paths.
+#[cfg(all(test, not(target_os = "emscripten")))]
+ferroui_base::ferro_thread_local! {
+    static TEST_SESSION: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
 pub fn load_document() -> String {
     #[cfg(target_os = "emscripten")]
     {
         browser::load()
     }
-    #[cfg(not(target_os = "emscripten"))]
+    #[cfg(all(test, not(target_os = "emscripten")))]
+    {
+        TEST_SESSION.with(|session| session.borrow().clone())
+    }
+    #[cfg(all(not(test), not(target_os = "emscripten")))]
     {
         std::fs::read_to_string("ferrodesign-autosave.json").unwrap_or_default()
     }
@@ -114,7 +182,12 @@ pub fn save_document(text: &str) -> bool {
     {
         browser::save(text)
     }
-    #[cfg(not(target_os = "emscripten"))]
+    #[cfg(all(test, not(target_os = "emscripten")))]
+    {
+        TEST_SESSION.with(|session| text.clone_into(&mut session.borrow_mut()));
+        true
+    }
+    #[cfg(all(not(test), not(target_os = "emscripten")))]
     {
         let saved =
             write_document_atomically(std::path::Path::new("ferrodesign-autosave.json"), text)

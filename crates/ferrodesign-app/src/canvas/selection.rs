@@ -15,7 +15,64 @@ pub(super) struct CachedPrototypeSelection {
     builds: u64,
 }
 
+pub(super) struct Marquee {
+    pub(super) start: Point,
+    pub(super) current: Point,
+    pub(super) preview: Vec<NodeId>,
+    page: NodeId,
+    token: core::EditorRenderToken,
+}
+
+impl Marquee {
+    fn new(editor: &Editor, start: Point, additive: bool) -> Self {
+        Self {
+            start, current: start, page: editor.active_page, token: editor.render_change_token(),
+            preview: if additive { editor.selection.clone() } else { Vec::new() },
+        }
+    }
+
+    pub(super) fn update(&mut self, canvas: &DesignCanvas, editor: &Editor, point: Point, modifiers: KeyModifiers) -> bool {
+        self.current = point;
+        if self.page != editor.active_page || self.token != editor.render_change_token()
+            || editor.has_active_transaction() {
+            self.preview.clear();
+            return false;
+        }
+        let additive = modifiers.contains(KeyModifiers::SHIFT);
+        self.preview = if self.start == point {
+            if additive { editor.selection.clone() } else { Vec::new() }
+        } else {
+            let rect = Rect::from_points(self.start, point);
+            let deep = modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META);
+            if canvas.show_outlines.get() {
+                let hits = canvas.outlines.borrow_mut().enclosed(editor, rect, canvas.outline_hidden.get());
+                editor.marquee_from_enclosed(hits, additive, deep)
+            } else {
+                editor.marquee_selection(rect, additive, deep)
+            }
+        };
+        true
+    }
+}
+
 impl DesignCanvas {
+    pub(super) fn marquee_modifier(&self, event: &KeyEventArgs, pressed: bool) -> bool {
+        let modifier = match event.key {
+            Key::LeftShift | Key::RightShift => KeyModifiers::SHIFT,
+            Key::LeftCtrl | Key::RightCtrl => KeyModifiers::CONTROL,
+            Key::LWin | Key::RWin => KeyModifiers::META,
+            _ => return false,
+        };
+        let mut gesture = self.gesture.borrow_mut();
+        let Gesture::Marquee(drag) = &mut *gesture else { return false };
+        let mut modifiers = event.key_modifiers;
+        modifiers.set(modifier, pressed);
+        drag.update(self, &self.editor.borrow(), drag.current, modifiers);
+        drop(gesture);
+        self.invalidate_visual();
+        true
+    }
+
     pub fn prototype_selection_index_stats(&self) -> serde_json::Value {
         let cached = self.prototype_selection.borrow();
         serde_json::json!({
@@ -58,6 +115,59 @@ impl DesignCanvas {
         )
     }
 
+    pub(super) fn cycle_pointer_click(&self, world: Point, modifiers: KeyModifiers) -> bool {
+        if self.tool.get() == Tool::Scale || self.vector_node.get().is_some() || !modifiers.contains(KeyModifiers::ALT)
+            || modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META) {
+            return false;
+        }
+        let direction = if modifiers.contains(KeyModifiers::SHIFT) {
+            core::SelectionCycle::InFront
+        } else {
+            core::SelectionCycle::Behind
+        };
+        self.cycle_selection_at(world, direction);
+        true
+    }
+
+    pub(super) fn select_at_pointer(
+        &self, world: Point, modifiers: KeyModifiers, clicks: i32, drag_origin: Option<Point>,
+    ) {
+        let additive = modifiers.contains(KeyModifiers::SHIFT);
+        let scaling = self.tool.get() == Tool::Scale;
+        let hit = self.pick_with_modifiers(world, modifiers, clicks == 2);
+        let mut editor = self.editor.borrow_mut();
+        if let Some(id) = hit {
+            if additive || !editor.selection.contains(&id) { editor.select(id, additive); }
+            if !scaling && clicks == 2 {
+                match editor.document.nodes[&id].kind {
+                    NodeKind::Text => { drop(editor); self.emit(CanvasEvent::EditText(id)); return; }
+                    NodeKind::Vector => { drop(editor); self.edit_vector(); return; }
+                    _ => {}
+                }
+            }
+            if drag_origin.is_some_and(|screen| !self.layout_drag_press(&editor, id, world, screen)) {
+                let exclude = editor.root_selection();
+                let bounds = exclude.iter().filter_map(|&id| editor.document.world_bounds(id)).reduce(Rect::union);
+                let nodes = exclude.iter().filter_map(|id| editor.document.nodes.get(id).cloned()).collect();
+                editor.begin_node_transaction(&exclude, "Move layers");
+                if let Some(probe) = self.free_layout_probe.borrow_mut().as_mut() { probe.record_transaction(&editor); }
+                *self.gesture.borrow_mut() = Gesture::Move { start: world, nodes, bounds, exclude, moved: false };
+            }
+        } else if drag_origin.is_some() {
+            if !editor.has_active_transaction() {
+                *self.gesture.borrow_mut() = Gesture::Marquee(Marquee::new(&editor, world, additive));
+                self.hover.set(None);
+                self.invalidate_visual();
+            }
+            return;
+        } else if !additive {
+            editor.clear_selection();
+        }
+        drop(editor);
+        self.emit(CanvasEvent::Selection);
+        self.invalidate_visual();
+    }
+
     pub(super) fn pick(&self, point: Point) -> Option<NodeId> {
         self.pick_with_modifiers(point, KeyModifiers::empty(), false)
     }
@@ -74,10 +184,19 @@ impl DesignCanvas {
             .page(editor.active_page)?
             .children
             .as_slice();
-        let mut painter = self.painter.borrow_mut();
-        let hit = editor.hit_test_filtered(point, 3.0 / self.viewport.get().zoom, |id| {
-            painter.mask_contains(&editor, roots, id, point)
-        })?;
+        let hit = if self.show_outlines.get() {
+            self.outlines.borrow_mut().hits(&editor, point, 3. / self.viewport.get().zoom,
+                self.outline_hidden.get(), self.outline_bounds.get(), false).into_iter().next()
+        } else {
+            let mut painter = self.painter.borrow_mut();
+            editor.hit_test_filtered(point, 3.0 / self.viewport.get().zoom, |id| {
+                if editor.document.nodes[&id].kind == NodeKind::Slice {
+                    slices::pick(&editor, id, point, 3.0 / self.viewport.get().zoom)
+                } else {
+                    painter.mask_contains(&editor, roots, id, point)
+                }
+            })
+        }?;
         if !self.select_groups.get()
             || modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META)
         {
@@ -125,6 +244,10 @@ impl DesignCanvas {
 
     fn selection_candidates_at(&self, point: Point, include_locked: bool) -> Vec<NodeId> {
         let editor = self.editor.borrow();
+        if self.show_outlines.get() {
+            return self.outlines.borrow_mut().hits(&editor, point, 3. / self.viewport.get().zoom,
+                self.outline_hidden.get(), self.outline_bounds.get(), include_locked);
+        }
         let Some(page) = editor.document.page(editor.active_page) else {
             return Vec::new();
         };
@@ -138,7 +261,7 @@ impl DesignCanvas {
                 include_locked,
             )
             .into_iter()
-            .filter(|id| painter.mask_contains(&editor, &page.children, *id, point))
+            .filter(|id| editor.document.nodes[id].kind == NodeKind::Slice || painter.mask_contains(&editor, &page.children, *id, point))
             .collect()
     }
 
@@ -151,7 +274,7 @@ impl DesignCanvas {
         let changed = self
             .editor
             .borrow_mut()
-            .cycle_selection(&candidates, direction);
+            .cycle_selection_with_visibility(&candidates, direction, self.show_outlines.get() && self.outline_hidden.get());
         if changed {
             self.leave_vector_edit();
             self.hover.set(None);

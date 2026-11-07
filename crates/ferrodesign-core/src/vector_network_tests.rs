@@ -572,3 +572,22 @@ fn network_document_roundtrip_rejects_mixed_geometry_and_invalid_region_referenc
     assert!(editor.document.validate().is_err());
     assert!(Document::from_json(&editor.document.to_json().unwrap()).is_err());
 }
+
+#[test]
+fn keyboard_nudge_moves_shared_vertices_and_handles_once_across_affine_transforms() {
+    let (mut e, id) = network_editor();
+    assert!(e.convert_vector_to_network(id));
+    let before = e.document.to_json().unwrap();
+    let graph = e.document.nodes[&id].vector_network.as_ref().unwrap();
+    let ids: Vec<_> = graph.vertices.keys().copied().collect();
+    let transform = e.document.world_transform(id).unwrap();
+    let points: Vec<_> = graph.edit_points().into_iter().map(|p| (p.id, transform.apply(p.position))).collect();
+    let delta = p(-0.125, 0.);
+    assert!(e.nudge_network_points(id, NetworkPointId::Vertex(ids[0]), &[ids[0],ids[1],ids[1]], delta));
+    let graph = e.document.nodes[&id].vector_network.as_ref().unwrap();
+    let transform = e.document.world_transform(id).unwrap();
+    for (p, pos) in points { close(transform.apply(graph.point_position(p).unwrap()), pos + delta); }
+    assert_eq!(e.history_len(), 2);
+    assert!(e.undo());
+    assert_eq!(e.document.to_json().unwrap(), before);
+}

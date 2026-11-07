@@ -1,6 +1,9 @@
 <UserControl xmlns="https://github.com/ferroui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Name="EditorRoot" Background="#E5E5E5" FontFamily="fonts:Inter#Inter" FontSize="11">
+  <UserControl.Resources>
+    <x:Double x:Key="TextControlPlaceholderOpacity">1</x:Double>
+  </UserControl.Resources>
   <UserControl.Styles>
     <Style Selector="Button">
       <Setter Property="MinHeight" Value="28"/>
@@ -17,9 +20,21 @@
       <Setter Property="Background" Value="#E5F4FF"/>
       <Setter Property="Foreground" Value="#007BE5"/>
     </Style>
+    <Style Selector="Button.mixed-text-format">
+      <Setter Property="BorderThickness" Value="0,0,0,1"/>
+      <Setter Property="BorderBrush" Value="#087AC4"/>
+    </Style>
     <Style Selector="Button.primary">
       <Setter Property="Background" Value="#0D99FF"/>
       <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.tab">
+      <Setter Property="MinHeight" Value="26"/><Setter Property="Padding" Value="8,3"/>
+      <Setter Property="Foreground" Value="#626262"/>
+    </Style>
+    <Style Selector="Button.tab.active">
+      <Setter Property="Background" Value="#F0F0F0"/><Setter Property="Foreground" Value="#171717"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
     <Style Selector="Button.constraint">
       <Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/>
@@ -27,9 +42,43 @@
       <Setter Property="Background" Value="#BDBDBD"/>
     </Style>
     <Style Selector="Button.constraint.active"><Setter Property="Background" Value="#0D99FF"/></Style>
+    <Style Selector="Button.scale-anchor">
+      <Setter Property="Width" Value="18"/><Setter Property="Height" Value="18"/>
+      <Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/><Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Padding" Value="0"/><Setter Property="CornerRadius" Value="4"/>
+      <Setter Property="Foreground" Value="#696969"/><Setter Property="FontSize" Value="11"/>
+      <Setter Property="Content" Value="•"/>
+    </Style>
+    <Style Selector="Button.scale-anchor.active">
+      <Setter Property="Background" Value="#0C8CE9"/><Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.playback">
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.playback:disabled"><Setter Property="Opacity" Value="0.4"/></Style>
     <Style Selector="Button.tool">
       <Setter Property="Width" Value="38"/><Setter Property="Height" Value="38"/>
       <Setter Property="Padding" Value="9"/><Setter Property="CornerRadius" Value="8"/>
+    </Style>
+    <Style Selector="Button.dock-tool">
+      <Setter Property="Width" Value="34"/><Setter Property="Height" Value="40"/>
+      <Setter Property="Padding" Value="6"/><Setter Property="CornerRadius" Value="6"/>
+    </Style>
+    <Style Selector="Button.tool-menu">
+      <Setter Property="Width" Value="24"/><Setter Property="MinWidth" Value="0"/>
+      <Setter Property="Height" Value="40"/><Setter Property="Padding" Value="3"/>
+      <Setter Property="CornerRadius" Value="5"/>
+    </Style>
+    <Style Selector="Border.editor-dock">
+      <Setter Property="Margin" Value="8,0,8,24"/><Setter Property="Padding" Value="5"/>
+    </Style>
+    <Style Selector="Border.editor-dock.narrow">
+      <Setter Property="Margin" Value="0,0,0,12"/><Setter Property="Padding" Value="2"/>
+    </Style>
+    <Style Selector="Button.touch-tool">
+      <Setter Property="Width" Value="44"/><Setter Property="Height" Value="44"/>
+      <Setter Property="Padding" Value="4"/><Setter Property="CornerRadius" Value="7"/>
     </Style>
     <Style Selector="Button.layer">
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
@@ -38,21 +87,125 @@
       <Setter Property="Height" Value="29"/>
       <Setter Property="CornerRadius" Value="4"/>
     </Style>
+    <Style Selector="Button.layer:focus-visible">
+      <Setter Property="BorderBrush" Value="#087AC4"/><Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <Style Selector="Border.keyboard-dialog"><Setter Property="KeyboardNavigation.TabNavigation" Value="Cycle"/></Style>
+    <Style Selector="Button.action-result">
+      <Setter Property="Height" Value="32"/><Setter Property="Padding" Value="5,3,10,3"/>
+    </Style>
+    <Style Selector="Border.action-marker">
+      <Setter Property="Width" Value="3"/><Setter Property="Height" Value="16"/>
+      <Setter Property="HorizontalAlignment" Value="Left"/><Setter Property="CornerRadius" Value="2"/>
+      <Setter Property="Background" Value="#087AC4"/><Setter Property="Opacity" Value="0"/>
+    </Style>
+    <Style Selector="Button.action-result.active Border.action-marker"><Setter Property="Opacity" Value="1"/></Style>
+    <Style Selector="Button.action-result.active TextBlock.action-caption"><Setter Property="Foreground" Value="#07558C"/></Style>
+    <Style Selector="ToggleButton.page-row">
+      <Setter Property="Height" Value="29"/><Setter Property="MinHeight" Value="0"/>
+      <Setter Property="Padding" Value="8,3"/><Setter Property="CornerRadius" Value="5"/>
+      <Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="Transparent"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
+    <Style Selector="TextBox.layer-rename">
+      <Setter Property="FontSize" Value="11"/><Setter Property="Padding" Value="5,0"/>
+      <Setter Property="MinHeight" Value="0"/><Setter Property="Height" Value="26"/>
+      <Setter Property="CornerRadius" Value="4"/><Setter Property="Background" Value="White"/>
+      <Setter Property="BorderThickness" Value="1"/><Setter Property="BorderBrush" Value="#0C8CE9"/>
+    </Style>
+    <Style Selector="Border.layer-insertion"><Setter Property="IsVisible" Value="False"/><Setter Property="BorderBrush" Value="#0D99FF"/><Setter Property="BorderThickness" Value="1.5"/></Style>
+    <Style Selector="Grid.insert-above Border.layer-insertion"><Setter Property="IsVisible" Value="True"/><Setter Property="Height" Value="2"/><Setter Property="VerticalAlignment" Value="Top"/></Style>
+    <Style Selector="Grid.insert-below Border.layer-insertion"><Setter Property="IsVisible" Value="True"/><Setter Property="Height" Value="2"/><Setter Property="VerticalAlignment" Value="Bottom"/></Style>
+    <Style Selector="Grid.insert-inside Border.layer-insertion"><Setter Property="IsVisible" Value="True"/><Setter Property="Background" Value="#120D99FF"/><Setter Property="CornerRadius" Value="4"/></Style>
+    <Style Selector="Button.layer-action">
+      <Setter Property="Width" Value="20"/><Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="0"/><Setter Property="Height" Value="24"/>
+      <Setter Property="Padding" Value="3"/><Setter Property="Opacity" Value="0"/>
+    </Style>
+    <Style Selector="Grid.layer-row:pointerover Button.layer-action"><Setter Property="Opacity" Value="1"/></Style>
+    <Style Selector="Button.layer-action:focus-visible"><Setter Property="Opacity" Value="1"/></Style>
+    <Style Selector="Button.layer-action.persistent"><Setter Property="Opacity" Value="1"/></Style>
     <Style Selector="TextBox">
+      <Setter Property="PlaceholderForeground" Value="#616161"/>
       <Setter Property="MinHeight" Value="28"/><Setter Property="FontSize" Value="11"/>
       <Setter Property="Padding" Value="8,4"/><Setter Property="CornerRadius" Value="5"/>
       <Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="#F5F5F5"/>
     </Style>
-    <Style Selector="TextBlock.label"><Setter Property="Foreground" Value="#777777"/><Setter Property="FontSize" Value="10"/></Style>
-    <Style Selector="TextBlock.heading"><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="FontSize" Value="11"/></Style>
-    <Style Selector="Border.rule"><Setter Property="Background" Value="#EEEEEE"/><Setter Property="Height" Value="1"/><Setter Property="Margin" Value="0,12"/></Style>
+    <Style Selector="Button.dialog-close"><Setter Property="MinWidth" Value="32"/></Style>
+    <Style Selector="TextBlock.rename-label">
+      <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="#374151"/>
+    </Style>
+    <Style Selector="TextBox.rename-field"><Setter Property="FontSize" Value="13"/></Style>
+    <Style Selector="Button.rename-token">
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="MinHeight" Value="32"/>
+      <Setter Property="BorderThickness" Value="1"/><Setter Property="BorderBrush" Value="#D9DFE5"/>
+      <Setter Property="Background" Value="#F5F7F9"/><Setter Property="Foreground" Value="#344452"/>
+      <Setter Property="FontSize" Value="12"/><Setter Property="Padding" Value="3,2"/>
+    </Style>
+    <Style Selector="Border.rename-preview">
+      <Setter Property="CornerRadius" Value="6"/><Setter Property="Background" Value="#F5F7F9"/>
+      <Setter Property="Padding" Value="10,8"/>
+    </Style>
+    <Style Selector="TextBlock.rename-preview">
+      <Setter Property="TextWrapping" Value="Wrap"/><Setter Property="FontSize" Value="13"/>
+      <Setter Property="LineHeight" Value="20"/><Setter Property="Foreground" Value="#24313B"/>
+    </Style>
+    <Style Selector="Button.ruler-add">
+      <Setter Property="MinHeight" Value="36"/><Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBox.ruler-position">
+      <Setter Property="MinHeight" Value="34"/><Setter Property="FontSize" Value="13"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBlock.ruler-error">
+      <Setter Property="Foreground" Value="#AD2721"/><Setter Property="FontSize" Value="12"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style Selector="Border.touch-dialog.phone TextBox">
+      <Setter Property="MinHeight" Value="44"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Border.touch-dialog.phone Button">
+      <Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="FontSize" Value="13"/>
+      <Setter Property="MinHeight" Value="44"/><Setter Property="MinWidth" Value="44"/>
+    </Style>
+    <Style Selector="TextBlock.label"><Setter Property="Foreground" Value="#626262"/><Setter Property="FontSize" Value="11"/></Style>
+    <Style Selector="TextBlock.field-prefix">
+      <Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="8,0,0,0"/>
+      <Setter Property="Width" Value="12"/><Setter Property="Foreground" Value="#686868"/>
+      <Setter Property="FontSize" Value="11"/><Setter Property="IsHitTestVisible" Value="False"/>
+    </Style>
+    <Style Selector="TextBlock.scrub-prefix">
+      <Setter Property="Width" Value="24"/><Setter Property="Margin" Value="0"/>
+      <Setter Property="TextAlignment" Value="Center"/><Setter Property="IsHitTestVisible" Value="True"/>
+    </Style>
+    <Style Selector="TextBlock.heading"><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="FontSize" Value="12"/></Style>
+    <Style Selector="Border.rule"><Setter Property="Background" Value="#EEEEEE"/><Setter Property="Height" Value="1"/><Setter Property="Margin" Value="-16,8"/></Style>
     <Style Selector="ComboBox">
+      <Setter Property="PlaceholderForeground" Value="#616161"/>
       <Setter Property="MinHeight" Value="28"/><Setter Property="FontSize" Value="11"/>
       <Setter Property="Padding" Value="8,4"/><Setter Property="Background" Value="#F5F5F5"/>
       <Setter Property="BorderThickness" Value="0"/><Setter Property="CornerRadius" Value="5"/>
     </Style>
+    <Style Selector="ToggleButton.drawer-toggle">
+      <Setter Property="MinHeight" Value="44"/><Setter Property="MinWidth" Value="44"/>
+      <Setter Property="Padding" Value="8,4"/><Setter Property="Margin" Value="0"/>
+      <Setter Property="CornerRadius" Value="6"/><Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontSize" Value="11"/><Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="StackPanel.file-heading"><Setter Property="Margin" Value="16,19,12,0"/></Style>
+    <Style Selector="Button.file-heading-action"><Setter Property="Width" Value="30"/><Setter Property="Height" Value="28"/></Style>
+    <Style Selector="Button.page-heading-action"><Setter Property="Width" Value="28"/><Setter Property="Height" Value="28"/></Style>
+    <Style Selector="Border.phone-sidebar Button.page-heading-action"><Setter Property="Width" Value="44"/><Setter Property="Height" Value="44"/></Style>
+    <Style Selector="Border.phone-sidebar ToggleButton.page-row"><Setter Property="Height" Value="44"/></Style>
+    <Style Selector="Border.phone-sidebar StackPanel.file-heading"><Setter Property="Margin" Value="12,6,8,0"/></Style>
+    <Style Selector="Border.phone-sidebar Button.file-heading-action"><Setter Property="Width" Value="44"/><Setter Property="Height" Value="44"/></Style>
+    <Style Selector="Path.drawer-icon"><Setter Property="Stroke" Value="#555555"/></Style>
+    <Style Selector="ToggleButton.drawer-toggle:checked Path.drawer-icon"><Setter Property="Stroke" Value="White"/></Style>
   </UserControl.Styles>
-  <Grid Name="Workspace" ColumnDefinitions="48,248,*,288">
+  <Grid Name="Workspace" RowDefinitions="*,Auto" ColumnDefinitions="48,248,*,288">
     <Grid Name="CanvasHost" Grid.Column="2" ClipToBounds="True">
       <Canvas Name="InlineTextHost" IsVisible="False">
         <TextBox Name="InlineTextBox" AcceptsReturn="True" TextWrapping="Wrap"
@@ -61,6 +214,7 @@
                  HorizontalContentAlignment="Left" VerticalContentAlignment="Top"/>
       </Canvas>
     </Grid>
+    <Border Name="DrawerBackdrop" Grid.ColumnSpan="4" Margin="0,48,0,0" Background="#30000000" IsVisible="False"/>
     <Border Name="NavigationRail" Grid.Column="0" Background="#F7F7F7" BorderBrush="#D9D9D9" BorderThickness="0,0,1,0">
       <Grid RowDefinitions="48,*,48">
         <Button Name="MenuButton" Classes="tool" HorizontalAlignment="Center" ToolTip.Tip="FerroDesign menu"/>
@@ -77,67 +231,135 @@
     </Border>
     <Border Name="LeftPanel" Grid.Column="1" Background="White" BorderBrush="#D9D9D9" BorderThickness="0,0,1,0">
       <Grid RowDefinitions="78,Auto,Auto,*,32">
-        <StackPanel Margin="16,19,12,0" Spacing="8">
-          <Grid ColumnDefinitions="*,30">
-            <TextBlock Name="FileTitle" Text="Orbit · Mobile banking" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <Button Name="FileActionsButton" Grid.Column="1" Content="···" Padding="0" ToolTip.Tip="File actions"/>
+        <StackPanel Classes="file-heading" Spacing="8">
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <TextBlock Name="FileTitle" Text="Orbit · Mobile banking" TextTrimming="CharacterEllipsis" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Button Name="MinimizeUiButton" Grid.Column="1" Classes="file-heading-action" Padding="6" AutomationProperties.Name="Minimize editor UI"
+                    ToolTip.Tip="Minimize UI (Ctrl/Cmd+Shift+&#92;)">
+              <Path Width="14" Height="14" Stretch="Uniform" Stroke="#484848" StrokeThickness="1.5"
+                    Data="M2,3 H18 V17 H2 Z M8,3 V17 M14,7 L11,10 L14,13"/>
+            </Button>
+            <Button Name="FileActionsButton" Grid.Column="2" Classes="file-heading-action" AutomationProperties.Name="File actions" Content="•••" Padding="0" ToolTip.Tip="File actions"/>
           </Grid>
           <TextBlock Text="Drafts / FerroDesign" Classes="label"/>
         </StackPanel>
         <StackPanel Grid.Row="1" Margin="12,0,12,12" Spacing="4">
-          <Grid ColumnDefinitions="*,28" Margin="4,0,0,4">
+          <Grid ColumnDefinitions="*,Auto,Auto" Margin="4,0,0,4">
             <TextBlock Text="Pages" Classes="heading" VerticalAlignment="Center"/>
-            <Button Name="AddPageButton" Grid.Column="1" Content="+" ToolTip.Tip="Add page"/>
+            <Button Name="PageActionsButton" Classes="page-heading-action" Grid.Column="1" Padding="5" AutomationProperties.Name="Page actions" ToolTip.Tip="Page actions">
+              <Button.Flyout>
+                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                  <MenuItem Name="PageRename" Header="Rename page"/>
+                  <MenuItem Name="PageDuplicate" Header="Duplicate page"/>
+                  <MenuItem Name="PageMoveUp" Header="Move page up"/>
+                  <MenuItem Name="PageMoveDown" Header="Move page down"/>
+                  <MenuItem Name="PageDelete" Header="Delete page"/>
+                </MenuFlyout>
+              </Button.Flyout>
+            </Button>
+            <Button Name="AddPageButton" Classes="page-heading-action" Grid.Column="2" Content="+" AutomationProperties.Name="Add page" ToolTip.Tip="Add page"/>
           </Grid>
           <ScrollViewer Name="PagesViewport" MaxHeight="155" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-            <StackPanel Name="PagesHost" Spacing="2"/>
+            <StackPanel Name="PagesHost" Spacing="2">
+              <StackPanel.Resources>
+                <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#E6F3FF"/>
+                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#D7EBFC"/>
+                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#C4E2F9"/>
+                <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#085B92"/>
+                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#085B92"/>
+                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#064D7B"/>
+              </StackPanel.Resources>
+            </StackPanel>
           </ScrollViewer>
         </StackPanel>
         <StackPanel Grid.Row="2" Margin="12,0,12,8" Spacing="8">
           <Border Height="1" Background="#EEEEEE" Margin="-12,0"/>
           <Grid ColumnDefinitions="*,28" Margin="4,4,0,0">
             <TextBlock Name="LeftTitle" Text="Layers" Classes="heading" VerticalAlignment="Center"/>
-            <Button Name="CollapseLayersButton" Grid.Column="1" Content="⌃" ToolTip.Tip="Expand or collapse all"/>
+            <Button Name="CollapseLayersButton" Grid.Column="1" Padding="5" AutomationProperties.Name="Expand all layers" ToolTip.Tip="Expand all layers">
+              <Grid Width="14" Height="14">
+                <Path Name="ExpandTreeIcon" Data="M2,5 L7,1 L12,5 M2,9 L7,13 L12,9" Stroke="#555555" StrokeThickness="1.4"/>
+                <Path Name="CollapseTreeIcon" Data="M2,1 L7,5 L12,1 M2,13 L7,9 L12,13" Stroke="#555555" StrokeThickness="1.4" IsVisible="False"/>
+              </Grid>
+            </Button>
           </Grid>
-          <TextBox Name="LayerSearch" PlaceholderText="Search layers…"/>
+          <TextBox Name="LayerSearch" PlaceholderText="Search layers…" AutomationProperties.Name="Search layers" ToolTip.Tip="Find layers (Ctrl/Cmd+F)">
+            <TextBox.InnerLeftContent>
+              <Path Data="M10,3 A7,7 0 1 0 10,17 A7,7 0 1 0 10,3 M15,15 L21,21"
+                    Stroke="#686868" StrokeThickness="2" Stretch="Uniform" Width="13" Height="13"
+                    Margin="8,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
+            </TextBox.InnerLeftContent>
+            <TextBox.InnerRightContent>
+              <Button Name="ClearLayerSearch" Width="28" Height="28" Padding="8" IsVisible="False"
+                      AutomationProperties.Name="Clear search" ToolTip.Tip="Clear search (Esc)">
+                <Path Data="M1,1 L11,11 M11,1 L1,11" Stroke="#555555" StrokeThickness="1.5" Width="12" Height="12"/>
+              </Button>
+            </TextBox.InnerRightContent>
+          </TextBox>
         </StackPanel>
         <ScrollViewer Name="LayersViewport" Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
           <ItemsControl Name="LayersHost" Margin="8,0,8,12">
             <ItemsControl.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
           </ItemsControl>
         </ScrollViewer>
-        <TextBlock Name="EmptyLayers" Grid.Row="3" Text="Draw a frame or shape to get started." Margin="20,12" TextWrapping="Wrap" Foreground="#888888" IsVisible="False"/>
+        <TextBlock Name="EmptyLayers" Grid.Row="3" Text="Draw a frame or shape to get started." Margin="20,12" TextWrapping="Wrap" Foreground="#626262" IsHitTestVisible="False" IsVisible="False"/>
         <Border Grid.Row="4" BorderBrush="#EEEEEE" BorderThickness="0,1,0,0" Padding="12,9">
-          <TextBlock Name="DocumentStatus" Text="All changes saved locally" FontSize="9" Foreground="#777777"/>
+          <TextBlock Name="DocumentStatus" Text="All changes saved locally" FontSize="10" Foreground="#626262"/>
         </Border>
       </Grid>
     </Border>
     <Border Name="RightPanel" Grid.Column="3" Background="White" BorderBrush="#D9D9D9" BorderThickness="1,0,0,0">
       <Grid RowDefinitions="48,40,*">
-        <Grid ColumnDefinitions="*,34,64" Margin="12,8">
-          <Border Width="28" Height="28" CornerRadius="14" Background="#7B61FF" HorizontalAlignment="Left">
-            <TextBlock Text="WS" FontSize="10" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <Grid ColumnDefinitions="Auto,*,32,60" Margin="12,8">
+          <Border Name="ZoomPanel" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal">
+              <Button Name="ZoomOutButton" Content="−" ToolTip.Tip="Zoom out"/>
+              <Button Name="ZoomValueButton" Content="100%" MinWidth="48" ToolTip.Tip="Zoom and view options">
+                <Button.Flyout>
+                  <Flyout Placement="Bottom">
+                    <StackPanel Width="184" Spacing="4">
+                      <TextBlock Text="Zoom" Classes="heading"/>
+                      <TextBox Name="ZoomPercentField" ToolTip.Tip="Zoom percentage, 2–6400%. Press Enter to apply."/>
+                      <Button Name="Zoom50" Content="50%"/>
+                      <Button Name="Zoom100" Content="100%"/>
+                      <Button Name="Zoom200" Content="200%"/>
+                      <Button Name="ZoomFitPage" Content="Fit page   ⇧1"/>
+                      <Button Name="ZoomFitSelection" Content="Fit selection   ⇧2"/>
+                      <Separator/>
+                      <CheckBox Name="ZoomOutlines" Content="Show outlines" ToolTip.Tip="Ctrl or Command + Shift + O"/>
+                      <CheckBox Name="ZoomHiddenOutlines" Content="Include hidden layers"/>
+                      <CheckBox Name="ZoomOutlineBounds" Content="Include object bounds"/>
+                    </StackPanel>
+                  </Flyout>
+                </Button.Flyout>
+              </Button>
+              <Button Name="ZoomInButton" Content="+" ToolTip.Tip="Zoom in"/>
+            </StackPanel>
           </Border>
-          <Button Name="PresentButton" Grid.Column="1" ToolTip.Tip="Present prototype"/>
-          <Button Name="ShareButton" Grid.Column="2" Classes="primary" Content="Share"/>
+          <Button Name="PresentButton" Grid.Column="2" ToolTip.Tip="Present prototype"/>
+          <Button Name="ShareButton" Grid.Column="3" Classes="primary" Content="Share"/>
         </Grid>
         <Border Grid.Row="1" BorderBrush="#EEEEEE" BorderThickness="0,0,0,1">
-          <StackPanel Orientation="Horizontal" Spacing="4" Margin="12,0">
-            <Button Name="DesignTab" Content="Design" Classes="active"/>
-            <Button Name="PrototypeTab" Content="Prototype"/>
-            <Button Name="InspectTab" Content="Inspect"/>
+          <StackPanel Orientation="Horizontal" Spacing="4" Margin="12,0" VerticalAlignment="Center">
+            <Button Name="DesignTab" Content="Design" Classes="tab active"/>
+            <Button Name="PrototypeTab" Classes="tab" Content="Prototype"/>
+            <Button Name="InspectTab" Classes="tab" Content="Inspect"/>
           </StackPanel>
         </Border>
         <ScrollViewer Name="InspectorViewport" Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Name="Inspector" Margin="16,14,16,24" Spacing="8">
-            <Grid ColumnDefinitions="*,28,28">
-              <TextBlock Name="SelectionTitle" Text="Page" Classes="heading" VerticalAlignment="Center"/>
-              <Button Name="VisibleButton" Grid.Column="1" ToolTip.Tip="Show or hide layer"/>
-              <Button Name="LockedButton" Grid.Column="2" ToolTip.Tip="Lock or unlock layer"/>
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+              <TextBlock Name="SelectionTitle" Text="Page" Classes="heading" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+              <Button Name="SelectMatchingButton" Grid.Column="1" Width="28" Height="28" Padding="5" IsVisible="False" AutomationProperties.Name="Select same properties" ToolTip.Tip="Select layers with matching properties">
+                <Path Data="M3,3 H13 V7 H7 V13 H3 Z M10,10 H21 V21 H10 Z" Stretch="Uniform" Width="15" Height="15" Stroke="#525252" StrokeThickness="1.5" IsHitTestVisible="False"/>
+              </Button>
+              <Button Name="LayoutGridSettingsButton" Grid.Column="2" Width="28" Height="28" Padding="5" IsVisible="False" AutomationProperties.Name="Layout grid guides" ToolTip.Tip="Edit layout grid guides">
+                <Path Data="M3,3 H21 V21 H3 Z M9,3 V21 M15,3 V21 M3,9 H21 M3,15 H21" Stretch="Uniform" Width="15" Height="15" Stroke="#525252" StrokeThickness="1.5" IsHitTestVisible="False"/>
+              </Button>
+              <Button Name="VisibleButton" Grid.Column="3" Width="28" Height="28" Padding="5" AutomationProperties.Name="Toggle layer visibility" ToolTip.Tip="Show or hide layer"/>
+              <Button Name="LockedButton" Grid.Column="4" Width="28" Height="28" Padding="5" AutomationProperties.Name="Toggle layer locking" ToolTip.Tip="Lock or unlock layer"/>
             </Grid>
-            <TextBox Name="NameField" PlaceholderText="Layer name"/>
-            <Button Name="SelectMatchingButton" Content="Select same…" HorizontalContentAlignment="Left" IsVisible="False"/>
-            <Button Name="LayoutGridSettingsButton" Content="Layout grid" HorizontalContentAlignment="Left" IsVisible="False"/>
+            <TextBox Name="NameField" PlaceholderText="Layer name" AutomationProperties.Name="Name"/>
             <StackPanel Name="VectorOptions" Spacing="8" IsVisible="False">
               <Button Name="EditVectorButton" Content="Edit vector" ToolTip.Tip="Edit vector points (Enter)" HorizontalContentAlignment="Left"/>
               <Button Name="ConvertNetworkButton" Content="Convert to vector network"/>
@@ -180,6 +402,49 @@
               <Border Classes="rule"/>
               <Button Name="PageFramePresetsButton" Content="Frame presets…" HorizontalContentAlignment="Left"/>
             </StackPanel>
+            <StackPanel Name="ScaleInspector" Spacing="8" IsVisible="False">
+              <TextBlock Text="Scale" Classes="heading"/>
+              <Grid ColumnDefinitions="*,10,60">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="Multiplier" Classes="label"/>
+                  <Grid ColumnDefinitions="*,24">
+                    <TextBox Name="ScaleFactorField" Text="1" AutomationProperties.Name="Scale multiplier" ToolTip.Tip="Enter a multiplier or percentage"/>
+                    <Button Name="ScalePresets" Grid.Column="1" Content="⌄" ToolTip.Tip="Scale presets">
+                      <Button.Flyout>
+                        <MenuFlyout>
+                          <MenuItem Name="ScaleQuarter" Header="0.25×"/>
+                          <MenuItem Name="ScaleHalf" Header="0.5×"/>
+                          <MenuItem Name="ScaleDouble" Header="2×"/>
+                          <MenuItem Name="ScaleTriple" Header="3×"/>
+                          <MenuItem Name="ScaleQuadruple" Header="4×"/>
+                        </MenuFlyout>
+                      </Button.Flyout>
+                    </Button>
+                  </Grid>
+                </StackPanel>
+                <Border Grid.Column="2" Width="62" Height="62" CornerRadius="5" Background="#F5F5F5" BorderBrush="#E6E6E6" BorderThickness="1">
+                  <UniformGrid Rows="3" Columns="3">
+                    <Button Name="ScaleAnchor0" Classes="scale-anchor" AutomationProperties.Name="Top left anchor" ToolTip.Tip="Top left"/>
+                    <Button Name="ScaleAnchor1" Classes="scale-anchor" AutomationProperties.Name="Top anchor" ToolTip.Tip="Top"/>
+                    <Button Name="ScaleAnchor2" Classes="scale-anchor" AutomationProperties.Name="Top right anchor" ToolTip.Tip="Top right"/>
+                    <Button Name="ScaleAnchor3" Classes="scale-anchor" AutomationProperties.Name="Left anchor" ToolTip.Tip="Left"/>
+                    <Button Name="ScaleAnchor4" Classes="scale-anchor" AutomationProperties.Name="Center anchor" ToolTip.Tip="Center"/>
+                    <Button Name="ScaleAnchor5" Classes="scale-anchor" AutomationProperties.Name="Right anchor" ToolTip.Tip="Right"/>
+                    <Button Name="ScaleAnchor6" Classes="scale-anchor" AutomationProperties.Name="Bottom left anchor" ToolTip.Tip="Bottom left"/>
+                    <Button Name="ScaleAnchor7" Classes="scale-anchor" AutomationProperties.Name="Bottom anchor" ToolTip.Tip="Bottom"/>
+                    <Button Name="ScaleAnchor8" Classes="scale-anchor" AutomationProperties.Name="Bottom right anchor" ToolTip.Tip="Bottom right"/>
+                  </UniformGrid>
+                </Border>
+              </Grid>
+              <Grid ColumnDefinitions="*,8,*">
+                <TextBox Name="ScaleWidthField" AutomationProperties.Name="Scaled width" ToolTip.Tip="Scale to width">
+                  <TextBox.InnerLeftContent><TextBlock Text="W" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
+                <TextBox Name="ScaleHeightField" Grid.Column="2" AutomationProperties.Name="Scaled height" ToolTip.Tip="Scale to height">
+                  <TextBox.InnerLeftContent><TextBlock Text="H" Classes="field-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
+              </Grid>
+            </StackPanel>
             <StackPanel Name="DesignInspector" Spacing="8" IsVisible="False">
               <UniformGrid Columns="6">
                 <Button Name="AlignLeftButton" ToolTip.Tip="Align left"/>
@@ -190,22 +455,39 @@
                 <Button Name="AlignBottomButton" ToolTip.Tip="Align bottom"/>
               </UniformGrid>
               <Border Classes="rule"/>
-              <TextBlock Text="Position" Classes="heading"/>
-              <Grid ColumnDefinitions="*,12,*">
-                <StackPanel Spacing="4"><TextBlock Text="X" Classes="label"/><TextBox Name="XField" Text="0"/></StackPanel>
-                <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="Y" Classes="label"/><TextBox Name="YField" Text="0"/></StackPanel>
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Text="Position" Classes="heading"/>
+                <TextBlock Name="GeometryScrubStatus" Grid.Column="1" HorizontalAlignment="Right" Classes="label"
+                           Foreground="#006ABB" IsVisible="False"/>
               </Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <StackPanel Spacing="4"><TextBlock Text="Rotation" Classes="label"/><TextBox Name="RotationField" Text="0"/></StackPanel>
+                <TextBox Name="XField" Text="0" AutomationProperties.Name="X position" ToolTip.Tip="X position · Drag the label or Alt/Option-drag the field. ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1. Type a value or expression such as x+10.">
+                  <TextBox.InnerLeftContent><TextBlock Name="XScrub" Text="X" Classes="field-prefix scrub-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
+                <TextBox Name="YField" Grid.Column="2" Text="0" AutomationProperties.Name="Y position" ToolTip.Tip="Y position · Drag the label or Alt/Option-drag the field. ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1. Type a value or expression such as x+10.">
+                  <TextBox.InnerLeftContent><TextBlock Name="YScrub" Text="Y" Classes="field-prefix scrub-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
+              </Grid>
+              <Grid ColumnDefinitions="*,12,*">
+                <TextBox Name="RotationField" Text="0" AutomationProperties.Name="Rotation in degrees" ToolTip.Tip="Rotation in degrees · Drag the label or Alt/Option-drag the field. ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1. Type a value or expression such as x+10.">
+                  <TextBox.InnerLeftContent><TextBlock Name="RotationScrub" Text="∠" Classes="field-prefix scrub-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
                 <Button Name="FlipButton" Grid.Column="2" Content="Flip horizontal" VerticalAlignment="Bottom"/>
               </Grid>
               <Button Name="AffineButton" Content="Affine transform and skew…" HorizontalContentAlignment="Left"/>
               <Border Classes="rule"/>
-              <Grid ColumnDefinitions="*,28"><TextBlock Text="Layout" Classes="heading" VerticalAlignment="Center"/><Button Name="AddLayoutButton" Grid.Column="1" Content="+" ToolTip.Tip="Add auto layout"/></Grid>
+              <Grid ColumnDefinitions="*,28"><TextBlock Name="DimensionsTitle" Text="Layout" Classes="heading" VerticalAlignment="Center"/><Button Name="AddLayoutButton" Grid.Column="1" Content="+" ToolTip.Tip="Add auto layout"/></Grid>
               <Grid ColumnDefinitions="*,12,*">
-                <StackPanel Spacing="4"><TextBlock Text="W" Classes="label"/><TextBox Name="WidthField" Text="0"/></StackPanel>
-                <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="H" Classes="label"/><TextBox Name="HeightField" Text="0"/></StackPanel>
+                <TextBox Name="WidthField" Text="0" AutomationProperties.Name="Width" ToolTip.Tip="Width · Drag the label or Alt/Option-drag the field. ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1. Type a value or expression such as x+10.">
+                  <TextBox.InnerLeftContent><TextBlock Name="WidthScrub" Text="W" Classes="field-prefix scrub-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
+                <TextBox Name="HeightField" Grid.Column="2" Text="0" AutomationProperties.Name="Height" ToolTip.Tip="Height · Drag the label or Alt/Option-drag the field. ↑/↓ steps 1, Shift steps 10, Alt/Option steps 0.1. Type a value or expression such as x+10.">
+                  <TextBox.InnerLeftContent><TextBlock Name="HeightScrub" Text="H" Classes="field-prefix scrub-prefix"/></TextBox.InnerLeftContent>
+                </TextBox>
               </Grid>
+              <TextBlock Name="SliceHint" IsVisible="False" Classes="label" TextWrapping="Wrap"
+                         Text="The export includes visible artwork inside these bounds. Empty areas stay transparent."/>
+              <StackPanel Name="ArtworkOptions" Spacing="8">
               <Grid ColumnDefinitions="*,12,*">
                 <ComboBox Name="WidthSizingChoice" HorizontalAlignment="Stretch" ToolTip.Tip="Width sizing"/>
                 <ComboBox Name="HeightSizingChoice" Grid.Column="2" HorizontalAlignment="Stretch" ToolTip.Tip="Height sizing"/>
@@ -259,8 +541,12 @@
               <ComboBox Name="BlendModeChoice" HorizontalAlignment="Stretch" ToolTip.Tip="Blend the completed layer with the content underneath"/>
               <Button Name="CompositingButton" Content="Masks and compositing…" HorizontalContentAlignment="Left"/>
               <Grid ColumnDefinitions="*,12,*">
-                <StackPanel Spacing="4"><TextBlock Text="Opacity %" Classes="label"/><TextBox Name="OpacityField" Text="100"/></StackPanel>
-                <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="Corner radius" Classes="label"/><TextBox Name="RadiusField" Text="0"/></StackPanel>
+                <StackPanel Spacing="4"><TextBlock Text="Opacity" Classes="label"/>
+                  <TextBox Name="OpacityField" Text="100" AutomationProperties.Name="Opacity percent" ToolTip.Tip="Opacity percent">
+                    <TextBox.InnerRightContent><TextBlock Text="%" Margin="0,0,8,0" Classes="label" VerticalAlignment="Center" IsHitTestVisible="False"/></TextBox.InnerRightContent>
+                  </TextBox>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="Corner radius" Classes="label"/><TextBox Name="RadiusField" Text="0" AutomationProperties.Name="Corner radius"/></StackPanel>
               </Grid>
               <Grid Name="CornerSmoothingOptions" ColumnDefinitions="*,72"><TextBlock Text="Corner smoothing %" Classes="label" VerticalAlignment="Center"/><TextBox Name="CornerSmoothingField" Grid.Column="1" Text="0" ToolTip.Tip="Smooth the transition between straight edges and rounded corners (0–100%)"/></Grid>
               <Button Name="IndependentCornersButton" Content="Independent corners" HorizontalContentAlignment="Left"/>
@@ -304,7 +590,7 @@
                 <TextBox Name="TextField" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64"/>
                 <Button Name="RichTextButton" Content="Style selected characters…" HorizontalAlignment="Stretch"/>
                 <TextBox Name="FontFamilyField" Text="Inter"/>
-                <Grid ColumnDefinitions="*,8,*,8,28,28"><TextBox Name="FontSizeField" Text="16" ToolTip.Tip="Font size"/><TextBox Name="FontWeightField" Grid.Column="2" Text="400" ToolTip.Tip="Font weight (1–1000)"/><Button Name="BoldButton" Grid.Column="4" Content="B" FontWeight="Bold"/><Button Name="ItalicButton" Grid.Column="5" Content="I" FontStyle="Italic"/></Grid>
+                <Grid ColumnDefinitions="*,8,*,8,28,28"><TextBox Name="FontSizeField" Text="16" ToolTip.Tip="Font size"/><TextBox Name="FontWeightField" Grid.Column="2" Text="400" ToolTip.Tip="Font weight (1–1000)"/><Button Name="BoldButton" AutomationProperties.Name="Bold" ToolTip.Tip="Bold" Grid.Column="4" Content="B" FontWeight="Bold"/><Button Name="ItalicButton" AutomationProperties.Name="Italic" ToolTip.Tip="Italic" Grid.Column="5" Content="I" FontStyle="Italic"/></Grid>
                 <Grid ColumnDefinitions="*,12,*">
                   <StackPanel Spacing="4"><TextBlock Text="Line height %" Classes="label"/><TextBox Name="LineHeightField"/></StackPanel>
                   <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="Letter spacing" Classes="label"/><TextBox Name="LetterSpacingField"/></StackPanel>
@@ -322,6 +608,7 @@
               <Grid ColumnDefinitions="*,28"><TextBlock Text="Component" Classes="heading" VerticalAlignment="Center"/><Button Name="CreateComponentButton" Grid.Column="1" ToolTip.Tip="Create component"/></Grid>
               <UniformGrid Columns="2"><Button Name="CreateInstanceButton" Content="Create instance"/><Button Name="DetachButton" Content="Detach instance"/></UniformGrid>
               <Button Name="EditComponentsButton" Content="Properties and variants…" HorizontalAlignment="Stretch"/>
+              </StackPanel>
             </StackPanel>
             <StackPanel Name="PrototypeInspector" IsVisible="False" Spacing="12">
               <Border Classes="rule"/><TextBlock Text="Interactions" Classes="heading"/>
@@ -346,37 +633,147 @@
         </ScrollViewer>
       </Grid>
     </Border>
-    <TextBlock Name="CanvasCaption" Grid.Column="2" Text="" FontSize="10" Foreground="#868686" Margin="24,25" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"/>
-    <Border Name="Toolbar" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="8,0,8,24" Padding="7" Background="White" CornerRadius="13" BorderBrush="#D7D7D7" BorderThickness="1" BoxShadow="0 3 14 0 #20000000">
-      <StackPanel Orientation="Horizontal" Spacing="1">
-        <Button Name="SelectTool" Classes="tool active" ToolTip.Tip="Move (V)"/>
-        <Button Name="FrameTool" Classes="tool" ToolTip.Tip="Frame (F)"/>
-        <Button Name="RectTool" Classes="tool" ToolTip.Tip="Rectangle (R)"/>
-        <Button Name="EllipseTool" Classes="tool" ToolTip.Tip="Ellipse (O)"/>
-        <Button Name="PenTool" Classes="tool" ToolTip.Tip="Pen (P)"/>
-        <Button Name="TextTool" Classes="tool" ToolTip.Tip="Text (T)"/>
-        <Button Name="HandTool" Classes="tool" ToolTip.Tip="Hand (H) · Hold Space to pan"/>
-        <Button Name="CommentTool" Classes="tool" ToolTip.Tip="Comment (C)"/>
-        <Border Width="1" Background="#EEEEEE" Margin="5,5"/>
-        <Button Name="ActionsButton" Classes="tool" ToolTip.Tip="Actions (Ctrl+K)"/>
-      </StackPanel>
+    <Border Name="CompactHeader" Grid.ColumnSpan="4" IsVisible="False" Height="48"
+            VerticalAlignment="Top" Background="White" BorderBrush="#E6E6E6" BorderThickness="0,0,0,1" Padding="4,0">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <ToggleButton Name="CompactLayers" Classes="drawer-toggle" AutomationProperties.Name="Layers panel"
+                      ToolTip.Tip="Pages and layers">
+          <StackPanel Orientation="Horizontal" Spacing="5">
+            <Path Data="M2,3 H18 V17 H2 Z M7,3 V17" Classes="drawer-icon" StrokeThickness="1.5"
+                  Width="15" Height="15" Stretch="Uniform" VerticalAlignment="Center"/>
+            <TextBlock Text="Layers" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
+        <StackPanel Grid.Column="1" Margin="6,0" VerticalAlignment="Center" IsHitTestVisible="False">
+          <TextBlock Name="CompactDocumentTitle" TextAlignment="Center" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+          <TextBlock Name="CompactPageTitle" TextAlignment="Center" FontSize="10" Foreground="#626262" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+        <ToggleButton Name="CompactProperties" Grid.Column="2" Classes="drawer-toggle" AutomationProperties.Name="Properties panel"
+                      ToolTip.Tip="Layer and page properties">
+          <StackPanel Orientation="Horizontal" Spacing="5">
+            <Path Data="M2,3 H18 V17 H2 Z M13,3 V17" Classes="drawer-icon" StrokeThickness="1.5"
+                  Width="15" Height="15" Stretch="Uniform" VerticalAlignment="Center"/>
+            <TextBlock Text="Inspect" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
+      </Grid>
     </Border>
-    <Border Name="ZoomPanel" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="16,0,16,94" Background="White" CornerRadius="8" Padding="3" BorderBrush="#D9D9D9" BorderThickness="1">
-      <StackPanel Orientation="Horizontal"><Button Name="ZoomOutButton" Content="−"/><Button Name="ZoomValueButton" Content="65%" ToolTip.Tip="Zoom to fit"/><Button Name="ZoomInButton" Content="+"/></StackPanel>
+    <StackPanel Name="CanvasControls" Grid.ColumnSpan="4" IsVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top"
+                Orientation="Horizontal" Spacing="4" Margin="8">
+      <Button Name="RestoreUiButton" Width="44" Height="44" Padding="12" CornerRadius="9" Background="White"
+              BorderBrush="#D7D7D7" BorderThickness="1"
+              AutomationProperties.Name="Restore editor controls" ToolTip.Tip="Restore editor controls">
+        <Path Width="17" Height="17" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.5"
+              Data="M2,3 H18 V17 H2 Z M8,3 V17 M11,7 L14,10 L11,13"/>
+      </Button>
+      <ToggleButton Name="MinimizedInspectorButton" ToolTip.Tip="Show or dismiss selected layer properties" Height="44" MinWidth="64" Padding="10,0" CornerRadius="9" Background="White"
+              BorderBrush="#D7D7D7" BorderThickness="1" Content="Inspect" FontSize="12" AutomationProperties.Name="Inspect selected layers"/>
+    </StackPanel>
+    <TextBlock Name="CanvasCaption" Grid.Column="2" Text="" FontSize="10" Foreground="#868686" Margin="24,25" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"/>
+    <Border Name="Toolbar" Classes="editor-dock" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Bottom" Background="White" CornerRadius="13" BorderBrush="#D7D7D7" BorderThickness="1" BoxShadow="0 3 14 0 #20000000">
+      <Border.Resources>
+        <!-- Fluent's button template reads these brushes from its presenter in each state. -->
+        <SolidColorBrush x:Key="AccentButtonBackground" Color="#087AC4"/>
+        <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#066AAA"/>
+        <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#06578A"/>
+        <SolidColorBrush x:Key="AccentButtonBackgroundDisabled" Color="#717B82"/>
+        <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#EDF1F4"/>
+        <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#DCE3E9"/>
+      </Border.Resources>
+      <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+      <StackPanel Orientation="Horizontal" Spacing="1">
+        <Button Name="SelectTool" Classes="dock-tool" ToolTip.Tip="Move (V)"/>
+        <Button Name="MoveToolMenu" Classes="tool-menu" AutomationProperties.Name="Move tools" ToolTip.Tip="Move tools">
+          <Button.Flyout>
+            <MenuFlyout Placement="TopEdgeAlignedLeft">
+              <MenuItem Name="MoveChoice" Header="Move" InputGesture="V"/>
+              <MenuItem Name="HandChoice" Header="Hand" InputGesture="H"/>
+              <MenuItem Name="ScaleChoice" Header="Scale" InputGesture="K"/>
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+        <Button Name="FrameTool" Classes="dock-tool"/>
+        <Button Name="RegionToolMenu" Classes="tool-menu" AutomationProperties.Name="Region tools" ToolTip.Tip="Region tools">
+          <Button.Flyout>
+            <MenuFlyout Placement="TopEdgeAlignedLeft">
+              <MenuItem Name="FrameChoice" Header="Frame" InputGesture="F"/>
+              <MenuItem Name="SectionChoice" Header="Section" InputGesture="Shift+S"/>
+              <MenuItem Name="SliceChoice" Header="Slice" InputGesture="S"/>
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+        <Button Name="RectTool" Classes="dock-tool"/>
+        <Button Name="ShapeToolMenu" Classes="tool-menu" AutomationProperties.Name="Shape tools" ToolTip.Tip="Shape tools">
+          <Button.Flyout>
+            <MenuFlyout Placement="TopEdgeAlignedLeft">
+              <MenuItem Name="RectangleChoice" Header="Rectangle" InputGesture="R"/>
+              <MenuItem Name="LineChoice" Header="Line" InputGesture="L"/>
+              <MenuItem Name="ArrowChoice" Header="Arrow" InputGesture="Shift+L"/>
+              <MenuItem Name="EllipseChoice" Header="Ellipse" InputGesture="O"/>
+              <MenuItem Name="PolygonChoice" Header="Polygon"/>
+              <MenuItem Name="StarChoice" Header="Star"/>
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+        <Button Name="PenTool" Classes="dock-tool"/>
+        <Button Name="DrawingToolMenu" Classes="tool-menu" AutomationProperties.Name="Drawing tools" ToolTip.Tip="Drawing tools">
+          <Button.Flyout>
+            <MenuFlyout Placement="TopEdgeAlignedLeft">
+              <MenuItem Name="PenChoice" Header="Pen" InputGesture="P"/>
+              <MenuItem Name="PencilChoice" Header="Pencil" InputGesture="Shift+P"/>
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+        <Button Name="TextTool" Classes="dock-tool" AutomationProperties.Name="Text" AutomationProperties.AcceleratorKey="T" ToolTip.Tip="Text (T)"/>
+        <Button Name="CommentTool" Classes="dock-tool" AutomationProperties.Name="Comment" AutomationProperties.AcceleratorKey="C" ToolTip.Tip="Comment (C)"/>
+        <Border Name="DockDivider" Width="1" Background="#E6E6E6" Margin="4,6"/>
+        <Button Name="ActionsButton" Classes="dock-tool" AutomationProperties.Name="Quick actions" ToolTip.Tip="Quick actions (Ctrl/Cmd+/)"/>
+      </StackPanel>
+      </ScrollViewer>
     </Border>
     <Border Name="Toast" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="16" Padding="16,10" Background="#252525" CornerRadius="8" IsVisible="False">
       <TextBlock Name="ToastText" Foreground="White"/>
     </Border>
+    <Border Name="PreviewControls" Grid.Row="1" Grid.ColumnSpan="4" IsVisible="False"
+            Background="White" BorderBrush="#DADADA" BorderThickness="0,1,0,0" Padding="6,2">
+      <Border.Resources>
+        <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent"/>
+      </Border.Resources>
+      <Grid ColumnDefinitions="44,44,*,44,Auto">
+        <Button Name="PreviewBack" Classes="playback" Width="44" Height="44" Padding="10"
+                AutomationProperties.Name="Previous screen" ToolTip.Tip="Previous screen (←)">
+          <Path Width="16" Height="16" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.6"
+                Data="M12,3 L4,11 L12,19 M4,11 H21"/>
+        </Button>
+        <Button Name="PreviewNext" Classes="playback" Grid.Column="1" Width="44" Height="44" Padding="10"
+                AutomationProperties.Name="Next screen" ToolTip.Tip="Next screen (→)">
+          <Path Width="16" Height="16" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.6"
+                Data="M10,3 L18,11 L10,19 M18,11 H1"/>
+        </Button>
+        <StackPanel Grid.Column="2" Margin="6,0" VerticalAlignment="Center" IsHitTestVisible="False">
+          <TextBlock Text="Prototype preview" FontSize="10" Foreground="#626262"/>
+          <TextBlock Name="PreviewFrameTitle" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+        <Button Name="PreviewRestart" Classes="playback" Grid.Column="3" Width="44" Height="44" Padding="10"
+                AutomationProperties.Name="Restart prototype" ToolTip.Tip="Restart prototype (R)">
+          <Path Width="16" Height="16" Stretch="Uniform" Stroke="#303030" StrokeThickness="1.6"
+                Data="M4,11 A8,8 0 1 1 5,16 M4,4 V11 H11"/>
+        </Button>
+        <Button Name="PreviewExit" Classes="playback" Grid.Column="4" Height="44" MinWidth="56" Padding="10,4" Content="Done"
+                FontWeight="SemiBold" AutomationProperties.Name="Return to editor" ToolTip.Tip="Return to editor (Esc)"/>
+      </Grid>
+    </Border>
     <Border Name="ModalBackdrop" Grid.ColumnSpan="4" Background="#55000000" IsVisible="False">
       <Border Name="ModalPanel" Width="620" MaxHeight="660" Background="White" CornerRadius="12" Padding="24" HorizontalAlignment="Center" VerticalAlignment="Center" BoxShadow="0 12 48 0 #30000000">
-        <Grid RowDefinitions="Auto,Auto,*,Auto">
-          <Grid Name="ModalHeader" ColumnDefinitions="*,32" Background="Transparent" ToolTip.Tip="Drag to move the editor">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+          <Grid Name="ModalHeader" ColumnDefinitions="*,Auto" Background="Transparent" ToolTip.Tip="Drag to move the editor">
             <TextBlock Name="ModalTitle" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <Button Name="CloseModalButton" Grid.Column="1" Content="×" FontSize="18"/>
+            <Button Name="CloseModalButton" Classes="dialog-close" Grid.Column="1" Content="×" FontSize="18" AutomationProperties.Name="Close dialog" ToolTip.Tip="Close dialog"/>
           </Grid>
           <TextBlock Name="ModalDescription" Grid.Row="1" Margin="0,8,0,16" TextWrapping="Wrap" Foreground="#777777"/>
-          <ScrollViewer Name="ModalViewport" Grid.Row="2" MaxHeight="470"><StackPanel Name="ModalContent" Spacing="8"/></ScrollViewer>
-          <StackPanel Name="ModalActions" Grid.Row="3" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,18,0,0"/>
+          <Border Name="DialogSearchHost" Grid.Row="2" Margin="0,0,0,8" IsVisible="False"/>
+          <ScrollViewer Name="ModalViewport" Grid.Row="3" MaxHeight="470"><StackPanel Name="ModalContent" Spacing="8"/></ScrollViewer>
+          <StackPanel Name="ModalActions" Grid.Row="4" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,18,0,0"/>
         </Grid>
       </Border>
     </Border>

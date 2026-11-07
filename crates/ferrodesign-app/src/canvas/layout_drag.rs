@@ -167,6 +167,15 @@ impl DesignCanvas {
         }
     }
 
+    pub(super) fn drag_copy_origin(&self) -> Option<(NodeId, Point, Point)> {
+        let editor = self.editor.borrow();
+        if let Some(probe) = self.free_layout_probe.borrow().as_ref().filter(|probe| probe.owns(&editor)) {
+            return Some((probe.session.child(), probe.start_world, probe.start_screen));
+        }
+        self.layout_drag.borrow().as_ref().filter(|drag| drag.owns(&editor))
+            .map(|drag| (drag.session.child(), drag.start_world, drag.start_screen))
+    }
+
     pub fn cancel_layout_drag(&self) -> bool {
         let active = self.layout_drag.borrow_mut().take().is_some();
         let probe = self.free_layout_probe.borrow_mut().take();
@@ -188,6 +197,82 @@ impl DesignCanvas {
             }
         }
         active || had_probe
+    }
+
+    /// Use the same absolute, snapped position for move samples and pointer-up.
+    /// A host may deliver the final motion only on release.
+    pub(super) fn update_free_move(&self, gesture: &mut Gesture, world: Point, shift: bool) {
+        let Gesture::Move { start, nodes, bounds, exclude, moved } = gesture else { return; };
+        let mut delta = world - *start;
+        if delta.distance(Point::new(0.0, 0.0)) < 0.5 / self.viewport.get().zoom && !*moved
+        {
+            return;
+        }
+        if shift {
+            if delta.x.abs() > delta.y.abs() {
+                delta.y = 0.0
+            } else {
+                delta.x = 0.0
+            }
+        }
+        if self.snap.get() {
+            delta.x = delta.x.round();
+            delta.y = delta.y.round();
+        }
+        let mut editor = self.editor.borrow_mut();
+        self.snap_guides.set((None, None));
+        self.layout_grids.borrow_mut().clear_snap();
+        if let Some(bounds) = bounds.filter(|_| self.snap.get()) {
+            delta = self.snap_move_delta(&editor, bounds, delta, shift, exclude, exclude);
+        }
+        let mut changed = false;
+        for original in nodes.iter() {
+            if editor.document.effective_locked(original.id) { continue; }
+            let parent = original
+                .parent
+                .and_then(|id| editor.document.world_transform(id))
+                .unwrap_or(core::Transform::IDENTITY);
+            let local = parent
+                .inverse()
+                .unwrap_or(core::Transform::IDENTITY)
+                .apply_vector(delta);
+            if let Some(node) = editor.document.nodes.get_mut(&original.id) {
+                let position = Point::new(original.x + local.x, original.y + local.y);
+                if node.x != position.x || node.y != position.y {
+                    node.x = position.x;
+                    node.y = position.y;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return;
+        }
+        editor.refresh_preview_nodes(exclude);
+        if let Some(probe) = self.free_layout_probe.borrow_mut().as_mut() {
+            probe.record_revision(editor.revision);
+        }
+        *moved = true;
+    }
+
+    pub(super) fn snap_move_delta(
+        &self, editor: &Editor, bounds: Rect, mut delta: Point, shift: bool,
+        grid_exclude: &[NodeId], object_exclude: &[NodeId],
+    ) -> Point {
+        let proposed = Rect::new(bounds.x + delta.x, bounds.y + delta.y, bounds.width, bounds.height);
+        let tolerance = 5.0 / self.viewport.get().zoom;
+        let snap_x = !shift || delta.x != 0.0;
+        let snap_y = !shift || delta.y != 0.0;
+        let direction = shift.then_some(if snap_x { Point::new(1.0, 0.0) } else { Point::new(0.0, 1.0) });
+        if let Some(guide) = self.layout_grids.borrow_mut().snap_bounds(editor, proposed, tolerance, grid_exclude, direction) {
+            delta = delta + guide.delta;
+        } else {
+            let snap = editor.smart_snap(proposed, tolerance, object_exclude);
+            if snap_x { delta.x += snap.delta.x; }
+            if snap_y { delta.y += snap.delta.y; }
+            self.snap_guides.set((snap.vertical_guide.filter(|_| snap_x), snap.horizontal_guide.filter(|_| snap_y)));
+        }
+        delta
     }
 
     pub(super) fn layout_drag_move(&self, world: Point, screen: Point) -> bool {

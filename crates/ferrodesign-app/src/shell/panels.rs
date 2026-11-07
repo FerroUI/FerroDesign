@@ -147,6 +147,7 @@ impl EditorShell {
         *self.panel_state.context.borrow_mut() = (editor.active_page, editor.selection.clone());
         drop(editor);
         let panel = self.control::<Border>("ModalPanel");
+        panel.classes().set("touch-dialog", matches!(title, "Rename layers" | "Ruler guides" | "Nudge amount"));
         self.control::<Border>("ModalBackdrop")
             .set_background(if floating {
                 None
@@ -158,7 +159,7 @@ impl EditorShell {
         } else {
             HorizontalAlignment::Center
         });
-        panel.set_vertical_alignment(if floating {
+        panel.set_vertical_alignment(if floating || title == actions::QUICK_ACTIONS_TITLE {
             VerticalAlignment::Top
         } else {
             VerticalAlignment::Center
@@ -180,10 +181,16 @@ impl EditorShell {
             return;
         }
         let panel = self.control::<Border>("ModalPanel");
+        // Anchor the search field while filtering, but let a short result list
+        // shrink to content. Leave enough room to scroll on a short window.
+        let searching = self.panel_state.title.borrow().as_str() == actions::QUICK_ACTIONS_TITLE;
+        let top = if searching { (root.height * 0.12).round().clamp(12.0, 88.0) } else { 0.0 };
+        let available = root.height - if searching { top + 16.0 } else { 32.0 };
+        panel.set_margin(Thickness::new(0.0, top, 0.0, 0.0));
         panel.set_width(620.0_f64.min((root.width - 32.0).max(1.0)));
-        panel.set_max_height(660.0_f64.min((root.height - 32.0).max(1.0)));
+        panel.set_max_height(660.0_f64.min(available.max(1.0)));
         self.control::<ferroui_controls::ScrollViewer>("ModalViewport")
-            .set_max_height(470.0_f64.min((root.height - 220.0).max(100.0)));
+            .set_max_height(470.0_f64.min((available - 188.0).max(100.0)));
         if self.panel_state.floating.get() {
             self.position_panel(self.panel_state.position.get());
         }

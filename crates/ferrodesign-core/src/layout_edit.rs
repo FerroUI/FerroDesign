@@ -56,12 +56,19 @@ impl Editor {
         Ok(parent.id)
     }
 
-    pub(crate) fn commit_layout_candidate(&mut self, label: &str, mut candidate: Document) -> Result<LayoutResult, DocumentError> {
+    pub(crate) fn commit_layout_candidate(&mut self, label: &str, candidate: Document) -> Result<LayoutResult, DocumentError> {
+        self.commit_layout_with_selection(label, candidate, None)
+    }
+
+    pub(crate) fn commit_layout_with_selection(&mut self, label: &str, mut candidate: Document, selection: Option<&[NodeId]>) -> Result<LayoutResult, DocumentError> {
         candidate.validate()?;
         let result = candidate.layout_all();
         if !result.errors.is_empty() { return Err(layout_error(result.errors.join("\n"))); }
         candidate.validate()?;
-        self.transact(label, |document| *document = candidate);
+        self.edit(label, |editor| {
+            editor.document = candidate;
+            if let Some(ids) = selection { editor.selection = ids.to_vec(); }
+        });
         Ok(result)
     }
 

@@ -58,7 +58,7 @@ export async function flattenRegressions(page, reference, check, helpers, mode) 
     const fill = (r, g, b) => ({ paint: { type: "solid", r, g, b, a: 255 }, opacity: 1, visible: true });
     const action = async (rejection = null) => {
         await clickNative(page, "ActionsButton");
-        await clickNative(page, "ActionSearch", "ModalViewport");
+        await clickNative(page, "ActionSearch");
         await page.keyboard.press("Control+a");
         await page.keyboard.insertText("Flatten to vector");
         await page.waitForFunction(() => {

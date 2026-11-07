@@ -1,3 +1,4 @@
+import { navigationRegressions } from "./navigation-browser.mjs";
 import { paragraphRegressions } from "./paragraphs-browser.mjs";
 import { widthProfileRegressions } from "./width-profiles-browser.mjs";
 import { widthHandleRegressions } from "./width-handles-browser.mjs";
@@ -12,6 +13,7 @@ import { vectorNetworkRegressions } from "./network-browser.mjs";
 import { componentAuthoringRegressions } from "./components-browser.mjs";
 import { imageCropRegressions } from "./image-crop-browser.mjs";
 import { compositingRegressions } from "./compositing-browser.mjs";
+import { figmaArtworkReference } from "./figma-artwork-browser.mjs";
 import { svgCompositingRegressions } from "./svg-compositing-browser.mjs";
 import { maskAuthoringRegressions } from "./masks-browser.mjs";
 import { pageInspectorRegressions } from "./page-inspector-browser.mjs";
@@ -23,6 +25,9 @@ import { effectAuthoringRegressions } from "./effects-browser.mjs";
 import { inspectorLifecycleRegressions } from "./inspector-lifecycle-browser.mjs";
 import { floatingPanelRegressions } from "./panels-browser.mjs";
 import { layoutTransferRegressions } from "./layout-transfer-browser.mjs";
+import { frameResizeConstraints } from "./frame-resize-browser.mjs";
+import { outlineView } from "./outlines-browser.mjs";
+import { rotationRegressions } from "./rotation-browser.mjs";
 import { selectionRegressions } from "./selection-browser.mjs";
 import { matchingRegressions } from "./matching-browser.mjs";
 import { geometryAuthoringRegressions } from "./geometry-authoring-browser.mjs";
@@ -836,6 +841,51 @@ async function prototypeInputRegressions(page, reference, check) {
     assert.deepEqual(await documentState(page), authored, "Stopping prototype playback must preserve the authored document exactly");
     check("Real prototype hover (including locked layers), press, drag and key chord navigate frames; drag suppresses click and Escape restores authored state");
 
+    const desktopSize = page.viewportSize();
+    await page.setViewportSize({ width: 320, height: 650 });
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.CompactProperties.visible);
+    await clickNative(page, "CompactProperties");
+    await clickNative(page, "PresentButton");
+    // Restart and navigation publish the model before Vello paints the fitted
+    // camera. Coordinates derived from the outgoing frame can miss the canvas.
+    const showing = id => page.waitForFunction(({ id, frame }) => {
+        const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+        if (view.presentation !== id) return false;
+        if (!frame) return true;
+        const centerX = view.pan.x + (frame.x + frame.width / 2) * view.zoom;
+        const centerY = view.pan.y + (frame.y + frame.height / 2) * view.zoom;
+        return Math.abs(centerX - view.canvas.width / 2) < 1 &&
+            Math.abs(centerY - view.canvas.height / 2) < 1;
+    }, { id, frame: id === null ? null : fixture.nodes[id] });
+    await showing(10);
+    await frames(page);
+    const playing = (await state(page)).chrome;
+    assert.equal(playing.PreviewBack.enabled, false);
+    assert.ok(playing.CanvasHost.y + playing.CanvasHost.height <= playing.PreviewControls.y);
+    for (const name of ["PreviewBack", "PreviewNext", "PreviewRestart", "PreviewExit"]) {
+        assert.ok(playing[name].width >= 44 && playing[name].height >= 44, name + " has a phone-sized target");
+    }
+    await moveWorld(page, 100, 90);
+    await showing(20);
+    await clickNative(page, "PreviewBack");
+    await showing(10);
+    await clickNative(page, "PreviewNext");
+    await showing(20);
+    await page.keyboard.press("r");
+    await showing(10);
+    await moveWorld(page, 100, 90);
+    await showing(20);
+    await clickNative(page, "PreviewRestart");
+    await showing(10);
+    assert.equal((await state(page)).chrome.PreviewBack.enabled, false);
+    await clickNative(page, "PreviewExit");
+    await showing(null);
+    assert.deepEqual(await documentState(page), authored);
+    assert.equal((await state(page)).chrome.CompactProperties.visible, true);
+    await page.setViewportSize(desktopSize);
+    await frames(page);
+    check("At 320 px, native Back, Restart and Done navigate the prototype and restore the authored document without a hardware keyboard");
+
     const timed = structuredClone(fixture);
     timed.name = "Prototype delayed event fixture";
     for (const node of Object.values(timed.nodes)) node.interactions = [];
@@ -1121,6 +1171,9 @@ try {
                 nativeHelpers, output, mode));
             await scenario("compositing", () => compositingRegressions(page, svgDocument, check,
                 nativeHelpers, output, mode));
+            if (selectedScenarios?.has("figma-artwork")) {
+                await scenario("figma-artwork", () => figmaArtworkReference(page, svgDocument, check, nativeHelpers, output, mode));
+            }
             await scenario("svg-compositing", () => svgCompositingRegressions(page, svgDocument, check,
                 nativeHelpers, output, mode));
             await scenario("masks", () => maskAuthoringRegressions(page, svgDocument, check,
@@ -1129,6 +1182,7 @@ try {
                 nativeHelpers, output, mode));
             await scenario("inspector-lifecycle", () => inspectorLifecycleRegressions(page, svgDocument, check,
                 { ...nativeHelpers, flushStorage, waitForReload }));
+            await scenario("canvas-navigation", () => navigationRegressions(page, svgDocument, check, nativeHelpers));
             await scenario("floating-panels", () => floatingPanelRegressions(page, svgDocument, check,
                 nativeHelpers, mode));
             await scenario("page-inspector", () => pageInspectorRegressions(page, svgDocument, check,
@@ -1145,6 +1199,17 @@ try {
                 nativeHelpers, output, mode));
             await scenario("selection", () => selectionRegressions(page, svgDocument, check,
                 nativeHelpers, output, mode));
+            // The selection suite includes rotation. An explicitly requested
+            // rotation-only run captures the same real input and pixels.
+            if (selectedScenarios?.has("frame-resize")) {
+                await scenario("frame-resize", () => frameResizeConstraints(page, svgDocument, check, nativeHelpers));
+            }
+            if (selectedScenarios?.has("outlines")) {
+                await scenario("outlines", () => outlineView(page, svgDocument, check, nativeHelpers, mode));
+            }
+            if (selectedScenarios?.has("rotation")) {
+                await scenario("rotation", () => rotationRegressions(page, svgDocument, check, nativeHelpers, mode));
+            }
             await scenario("matching", () => matchingRegressions(page, svgDocument, check,
                 nativeHelpers, output, mode));
             await scenario("geometry-authoring", () => geometryAuthoringRegressions(page, svgDocument, check,
@@ -1188,18 +1253,38 @@ try {
             await frames(page);
             const compact = await state(page);
             assertInside(compact.chrome.Toolbar, compact.chrome.CanvasHost, "Floating toolbar");
-            for (const name of ["SelectTool", "FrameTool", "RectTool", "EllipseTool", "PenTool", "TextTool", "HandTool", "CommentTool", "ActionsButton"]) {
+            for (const name of ["SelectTool", "MoveToolMenu", "FrameTool", "RegionToolMenu", "RectTool", "ShapeToolMenu", "PenTool", "DrawingToolMenu", "TextTool", "CommentTool", "ActionsButton"]) {
                 assertInside(compact.chrome[name], compact.chrome.Toolbar, name);
             }
-            for (const [name, tool] of [["HandTool", "Hand"], ["SelectTool", "Select"]]) {
-                const bounds = compact.chrome[name];
-                await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-                await page.waitForFunction((expected) => JSON.parse(globalThis.ferroDesign.ferroDesignState()).tool === expected, tool);
-            }
+            await clickNative(page, "MoveToolMenu");
+            await clickNative(page, "HandChoice");
+            assert.equal((await state(page)).tool, "Hand");
+            await page.keyboard.press("v");
+            assert.equal((await state(page)).tool, "Select");
             await frames(page);
             result.compact = { viewport: { width: 980, height: 650 }, chrome: (await state(page)).chrome };
             await canvas.screenshot({ path: resolve(output, mode + "-compact.png") });
-            check("All nine toolbar controls fit at 980×650; native toolbar pointer input switches tools");
+            check("The complete native toolbar fits at 980×650 and its buttons switch tools");
+            for (const [menu, item, primary, tool] of [
+                ["RegionToolMenu", "SectionChoice", "FrameTool", "Section"],
+                ["ShapeToolMenu", "ArrowChoice", "RectTool", "Arrow"],
+                ["DrawingToolMenu", "PencilChoice", "PenTool", "Pencil"],
+            ]) {
+                await clickNative(page, menu);
+                await clickNative(page, item);
+                await page.waitForFunction(expected => JSON.parse(globalThis.ferroDesign.ferroDesignState()).tool === expected, tool);
+                await clickNative(page, "SelectTool");
+                await clickNative(page, primary);
+                assert.equal((await state(page)).tool, tool);
+            }
+            await clickNative(page, "SelectTool");
+            await clickNative(page, "MoveToolMenu");
+            await clickNative(page, "ScaleChoice");
+            await clickNative(page, "TextTool");
+            await clickNative(page, "SelectTool");
+            assert.equal((await state(page)).tool, "Scale", "Move family recalls Scale");
+            await page.keyboard.press("v");
+            check("Region, shape and drawing flyouts activate native tools and retain the last choice on the main button");
 
             for (let added = 0; added < 8; added++) {
                 const before = await state(page);
@@ -1218,6 +1303,44 @@ try {
             check("Native Add page clicks retain a scrollable page list and usable layer viewport at 980×650");
             assert.equal(await page.evaluate((json) => globalThis.ferroDesign.ferroDesignImportJson(json), svgJson), true);
             assert.deepEqual(JSON.parse(await page.evaluate(() => globalThis.ferroDesign.ferroDesignExportJson())), svgDocument);
+            await page.setViewportSize({ width: 390, height: 844 });
+            await page.waitForFunction(() => {
+                const view = JSON.parse(globalThis.ferroDesign.ferroDesignState());
+                return view.chrome.CompactLayers.visible && view.canvas.width === 390;
+            });
+            await clickNative(page, "CompactLayers");
+            // The exposed strip belongs to the drawer's dismissal surface. A tap here
+            // must never reach the drawing tool below it.
+            await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.Toolbar.visible === false);
+            await page.mouse.click(365, 170);
+            await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.Toolbar.visible === true);
+            assert.deepEqual(await documentState(page), svgDocument);
+            await clickNative(page, "CompactLayers");
+            await clickNative(page, "CompactProperties");
+            await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.ZoomValueButton.visible);
+            await clickNative(page, "CompactProperties");
+            await clickNative(page, "TextTool");
+            const phone = await state(page);
+            assert.equal(phone.tool, "Text");
+            assert.equal(phone.canvas.width, 390);
+            assert.deepEqual(await documentState(page), svgDocument);
+            await canvas.screenshot({ path: resolve(output, mode + "-phone.png") });
+            check("At phone width, drawers share a full-width artboard and the drawing tools remain reachable");
+            await page.setViewportSize({ width: 320, height: 650 });
+            await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).canvas.width === 320);
+            const narrow = await state(page);
+            let lastEdge = 0;
+            for (const name of ["MoveToolMenu", "RegionToolMenu", "ShapeToolMenu", "DrawingToolMenu", "TextTool", "CommentTool", "ActionsButton"]) {
+                const button = narrow.chrome[name];
+                assert.ok(button.visible && button.width >= 44 && button.height >= 44 &&
+                    button.x >= lastEdge && button.x + button.width <= 320, name + " fits the narrow touch dock");
+                lastEdge = button.x + button.width;
+            }
+            await clickNative(page, "ShapeToolMenu");
+            await clickNative(page, "EllipseChoice");
+            assert.equal((await state(page)).tool, "Ellipse");
+            assert.deepEqual(await documentState(page), svgDocument);
+            check("All seven native dock targets fit at 320 px, and the shape menu selects Ellipse without editing artwork");
             await page.setViewportSize({ width: 1600, height: 1000 });
             await frames(page);
 

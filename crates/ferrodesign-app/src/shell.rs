@@ -1,9 +1,12 @@
 //! The XAML shell binds real FerroUI controls to the document command layer.
+mod actions;
 mod paints;
 mod fields;
 mod diagnostics;
 mod panels;
 mod geometry_authoring;
+mod geometry_fields;
+mod geometry_scrub;
 mod selection;
 mod styles;
 mod effects;
@@ -11,13 +14,26 @@ mod compositing;
 mod components;
 mod layout;
 mod layer_projection;
+mod layer_navigation;
+mod layer_drag;
+mod layer_rename;
+mod bulk_rename;
+mod pages;
 mod prototyping;
+mod playback;
 mod rich_text;
 mod text;
 mod variables;
+mod zoom;
+mod ruler_guides;
+mod nudge;
+mod toolbar;
+mod scale;
+mod workspace;
 mod vector_export;
 mod text_export;
 mod stroke_profiles;
+mod slice_export;
 use crate::{
     canvas::{CanvasEvent, DesignCanvas, Tool},
     icons, platform,
@@ -61,14 +77,25 @@ pub struct EditorShell {
     inline_layout: RefCell<Option<text::InlineLayout>>,
     inline_updating: Cell<bool>,
     inline_draft_dirty: Cell<bool>,
+    geometry_readouts: geometry_fields::GeometryReadouts,
+    geometry_scrub: RefCell<Option<geometry_scrub::Scrub>>,
     inspector_drafts: RefCell<Vec<std::rc::Weak<fields::InspectorDraft>>>,
     panel_state: panels::PanelState,
+    nudge_form: RefCell<Option<nudge::NudgeForm>>,
     expanded: RefCell<BTreeSet<NodeId>>,
     layer_buttons: RefCell<BTreeMap<NodeId, WeakRef<Button>>>,
     layer_projection: RefCell<LayerProjection>,
-    page_rows: RefCell<Vec<(NodeId, String)>>,
+    layer_drag: RefCell<layer_drag::LayerDrag>,
+    page_drag: RefCell<Option<pages::PageDrag>>,
+    page_list: RefCell<pages::PageList>,
     assets: Cell<bool>,
     inspector_tab: Cell<u8>,
+    displayed_zoom: Cell<Option<i32>>,
+    toolbar: toolbar::ToolbarState,
+    scale_anchor: Cell<usize>,
+    compact: Cell<bool>,
+    compact_panel: Cell<workspace::CompactPanel>,
+    workspace_ui: workspace::WorkspaceUi,
     prototype_targets: RefCell<Vec<NodeId>>,
     prototype: Rc<PrototypeRuntime>,
     pending_save: Cell<bool>,
@@ -121,14 +148,25 @@ impl EditorShell {
             inline_layout: RefCell::new(None),
             inline_updating: Cell::new(false),
             inline_draft_dirty: Cell::new(false),
+            geometry_readouts: Default::default(),
+            geometry_scrub: RefCell::new(None),
             inspector_drafts: RefCell::new(Vec::new()),
             panel_state: panels::PanelState::default(),
+            nudge_form: RefCell::new(None),
             expanded: RefCell::new(expanded),
             layer_buttons: RefCell::new(BTreeMap::new()),
             layer_projection: RefCell::new(LayerProjection::default()),
-            page_rows: RefCell::new(Vec::new()),
+            layer_drag: RefCell::default(),
+            page_drag: RefCell::default(),
+            page_list: RefCell::default(),
             assets: Cell::new(false),
             inspector_tab: Cell::new(0),
+            displayed_zoom: Cell::new(None),
+            toolbar: toolbar::ToolbarState::default(),
+            scale_anchor: Cell::new(4),
+            compact: Cell::new(false),
+            compact_panel: Cell::default(),
+            workspace_ui: Default::default(),
             prototype_targets: RefCell::new(Vec::new()),
             prototype,
             pending_save: Cell::new(false),
@@ -215,8 +253,12 @@ impl EditorShell {
         });
     }
     fn wire(self: &Rc<Self>) {
+        self.wire_action_dialog();
+        self.wire_nudge_backdrop();
         self.wire_inline_text();
+        self.wire_zoom();
         self.wire_panels();
+        self.wire_layer_drag();
         self.wire_geometry_authoring();
         self.wire_stroke_profiles();
         self.hook("EditPaintsButton", "paints");
@@ -384,6 +426,7 @@ impl EditorShell {
         );
         for (name, icon) in [
             ("MenuButton", "logo"),
+            ("PageActionsButton", "more"),
             ("FileRailButton", "file"),
             ("AssetsRailButton", "assets"),
             ("ToolsRailButton", "tools"),
@@ -395,14 +438,6 @@ impl EditorShell {
             ("VisibleButton", "eye"),
             ("LockedButton", "lock"),
             ("GradientButton", "gradient"),
-            ("SelectTool", "pointer"),
-            ("FrameTool", "frame"),
-            ("RectTool", "rect"),
-            ("EllipseTool", "ellipse"),
-            ("PenTool", "pen"),
-            ("TextTool", "text"),
-            ("HandTool", "hand"),
-            ("CommentTool", "comment"),
             ("ActionsButton", "actions"),
             ("AlignLeftButton", "align-left"),
             ("AlignCenterButton", "align-center"),
@@ -414,6 +449,12 @@ impl EditorShell {
         ] {
             self.icon(name, icon);
         }
+        self.wire_toolbar();
+        self.wire_playback_focus();
+        self.wire_scale();
+        self.wire_workspace();
+        self.wire_geometry_scrub_keys();
+        self.wire_page_menu();
         for (name, command) in [
             ("MenuButton", "menu"),
             ("FileActionsButton", "menu"),
@@ -425,14 +466,12 @@ impl EditorShell {
             ("HistoryRailButton", "history"),
             ("ThemeButton", "theme"),
             ("PresentButton", "present"),
+            ("PreviewBack", "prototype-back"),
+            ("PreviewNext", "prototype-next"),
+            ("PreviewRestart", "prototype-restart"),
+            ("PreviewExit", "prototype-exit"),
             ("ShareButton", "share"),
-            ("SelectTool", "select"),
-            ("FrameTool", "frame"),
-            ("RectTool", "rectangle"),
-            ("EllipseTool", "ellipse"),
-            ("PenTool", "pen"),
             ("TextTool", "text"),
-            ("HandTool", "hand"),
             ("CommentTool", "comment"),
             ("ActionsButton", "actions"),
             ("DesignTab", "design-tab"),
@@ -481,7 +520,6 @@ impl EditorShell {
             ("ExportSvgButton", "export-svg"),
             ("ExportPngButton", "export-png"),
             ("ZoomOutButton", "zoom-out"),
-            ("ZoomValueButton", "fit"),
             ("ZoomInButton", "zoom-in"),
             ("CloseModalButton", "close-modal"),
             ("EditVectorButton", "edit-vector"),
@@ -514,8 +552,42 @@ impl EditorShell {
                 s.canvas_event(event)
             }
         });
+        let search = self.field("LayerSearch");
         let weak = Rc::downgrade(self);
-        self.field("LayerSearch").text_changed(move |_, _| {
+        self.button("ClearLayerSearch").click(move |_, _| {
+            if let Some(shell) = weak.upgrade() {
+                let search = shell.field("LayerSearch");
+                search.clear();
+                search.focus();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        search.add_handler_with(InputElement::key_down_event(), move |_, event| {
+            if event.key == Key::Down && event.key_modifiers.is_empty() {
+                if let Some(shell) = weak.upgrade() {
+                    if !shell.field("LayerSearch").is_composing_text() && shell.enter_layer_rows() {
+                        event.set_handled(true);
+                    }
+                }
+            }
+        }, ferroui_base::interactivity::RoutingStrategies::TUNNEL, false);
+        let weak = Rc::downgrade(self);
+        search.add_handler(InputElement::key_down_event(), move |_, event| {
+            if event.key != Key::Escape || !event.key_modifiers.is_empty() { return; }
+            let Some(shell) = weak.upgrade() else { return; };
+            let search = shell.field("LayerSearch");
+            if search.is_composing_text() { return; }
+            if !search.text().unwrap_or_default().is_empty() {
+                search.clear();
+            } else if shell.compact.get() {
+                return; // Let the drawer handle the next Escape.
+            } else {
+                shell.canvas.focus();
+            }
+            event.set_handled(true);
+        });
+        let weak = Rc::downgrade(self);
+        search.text_changed(move |_, _| {
             if let Some(s) = weak.upgrade() {
                 if !s.updating.get() {
                     s.refresh_layers();
@@ -524,6 +596,7 @@ impl EditorShell {
         });
         for name in [
             "NameField",
+            "ScaleFactorField", "ScaleWidthField", "ScaleHeightField",
             "XField",
             "YField",
             "RotationField",
@@ -602,6 +675,7 @@ impl EditorShell {
     fn canvas_event(self: &Rc<Self>, event: CanvasEvent) {
         match event {
             CanvasEvent::Document => self.changed(),
+            CanvasEvent::ResizePreview => self.queue_resize_readouts(),
             CanvasEvent::Draft => {
                 self.sync_document_draft_dirty();
                 // A no-op stroke still needs to resume a previous edit's
@@ -617,7 +691,7 @@ impl EditorShell {
                 self.sync_zoom();
                 self.position_inline_text();
             }
-            CanvasEvent::Tool => self.sync_tools(),
+            CanvasEvent::Tool => self.refresh_selection(),
             CanvasEvent::Notice(message) => self.toast(&message),
             CanvasEvent::EditText(id) => {
                 self.begin_inline_text(id);
@@ -635,11 +709,9 @@ impl EditorShell {
             CanvasEvent::PrototypePointerMoved(point) => { self.prototype.pointer_moved(point); }
             CanvasEvent::PrototypePointerExited => { self.prototype.pointer_exited(); }
             CanvasEvent::PrototypeKey(key) => {
-                if !self.prototype.key(&key) && key == "Escape" {
-                    self.prototype.stop();
-                }
+                self.preview_canvas_key(&key);
             }
-            CanvasEvent::ExitPresentation => self.set_presentation(None),
+            CanvasEvent::ExitPresentation => { self.set_presentation(None); }
             CanvasEvent::Action(command) => {
                 self.command(command);
             }
@@ -705,24 +777,27 @@ impl EditorShell {
             state
         };
         let mut chrome: serde_json::Map<String, serde_json::Value> = [
-            "CanvasHost",
-            "Toolbar",
+            "CanvasHost", "MinimizeUiButton", "RestoreUiButton", "MinimizedInspectorButton",
+            "NavigationRail", "RightPanel", "LeftPanel",
+            "Toolbar", "CompactLayers", "CompactProperties",
             "SelectTool",
             "FrameTool",
             "RectTool",
-            "EllipseTool",
+            "RegionToolMenu", "ShapeToolMenu", "DrawingToolMenu",
             "PenTool",
             "TextTool",
-            "HandTool",
+            "PreviewControls", "PreviewBack", "PreviewNext", "PreviewRestart", "PreviewExit", "PreviewFrameTitle",
+            "MoveToolMenu", "ScaleFactorField", "ScaleWidthField", "ScaleHeightField",
             "CommentTool",
             "ActionsButton",
             "PresentButton",
             "PagesViewport",
-            "LayersViewport",
+            "LayersViewport", "LayerSearch", "ClearLayerSearch", "CollapseLayersButton", "EmptyLayers",
             "InspectorViewport",
             "DesignTab", "PrototypeTab", "InspectTab", "PrototypeInspector", "InspectInspector",
             "PageInspector", "DesignInspector", "PageBackgroundField", "PageBackgroundSwatch",
             "NameField", "WidthField", "HeightField", "FillField", "TextField",
+            "XScrub", "YScrub", "WidthScrub", "HeightScrub", "RotationScrub",
             "RadiusField", "CornerSmoothingField", "IndependentCornersButton",
             "StrokeProfileChoice", "StrokeWidthCustomButton", "StrokeWidthHandlesButton", "StrokeWidthField", "DashField",
             "SelectMatchingButton",
@@ -732,7 +807,7 @@ impl EditorShell {
             "PageStylesButton", "PageVariablesButton", "PageComponentsButton", "VariablesRailButton",
             "EditLayoutButton",
             "PaddingField", "GapField", "CrossGapField",
-            "AddPageButton",
+            "AddPageButton", "PageActionsButton",
             "EditVectorButton",
             "DoneVectorButton",
             "VectorPointOptions",
@@ -766,6 +841,31 @@ impl EditorShell {
             )
         })
         .collect();
+        // The diagnostics bridge exposes just the realized rows used by the native tree.
+        let host = self.control::<ItemsControl>("LayersHost");
+        let projection = self.layer_projection.borrow();
+        for container in host.get_realized_containers() {
+            let index = host.index_from_container(&container);
+            if let Some(row) = usize::try_from(index).ok().and_then(|i| projection.rows().get(i)) {
+                if let Some(button) = self.layer_buttons.borrow().get(&row.id).and_then(WeakRef::upgrade) {
+                    chrome.insert(format!("LayerRow{}", row.id), native_bounds(&button));
+                }
+            }
+        }
+        drop(projection);
+        let mut popup_items = self.open_tool_items();
+        if self.button("PageActionsButton").flyout().is_some_and(|f| f.is_open()) {
+            popup_items.extend(["PageRename", "PageDuplicate", "PageMoveUp", "PageMoveDown", "PageDelete"].map(|name| (name, self.control(name))));
+        }
+        for (name, item) in popup_items {
+            if item.is_attached_to_visual_tree() {
+                let mut bounds = native_bounds(&item);
+                let origin = self.root.point_to_client(item.point_to_screen(ferroui_base::Point::default()));
+                bounds["x"] = json!(origin.x);
+                bounds["y"] = json!(origin.y);
+                chrome.insert(name.into(), bounds);
+            }
+        }
         if self.control::<Control>("ModalBackdrop").is_visible() {
             for visual in self
                 .control::<Control>("ModalBackdrop")
@@ -774,7 +874,7 @@ impl EditorShell {
                 if let Some(control) = visual.cast::<Control>() {
                     if let Some(name) = control
                         .name()
-                        .filter(|name| ["Paint", "Effect", "Interaction", "RichText", "Paragraph", "StrokeWidth", "StrokeProfile", "Variable", "Guide", "Component", "Compositing", "Crop", "Layout", "Action", "SelectLayer", "SelectSame", "Affine", "FramePreset", "Style"]
+                        .filter(|name| ["Paint", "Effect", "Interaction", "RichText", "Paragraph", "StrokeWidth", "StrokeProfile", "Variable", "Guide", "Component", "Compositing", "Crop", "Layout", "Action", "SelectLayer", "SelectSame", "Affine", "FramePreset", "Style", "Rename", "Ruler", "Nudge"]
                             .iter().any(|prefix| name.starts_with(prefix)))
                     {
                         chrome.insert(name, native_bounds(&control));
@@ -793,6 +893,13 @@ impl EditorShell {
                 .children()
                 .get(index);
             chrome.insert("ActivePage".into(), native_bounds(&button));
+            if let Some(row) = button.cast::<Grid>() {
+                let children = row.children();
+                if let Some(field) = (1..children.count()).map(|i| children.get(i))
+                    .find(|c| c.name().as_deref() == Some("PageRenameEditor")) {
+                    chrome.insert("PageRenameEditor".into(), native_bounds(&field));
+                }
+            }
         }
         // Keep each macro expansion small while preserving the flat bridge
         // schema. These groups are moved into the result without cloning values.
@@ -801,12 +908,13 @@ impl EditorShell {
         for group in [json!({
             "revision":editor.revision,"documentRevision":editor.document.revision,"nodeCount":editor.document.nodes.len(),
             "selectionCount":editor.selection.len(),"selection":editor.selection,"selectionBounds":selection_bounds,
-            "tool":self.canvas.tool.get().name(),"zoom":v.zoom,"pan":{"x":v.pan.x,"y":v.pan.y},
-            "selectGroups":self.canvas.select_groups.get(),
+            "tool":self.canvas.tool.get().name(),"rulersVisible": self.canvas.show_rulers.get(), "outlineView": {"enabled":self.canvas.show_outlines.get(),
+                "includeHidden": self.canvas.outline_hidden.get(), "objectBounds":self.canvas.outline_bounds.get()}, "zoom":v.zoom,"pan":{"x":v.pan.x,"y":v.pan.y},
+            "selectGroups":self.canvas.select_groups.get(),"measurementTarget":self.canvas.measurement_target(),
             "prototypeSelectionIndex":self.canvas.prototype_selection_index_stats(),
             "zoomLabel":self.button("ZoomValueButton").content().and_then(|value| value.downcast_ref::<String>().cloned()),
             "canvas":{"x":canvas.x,"y":canvas.y,"width":canvas.width,"height":canvas.height},
-            "chrome":chrome,
+            "chrome":chrome,"workspaceUi":self.workspace_ui.name(),
             "layerRowCount":layer_row_count,
             "realizedLayerRows":self.layer_buttons.borrow().values().filter(|row| row.upgrade().is_some()).count(),
             "vectorNode":self.canvas.vector_node.get(),
@@ -863,6 +971,7 @@ impl EditorShell {
         self.toast(message);
     }
     pub fn import_document(self: &Rc<Self>, text: &str, name: &str) -> bool {
+        self.finish_geometry_scrub(false);
         self.finish_inline_text(true);
         if !self.flush_inspector_drafts() {
             self.toast("Correct the inspector value or press Escape before opening a design.");
@@ -883,9 +992,6 @@ impl EditorShell {
         match result {
             Ok(_) => {
                 self.expanded.borrow_mut().clear();
-                if !is_svg {
-                    self.canvas.reset_fit();
-                }
                 self.canvas.invalidate_scene();
                 self.changed();
                 self.close_modal();
@@ -978,7 +1084,7 @@ impl EditorShell {
         // A background timer may belong to the previous committed edit. The
         // held bucket preview must remain cancelable; release/cancel schedules
         // a fresh save, while explicit lifecycle boundaries finish it first.
-        if self.canvas.network_bucket_state().1 || self.canvas.stroke_width_active()
+        if self.geometry_scrub_active() || self.canvas.network_bucket_state().1 || self.canvas.stroke_width_active()
             || self.canvas.corner_radius_active() || self.canvas.linear_gradient_active() { return; }
         if let Some(timer) = self.pending_save_timer.borrow_mut().take() { timer.dispose(); }
         if !self.pending_save.get() { return; }
@@ -998,27 +1104,8 @@ impl EditorShell {
         platform::set_document_serialization_pending(false);
         self.text("DocumentStatus", &platform::document_save_status());
     }
-    fn sync_zoom(&self) {
-        self.button("ZoomValueButton")
-            .set_content(Some(Rc::new(format!(
-                "{}%",
-                (self.canvas.viewport.get().zoom * 100.0).round()
-            ))));
-    }
     fn sync_tools(&self) {
-        let active = self.canvas.tool.get();
-        for (name, tool) in [
-            ("SelectTool", Tool::Select),
-            ("FrameTool", Tool::Frame),
-            ("RectTool", Tool::Rectangle),
-            ("EllipseTool", Tool::Ellipse),
-            ("PenTool", Tool::Pen),
-            ("TextTool", Tool::Text),
-            ("HandTool", Tool::Hand),
-            ("CommentTool", Tool::Comment),
-        ] {
-            self.button(name).classes().set("active", active == tool);
-        }
+        self.sync_toolbar();
         self.sync_zoom();
     }
     fn refresh(self: &Rc<Self>) {
@@ -1032,6 +1119,7 @@ impl EditorShell {
         self.refresh_layers();
         self.refresh_inspector();
         self.updating.set(false);
+        self.sync_context_inspector();
         self.refresh_open_panel();
     }
     fn refresh_selection(self: &Rc<Self>) {
@@ -1042,9 +1130,12 @@ impl EditorShell {
         // clicking artwork never recreates every page, icon and layer control.
         self.canvas.reconcile_image_crop();
         self.canvas.reconcile_vector_edit();
+        self.sync_toolbar();
         self.refresh_layer_selection();
+        self.sync_tree_disclosure();
         self.refresh_inspector();
         self.updating.set(false);
+        self.sync_context_inspector();
         self.refresh_open_panel();
     }
     fn refresh_layer_selection(&self) {
@@ -1064,70 +1155,9 @@ impl EditorShell {
         // Native class changes can apply styles synchronously. Keep the weak
         // registry unborrowed while updating this bounded set of realized rows.
         for (button, selected) in buttons {
-            button.classes().set("active", selected);
-        }
-    }
-    fn refresh_pages(self: &Rc<Self>) {
-        let host = self.control::<StackPanel>("PagesHost");
-        let editor = self.editor.borrow();
-        self.text("FileTitle", &editor.document.name);
-        let page = editor.document.page(editor.active_page).map(|page| page.name.as_str()).unwrap_or("");
-        self.text("CanvasCaption", &format!("{} / {page}", editor.document.name));
-        let rows: Vec<_> = editor
-            .document
-            .pages
-            .iter()
-            .map(|p| (p.id, p.name.clone()))
-            .collect();
-        if *self.page_rows.borrow() == rows {
-            for (index, (id, name)) in rows.iter().enumerate() {
-                let button = host
-                    .children()
-                    .get(index)
-                    .cast::<Button>()
-                    .expect("page button");
-                button.classes().set("active", *id == editor.active_page);
-                button.set_content(Some(Rc::new(format!(
-                    "{}  {}",
-                    if *id == editor.active_page {
-                        "✓"
-                    } else {
-                        " "
-                    },
-                    name
-                ))));
-            }
-            return;
-        }
-        *self.page_rows.borrow_mut() = rows;
-        host.children().clear();
-        for page in &editor.document.pages {
-            let id = page.id;
-            let button = Button::new();
-            button.classes().add("layer");
-            button.classes().set("active", id == editor.active_page);
-            button.set_content(Some(Rc::new(format!(
-                "{}  {}",
-                if id == editor.active_page { "✓" } else { " " },
-                page.name
-            ))));
-            let weak = Rc::downgrade(self);
-            button.click(move |_, _| {
-                if let Some(s) = weak.upgrade() {
-                    {
-                        let mut editor = s.editor.borrow_mut();
-                        editor.active_page = id;
-                        editor.selection.clear();
-                        editor.refresh();
-                    }
-                    s.canvas.reset_fit();
-                    s.refresh();
-                    s.canvas.focus();
-                }
-            });
-            host.children().add(button.clone());
-            if id == editor.active_page {
-                button.bring_into_view();
+            if button.classes().contains("active") != selected {
+                button.classes().set("active", selected);
+                ferroui_controls::automation::AutomationProperties::set_item_status(&button, selected.then_some("Selected"));
             }
         }
     }
@@ -1147,12 +1177,19 @@ impl EditorShell {
         self.button("AssetsRailButton")
             .classes()
             .set("active", self.assets.get());
-        let filter = self
-            .field("LayerSearch")
-            .text()
-            .unwrap_or_default()
-            .to_lowercase();
         let assets = self.assets.get();
+        let search = self.field("LayerSearch");
+        let label = if assets { "Search components" } else { "Search layers" };
+        let placeholder = if assets { "Search components…" } else { "Search layers…" };
+        if search.placeholder_text().as_deref() != Some(placeholder) {
+            search.set_placeholder_text(Some(placeholder));
+            ferroui_controls::automation::AutomationProperties::set_name(&search, Some(label));
+            let tip = if assets { "Find components by name" } else { "Find layers (Ctrl/Cmd+F)" };
+            ferroui_controls::ToolTip::set_tip(&search, Some(Rc::new(tip.to_owned())));
+        }
+        let query = search.text().unwrap_or_default();
+        self.visible("ClearLayerSearch", !query.is_empty());
+        let filter = query.trim().to_lowercase();
         let (items, empty) = {
             let editor = self.editor.borrow();
             let expanded = self.expanded.borrow();
@@ -1166,11 +1203,14 @@ impl EditorShell {
         };
         // ItemsSource realization can synchronously call layer_row. No editor,
         // expansion or projection RefCell borrow crosses native control setters.
+        self.sync_tree_disclosure();
         self.visible("EmptyLayers", empty);
         self.text(
             "EmptyLayers",
-            if !filter.is_empty() {
-                "No layers match your search."
+            if assets && !filter.is_empty() {
+                "No matching components. Try a different name or clear the search."
+            } else if !filter.is_empty() {
+                "No matching layers. Try a different name or clear the search."
             } else if assets {
                 "Create a component to reuse it here."
             } else {
@@ -1187,7 +1227,10 @@ impl EditorShell {
     fn layer_row(self: &Rc<Self>, row: &LayerRow) -> Ref<Grid> {
         let id = row.id;
         let grid = Grid::new();
-        grid.set_column_definitions(ColumnDefinitions::parse("20,*,24").unwrap());
+        if !row.assets { self.wire_layer_preview(&grid, id); }
+        grid.classes().add("layer-row");
+        grid.set_tag(Some(Rc::new(id)));
+        grid.set_column_definitions(ColumnDefinitions::parse("20,*,20,20").unwrap());
         grid.set_height(30.0);
         grid.set_margin(Thickness::new(
             (row.depth.min(10) * 12) as f64,
@@ -1195,12 +1238,15 @@ impl EditorShell {
             0.0,
             0.0,
         ));
-        if row.has_children {
+        if let Some(open) = row.expanded {
             let collapse = Button::new();
+            let verb = if open { "Collapse" } else { "Expand" };
+            ferroui_controls::automation::AutomationProperties::set_name(
+                &collapse, Some(&format!("{verb} {}", row.name)));
             collapse.set_min_width(20.0);
             collapse.set_padding(Thickness::uniform(0.0));
             collapse.set_content(Some(Control::boxed(icons::icon(
-                if row.expanded {
+                if open {
                     "chevron-down"
                 } else {
                     "chevron-right"
@@ -1211,28 +1257,27 @@ impl EditorShell {
             let weak = Rc::downgrade(self);
             collapse.click(move |_, _| {
                 if let Some(s) = weak.upgrade() {
-                    {
-                        let mut expanded = s.expanded.borrow_mut();
-                        if !expanded.remove(&id) {
-                            expanded.insert(id);
-                        }
-                    }
-                    s.refresh_layers();
+                    s.disclose_layer(id, !open);
                 }
             });
             grid.children().add(collapse);
         }
         let button = Button::new();
         button.classes().add("layer");
-        button
-            .classes()
-            .set("active", self.editor.borrow().selection.contains(&id));
+        ferroui_controls::automation::AutomationProperties::set_name(&button, Some(&row.name));
+        ferroui_controls::ToolTip::set_tip(&button, Some(Rc::new(row.name.clone())));
+        let selected = self.editor.borrow().selection.contains(&id);
+        button.classes().set("active", selected);
+        ferroui_controls::automation::AutomationProperties::set_item_status(&button, selected.then_some("Selected"));
+        if let Some(open) = row.expanded {
+            let help = if open { "Expanded. Left arrow collapses this layer." } else { "Collapsed. Right arrow expands this layer." };
+            ferroui_controls::automation::AutomationProperties::set_help_text(&button, Some(help));
+        }
         if !row.visible {
             button.set_opacity(0.4);
         }
-        let content = StackPanel::new();
-        content.set_orientation(Orientation::Horizontal);
-        content.set_spacing(7.0);
+        let content = Grid::new();
+        content.set_column_definitions(ColumnDefinitions::parse("12,6,*").unwrap());
         let glyph = match row.kind {
             NodeKind::Frame => "frame",
             NodeKind::Group => "group",
@@ -1242,8 +1287,10 @@ impl EditorShell {
             NodeKind::Line => "line",
             NodeKind::Polygon => "polygon",
             NodeKind::Star => "star",
-            NodeKind::Component | NodeKind::Instance => "component",
+            NodeKind::Component => "component",
+            NodeKind::Instance => "instance",
             NodeKind::Section => "section",
+            NodeKind::Slice => "slice",
             _ => "rect",
         };
         content.children().add(icons::icon(
@@ -1257,62 +1304,75 @@ impl EditorShell {
         ));
         let name = TextBlock::new();
         name.set_text(Some(&row.name));
+        name.set_text_trimming(<dyn ferroui_base::media::TextTrimming>::character_ellipsis());
+        Grid::set_column(&name, 2);
         name.set_vertical_alignment(VerticalAlignment::Center);
         name.set_font_size(11.0);
         content.children().add(name);
         button.set_content(Some(Control::boxed(content)));
         Grid::set_column(&button, 1);
-        let weak = Rc::downgrade(self);
-        let assets = row.assets;
-        button.click(move |_, _| {
-            if let Some(s) = weak.upgrade() {
-                if assets {
-                    let point = s
-                        .canvas
-                        .viewport
-                        .get()
-                        .screen_to_world(Point::new(100.0, 100.0));
-                    s.editor.borrow_mut().create_instance(id, point.x, point.y);
-                    s.changed();
-                } else {
-                    s.editor.borrow_mut().selection = vec![id];
-                    s.refresh_selection();
-                    s.canvas.invalidate_visual();
-                }
-                s.canvas.focus();
-            }
-        });
+        self.wire_layer_activation(&button, id, row.assets);
+        if !row.assets {
+            self.wire_layer_navigation(&button, id);
+            self.wire_layer_drag_source(&button, id);
+        }
         // Weak handles must not keep scrolled-out item controls alive.
         self.layer_buttons
             .borrow_mut()
             .insert(id, button.downgrade());
         grid.children().add(button);
-        let eye = Button::new();
-        eye.set_padding(Thickness::uniform(5.0));
-        eye.set_content(Some(Control::boxed(icons::icon(
-            if row.locked { "lock" } else { "eye" },
-            "#999999",
-            11.0,
-        ))));
-        Grid::set_column(&eye, 2);
-        let weak = Rc::downgrade(self);
-        eye.click(move |_, _| {
-            if let Some(s) = weak.upgrade() {
-                s.editor.borrow_mut().toggle_visibility(id);
-                s.changed();
-            }
-        });
-        grid.children().add(eye);
+        for (column, lock, glyph, tip, persistent) in [
+            (2, true, if row.locked { "lock" } else { "unlock" },
+                if row.locked { "Unlock layer" } else { "Lock layer" }, row.locked),
+            (3, false, if row.visible { "eye" } else { "eye-off" },
+                if row.visible { "Hide layer" } else { "Show layer" }, !row.visible),
+        ] {
+            let action = Button::new();
+            action.classes().add("layer-action");
+            action.classes().set("persistent", persistent);
+            action.set_content(Some(Control::boxed(icons::icon(glyph, "#686868", 12.0))));
+            ferroui_controls::ToolTip::set_tip(&action, Some(Rc::new(tip.to_string())));
+            ferroui_controls::automation::AutomationProperties::set_name(
+                &action, Some(&format!("{tip}: {}", row.name)),
+            );
+            Grid::set_column(&action, column);
+            let weak = Rc::downgrade(self);
+            action.click(move |_, _| {
+                if let Some(s) = weak.upgrade() {
+                    if lock {
+                        s.editor.borrow_mut().toggle_locked(id);
+                    } else {
+                        s.editor.borrow_mut().toggle_visibility(id);
+                    }
+                    s.changed();
+                }
+            });
+            grid.children().add(action);
+        }
+        if !row.assets {
+            let marker = Border::new();
+            marker.classes().add("layer-insertion");
+            marker.set_is_hit_test_visible(false);
+            Grid::set_column_span(&marker, 4);
+            grid.children().add(marker);
+        }
         grid
     }
-    fn refresh_inspector(&self) {
+    fn refresh_inspector(self: &Rc<Self>) {
+        self.cancel_stale_geometry_scrub();
         let editor = self.editor.borrow();
-        let node = editor
-            .selection
-            .first()
-            .and_then(|id| editor.document.nodes.get(id));
-        self.refresh_constraint_diagram(node);
-        self.visible("DesignInspector", self.inspector_tab.get() == 0 && node.is_some());
+        let selection = fields::InspectorSelection::new(&editor);
+        let node = selection.first;
+        let slices_only = !editor.selection.is_empty() && editor.selection.iter()
+            .all(|id| editor.document.nodes.get(id).is_some_and(|node| node.kind == NodeKind::Slice));
+        self.visible("SliceHint", slices_only);
+        self.button("ExportXamlButton").set_is_enabled(!slices_only);
+        self.visible("ArtworkOptions", !slices_only);
+        self.visible("AddLayoutButton", !slices_only);
+        self.text("DimensionsTitle", if slices_only { "Export bounds" } else { "Layout" });
+        self.refresh_constraint_diagram(&selection);
+        let scaling = self.sync_scale_panel(&editor);
+        self.visible("DesignInspector", !scaling && self.inspector_tab.get() == 0 && node.is_some());
         self.visible("PageInspector", self.inspector_tab.get() == 0 && node.is_none());
         self.visible("VisibleButton", node.is_some());
         self.visible("LockedButton", node.is_some());
@@ -1362,79 +1422,48 @@ impl EditorShell {
             },
         );
         let set = |name: &str, value: String| self.field(name).set_text(Some(&value));
-        set(
-            "NameField",
-            node.map(|n| n.name.clone()).unwrap_or_else(|| {
-                editor
-                    .document
-                    .page(editor.active_page)
-                    .map(|p| p.name.clone())
-                    .unwrap_or_default()
-            }),
-        );
-        for (name, value) in [
-            ("XField", node.map(|n| n.x)),
-            ("YField", node.map(|n| n.y)),
-            ("WidthField", node.map(|n| n.width)),
-            ("HeightField", node.map(|n| n.height)),
-            ("RotationField", node.map(|n| n.rotation)),
-            ("RadiusField", node.map(|n| n.corner_radius)),
-            ("CornerSmoothingField", node.map(|n| n.corner_smoothing * 100.0)),
-            ("OpacityField", node.map(|n| n.opacity * 100.0)),
-            ("FontSizeField", node.map(|n| n.font_size)),
-            ("FontWeightField", node.map(|n| n.font_weight as f64)),
-            ("LineHeightField", node.map(|n| n.line_height * 100.0)),
-            ("LetterSpacingField", node.map(|n| n.letter_spacing)),
-            (
-                "CornerTLField",
-                node.map(|n| n.corner_radii.unwrap_or([n.corner_radius; 4])[0]),
-            ),
-            (
-                "CornerTRField",
-                node.map(|n| n.corner_radii.unwrap_or([n.corner_radius; 4])[1]),
-            ),
-            (
-                "CornerBRField",
-                node.map(|n| n.corner_radii.unwrap_or([n.corner_radius; 4])[2]),
-            ),
-            (
-                "CornerBLField",
-                node.map(|n| n.corner_radii.unwrap_or([n.corner_radius; 4])[3]),
-            ),
-            (
-                "CrossGapField",
-                node.and_then(|n| n.layout.as_ref().map(|l| l.cross_gap)),
-            ),
-            (
-                "LayoutColumnsField",
-                node.and_then(|n| n.layout.as_ref().map(|l| l.columns as f64)),
-            ),
-            (
-                "StrokeWidthField",
-                node.map(|n| n.strokes.first().map_or(0.0, |s| s.width)),
-            ),
-            (
-                "GapField",
-                node.and_then(|n| n.layout.as_ref().map(|l| l.gap)),
-            ),
-            (
-                "PaddingField",
-                node.and_then(|n| n.layout.as_ref().and_then(|l| {
-                    let p = l.padding;
-                    (p.top == p.left && p.right == p.left && p.bottom == p.left).then_some(p.left)
-                })),
-            ),
-        ] {
-            set(name, value.map(number).unwrap_or_default());
+        let name = if node.is_some() {
+            selection.common(|n| n.name.as_str())
+        } else {
+            editor.document.page(editor.active_page).map(|page| page.name.as_str())
+        };
+        selection.show(&self.field("NameField"), name, Some("Layer name"));
+
+        type NumericProperty = (&'static str, fn(&Node) -> Option<f64>);
+        const GEOMETRY_AND_APPEARANCE: &[NumericProperty] = &[
+            ("XField", |n| Some(n.x)),
+            ("YField", |n| Some(n.y)),
+            ("WidthField", |n| Some(n.width)),
+            ("HeightField", |n| Some(n.height)),
+            ("RotationField", |n| Some(n.rotation)),
+            ("RadiusField", |n| Some(n.corner_radius)),
+            ("CornerSmoothingField", |n| Some(n.corner_smoothing * 100.0)),
+            ("OpacityField", |n| Some(n.opacity * 100.0)),
+            ("FontSizeField", |n| Some(n.font_size)),
+            ("FontWeightField", |n| Some(n.font_weight as f64)),
+            ("LineHeightField", |n| Some(n.line_height * 100.0)),
+            ("LetterSpacingField", |n| Some(n.letter_spacing)),
+            ("CornerTLField", |n| Some(n.corner_radii.unwrap_or([n.corner_radius; 4])[0])),
+            ("CornerTRField", |n| Some(n.corner_radii.unwrap_or([n.corner_radius; 4])[1])),
+            ("CornerBRField", |n| Some(n.corner_radii.unwrap_or([n.corner_radius; 4])[2])),
+            ("CornerBLField", |n| Some(n.corner_radii.unwrap_or([n.corner_radius; 4])[3])),
+            ("CrossGapField", |n| n.layout.as_ref().map(|l| l.cross_gap)),
+            ("LayoutColumnsField", |n| n.layout.as_ref().map(|l| l.columns as f64)),
+            ("StrokeWidthField", |n| Some(n.strokes.first().map_or(0.0, |s| s.width))),
+            ("GapField", |n| n.layout.as_ref().map(|l| l.gap)),
+            ("PaddingField", |n| n.layout.as_ref().and_then(|l| {
+                let p = l.padding;
+                (p.top == p.left && p.right == p.left && p.bottom == p.left).then_some(p.left)
+            })),
+        ];
+        let can_edit_geometry = editor.selection.iter().any(|id| !editor.document.effective_locked(*id));
+        for &(name, property) in GEOMETRY_AND_APPEARANCE {
+            let value = selection.common(property).map(|v| v.map(number).unwrap_or_default());
+            let hint = (name == "PaddingField").then_some("Mixed");
+            let field = self.field(name);
+            if geometry_fields::GeometryField::named(name).is_some() { field.set_is_enabled(can_edit_geometry); }
+            selection.show(&field, value.as_deref(), hint);
         }
-        let fill = node.map(|n| n.fill_color()).unwrap_or_else(|| {
-            editor
-                .document
-                .page(editor.active_page)
-                .map(|p| p.background)
-                .unwrap_or(Color::WHITE)
-        });
-        set("FillField", fill.hex().trim_start_matches('#').to_string());
         let page_background = editor.document.page(editor.active_page)
             .map_or(Color::WHITE, |page| page.background);
         set("PageBackgroundField", page_background.hex().trim_start_matches('#').to_string());
@@ -1442,26 +1471,18 @@ impl EditorShell {
             .set_background(Some(icons::brush(&xaml_color(page_background))));
         self.text("PageResourcesSummary", &format!("{} styles · {} variable collections",
             editor.document.styles.len(), editor.document.variables.len()));
-        self.button("FillSwatch")
-            .set_background(Some(icons::brush(&xaml_color(fill))));
-        set(
-            "StrokeField",
-            node.and_then(|n| n.strokes.first())
-                .map(|s| s.paint.representative_color().hex())
-                .unwrap_or_else(|| "000000".into()),
-        );
-        set(
-            "DashField",
-            node.and_then(|n| n.strokes.first())
-                .map(|s| {
-                    s.dash
-                        .iter()
-                        .map(|v| number(*v))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default(),
-        );
+        let fill = if node.is_some() { selection.common(Node::fill_color) } else { Some(page_background) };
+        let hex = fill.map(|color| color.hex().trim_start_matches('#').to_string());
+        selection.show(&self.field("FillField"), hex.as_deref(), None);
+        let swatch = self.button("FillSwatch");
+        swatch.set_background(Some(icons::brush(&fill.map(xaml_color).unwrap_or_else(|| "#E5E5E5".into()))));
+        swatch.set_content(fill.is_none().then(|| Rc::new("—".to_owned()) as BoxedValue));
+        let stroke = selection.common(|n| n.strokes.first().map(|s| s.paint.representative_color()))
+            .map(|color| color.map_or_else(|| "000000".into(), |color| color.hex()));
+        selection.show(&self.field("StrokeField"), stroke.as_deref(), None);
+        let dash = selection.common(|n| n.strokes.first().map(|s| s.dash.as_slice()))
+            .map(|dash| dash.unwrap_or_default().iter().map(|v| number(*v)).collect::<Vec<_>>().join(", "));
+        selection.show(&self.field("DashField"), dash.as_deref(), Some("Dash pattern, for example 8, 4"));
         self.visible("CornerSmoothingOptions", node.is_some_and(|n| matches!(n.kind, NodeKind::Rectangle | NodeKind::Frame | NodeKind::Component | NodeKind::Instance | NodeKind::Section)));
         self.visible("IndependentCornersButton", node.is_some_and(|n| matches!(n.kind, NodeKind::Rectangle | NodeKind::Frame | NodeKind::Component | NodeKind::Instance | NodeKind::Section)));
         self.field("RadiusField").set_is_enabled(editor.selection.iter().any(|id|
@@ -1476,9 +1497,6 @@ impl EditorShell {
         self.button("IndependentCornersButton")
             .classes()
             .set("active", node.is_some_and(|n| n.corner_radii.is_some()));
-        self.button("ItalicButton")
-            .classes()
-            .set("active", node.is_some_and(|n| n.italic));
         self.button("LayoutWrapButton").classes().set(
             "active",
             node.is_some_and(|n| n.layout.as_ref().is_some_and(|l| l.wrap)),
@@ -1487,119 +1505,68 @@ impl EditorShell {
             "active",
             node.is_some_and(|n| n.layout.as_ref().is_some_and(|l| l.reverse)),
         );
-        for (name, index) in [
-            ("BlendModeChoice", node.and_then(|node| BLEND_OPTIONS.iter()
-                .position(|(_, mode)| *mode == node.blend_mode).map(|index| index as i32))),
-            (
-                "HorizontalConstraint",
-                node.map(|n| constraint_index(n.constraints.horizontal)),
-            ),
-            (
-                "VerticalConstraint",
-                node.map(|n| constraint_index(n.constraints.vertical)),
-            ),
-            (
-                "WidthSizingChoice",
-                node.map(|n| {
-                    sizing_index(n.layout.as_ref().map_or(n.layout_child.width, |l| l.width))
-                }),
-            ),
-            (
-                "HeightSizingChoice",
-                node.map(|n| {
-                    sizing_index(
-                        n.layout
-                            .as_ref()
-                            .map_or(n.layout_child.height, |l| l.height),
-                    )
-                }),
-            ),
-            (
-                "LayoutMainChoice",
-                node.and_then(|n| n.layout.as_ref().map(|l| alignment_index(l.main_align))),
-            ),
-            (
-                "LayoutCrossChoice",
-                node.and_then(|n| n.layout.as_ref().map(|l| alignment_index(l.cross_align))),
-            ),
-            (
-                "StrokeAlignChoice",
-                node.and_then(|n| n.strokes.first()).map(|s| match s.align {
-                    core::StrokeAlign::Inside => 0,
-                    core::StrokeAlign::Center => 1,
-                    core::StrokeAlign::Outside => 2,
-                }),
-            ),
-            (
-                "StrokeCapChoice",
-                node.and_then(|n| n.strokes.first()).map(|s| match s.cap {
-                    core::StrokeCap::Butt => 0,
-                    core::StrokeCap::Round => 1,
-                    core::StrokeCap::Square => 2,
-                    core::StrokeCap::Arrow => 3,
-                }),
-            ),
-            (
-                "StrokeJoinChoice",
-                node.and_then(|n| n.strokes.first()).map(|s| match s.join {
-                    core::StrokeJoin::Miter => 0,
-                    core::StrokeJoin::Round => 1,
-                    core::StrokeJoin::Bevel => 2,
-                }),
-            ),
-            (
-                "TextVerticalChoice",
-                node.map(|n| match n.text_vertical_align {
-                    core::TextVerticalAlign::Top => 0,
-                    core::TextVerticalAlign::Center => 1,
-                    core::TextVerticalAlign::Bottom => 2,
-                }),
-            ),
-            (
-                "TextResizeChoice",
-                node.map(|n| match n.text_auto_resize {
-                    core::TextAutoResize::Fixed => 0,
-                    core::TextAutoResize::Height => 1,
-                    core::TextAutoResize::WidthAndHeight => 2,
-                }),
-            ),
-            (
-                "TextDecorationChoice",
-                node.map(|n| match n.text_decoration {
-                    core::TextDecoration::None => 0,
-                    core::TextDecoration::Underline => 1,
-                    core::TextDecoration::Strikethrough => 2,
-                }),
-            ),
-        ] {
-            self.control::<ComboBox>(name)
-                .set_selected_index(index.unwrap_or(-1));
+        type InspectorChoice = (&'static str, fn(&Node) -> Option<i32>);
+        const CHOICES: &[InspectorChoice] = &[
+            ("BlendModeChoice", |n| BLEND_OPTIONS.iter().position(|(_, mode)| *mode == n.blend_mode).map(|i| i as i32)),
+            ("HorizontalConstraint", |n| Some(constraint_index(n.constraints.horizontal))),
+            ("VerticalConstraint", |n| Some(constraint_index(n.constraints.vertical))),
+            ("WidthSizingChoice", |n| Some(sizing_index(n.layout.as_ref().map_or(n.layout_child.width, |l| l.width)))),
+            ("HeightSizingChoice", |n| Some(sizing_index(n.layout.as_ref().map_or(n.layout_child.height, |l| l.height)))),
+            ("LayoutMainChoice", |n| n.layout.as_ref().map(|l| alignment_index(l.main_align))),
+            ("LayoutCrossChoice", |n| n.layout.as_ref().map(|l| alignment_index(l.cross_align))),
+            ("StrokeAlignChoice", |n| n.strokes.first().map(|s| match s.align {
+                core::StrokeAlign::Inside => 0, core::StrokeAlign::Center => 1, core::StrokeAlign::Outside => 2,
+            })),
+            ("StrokeCapChoice", |n| n.strokes.first().map(|s| match s.cap {
+                core::StrokeCap::Butt => 0, core::StrokeCap::Round => 1,
+                core::StrokeCap::Square => 2, core::StrokeCap::Arrow => 3,
+            })),
+            ("StrokeJoinChoice", |n| n.strokes.first().map(|s| match s.join {
+                core::StrokeJoin::Miter => 0, core::StrokeJoin::Round => 1, core::StrokeJoin::Bevel => 2,
+            })),
+            ("TextVerticalChoice", |n| Some(match n.text_vertical_align {
+                core::TextVerticalAlign::Top => 0, core::TextVerticalAlign::Center => 1, core::TextVerticalAlign::Bottom => 2,
+            })),
+            ("TextResizeChoice", |n| Some(match n.text_auto_resize {
+                core::TextAutoResize::Fixed => 0, core::TextAutoResize::Height => 1, core::TextAutoResize::WidthAndHeight => 2,
+            })),
+            ("TextDecorationChoice", |n| Some(match n.text_decoration {
+                core::TextDecoration::None => 0, core::TextDecoration::Underline => 1, core::TextDecoration::Strikethrough => 2,
+            })),
+        ];
+        for &(name, property) in CHOICES {
+            let index = selection.common(property);
+            let choice = self.control::<ComboBox>(name);
+            let hint = (index.is_none() && node.is_some()).then_some("Mixed");
+            if choice.placeholder_text().as_deref() != hint {
+                choice.set_placeholder_text(hint.map(str::to_owned));
+            }
+            choice.set_selected_index(index.flatten().unwrap_or(-1));
         }
-        set(
-            "TextField",
-            node.map(|n| n.text.clone()).unwrap_or_default(),
-        );
-        set(
-            "FontFamilyField",
-            node.map(|n| n.font_family.clone())
-                .unwrap_or_else(|| "Inter".into()),
-        );
+        selection.show(&self.field("TextField"), selection.common(|n| n.text.as_str()), None);
+        selection.show(&self.field("FontFamilyField"), selection.common(|n| n.font_family.as_str()), None);
         self.control::<CheckBox>("ClipCheck")
-            .set_is_checked(Some(node.is_some_and(|n| n.clip_content)));
+            .set_is_checked(selection.common(|n| n.clip_content));
         self.visible("LayoutOptions", node.is_some_and(|n| n.layout.is_some()));
         self.visible("EditLayoutButton", node.is_some_and(|node| node.layout.is_some()
             || node.parent.and_then(|parent| editor.document.nodes.get(&parent))
                 .is_some_and(|parent| parent.layout.is_some())));
-        self.visible(
-            "TextOptions",
-            node.is_some_and(|n| n.kind == NodeKind::Text),
-        );
-        self.button("LockedButton")
-            .classes()
-            .set("active", node.is_some_and(|n| n.locked));
-        self.button("BoldButton")
-            .classes()
-            .set("active", node.is_some_and(|n| n.font_weight >= 600));
+        let text_selected = selection.common(|n| n.kind) == Some(NodeKind::Text);
+        self.visible("TextOptions", text_selected);
+        if text_selected { self.sync_text_formats(&selection, can_edit_geometry); }
+        if node.is_some() {
+            let visible = selection.common(|n| n.visible);
+            self.sync_state_button("VisibleButton", if visible == Some(false) { "eye-off" } else { "eye" },
+                match visible {
+                    Some(true) => "Hide selection", Some(false) => "Show selection", None => "Show all selected layers",
+                });
+            let locked = selection.common(|n| n.locked);
+            self.button("LockedButton").classes().set("active", locked == Some(true));
+            self.sync_state_button("LockedButton", if locked == Some(true) { "lock" } else { "unlock" },
+                match locked {
+                    Some(true) => "Unlock selection", Some(false) => "Lock selection", None => "Lock all selected layers",
+                });
+        }
         self.button("EffectButton").set_content(Some(Rc::new(
             node.map(|n| {
                 format!(
@@ -1648,12 +1615,15 @@ impl EditorShell {
             );
         }
     }
-    fn modify(self: &Rc<Self>, label: &str, mut operation: impl FnMut(&mut Node)) {
+    fn finish_canvas_edits_for_inspector(&self) {
         self.canvas.finish_linear_gradient_edit();
         self.canvas.finish_corner_radius_edit();
         self.canvas.finish_network_bucket();
         self.canvas.finish_stroke_width_edit();
         self.canvas.finish_image_crop();
+    }
+    fn modify(self: &Rc<Self>, label: &str, mut operation: impl FnMut(&mut Node)) {
+        self.finish_canvas_edits_for_inspector();
         let ids = self.editor.borrow().selection.clone();
         self.editor.borrow_mut().update_nodes_with_layout(&ids, label, |node| operation(node));
     }
@@ -1662,12 +1632,14 @@ impl EditorShell {
             return false;
         }
         let text = self.field(name).text().unwrap_or_default();
+        if matches!(name, "ScaleFactorField" | "ScaleWidthField" | "ScaleHeightField") {
+            return self.commit_scale_field(name, &text);
+        }
+        self.finish_canvas_edits_for_inspector();
+        if let Some(field) = geometry_fields::GeometryField::named(name) {
+            return self.apply_geometry_field(name, field, Some(&text), 0.0);
+        }
         let id = self.editor.borrow().selection.first().copied();
-        self.canvas.finish_linear_gradient_edit();
-        self.canvas.finish_corner_radius_edit();
-        self.canvas.finish_network_bucket();
-        self.canvas.finish_stroke_width_edit();
-        self.canvas.finish_image_crop();
         if id.is_none() {
             if name == "NameField" || name == "FillField" || name == "PageBackgroundField" {
                 if name != "NameField" && Color::from_hex(&text).is_none() {
@@ -1782,68 +1754,49 @@ impl EditorShell {
                 let Some(value) = number else {
                     return self.reject_inspector_field(name, "Enter a finite number between −10,000,000 and 10,000,000.");
                 };
-                if matches!(name, "WidthField" | "HeightField") {
-                    let mut editor = self.editor.borrow_mut();
-                    editor.begin_transaction("Resize layers");
-                    for id in editor.selection.clone() {
-                        if let Some(n) = editor.document.nodes.get(&id) {
-                            let (width, height) = if name == "WidthField" {
-                                (value.max(1.0), n.height)
-                            } else {
-                                (n.width, value.max(1.0))
-                            };
-                            editor.resize_node(id, width, height);
+                self.modify("Edit property", |n| match name {
+                    "OpacityField" => n.opacity = (value / 100.0).clamp(0.0, 1.0),
+                    "FontSizeField" => n.font_size = value.clamp(1.0, 4096.0),
+                    "FontWeightField" => {
+                        n.font_weight = value.round().clamp(1.0, 1000.0) as u16
+                    }
+                    "LineHeightField" => n.line_height = (value / 100.0).clamp(0.1, 100.0),
+                    "LetterSpacingField" => n.letter_spacing = value.clamp(-4096.0, 4096.0),
+                    "CornerTLField" | "CornerTRField" | "CornerBRField" | "CornerBLField" => {
+                        let index = match name {
+                            "CornerTLField" => 0,
+                            "CornerTRField" => 1,
+                            "CornerBRField" => 2,
+                            _ => 3,
+                        };
+                        n.corner_radii.get_or_insert([n.corner_radius; 4])[index] =
+                            value.max(0.0);
+                    }
+                    "CrossGapField" => {
+                        if let Some(layout) = &mut n.layout {
+                            layout.cross_gap = value.max(0.0);
                         }
                     }
-                    editor.commit_transaction();
-                } else {
-                    self.modify("Edit property", |n| match name {
-                        "XField" => n.x = value,
-                        "YField" => n.y = value,
-                        "RotationField" => n.rotation = value,
-                        "OpacityField" => n.opacity = (value / 100.0).clamp(0.0, 1.0),
-                        "FontSizeField" => n.font_size = value.clamp(1.0, 4096.0),
-                        "FontWeightField" => {
-                            n.font_weight = value.round().clamp(1.0, 1000.0) as u16
-                        }
-                        "LineHeightField" => n.line_height = (value / 100.0).clamp(0.1, 100.0),
-                        "LetterSpacingField" => n.letter_spacing = value.clamp(-4096.0, 4096.0),
-                        "CornerTLField" | "CornerTRField" | "CornerBRField" | "CornerBLField" => {
-                            let index = match name {
-                                "CornerTLField" => 0,
-                                "CornerTRField" => 1,
-                                "CornerBRField" => 2,
-                                _ => 3,
-                            };
-                            n.corner_radii.get_or_insert([n.corner_radius; 4])[index] =
-                                value.max(0.0);
-                        }
-                        "CrossGapField" => {
-                            if let Some(layout) = &mut n.layout {
-                                layout.cross_gap = value.max(0.0);
+                    "LayoutColumnsField" => {
+                        if let Some(layout) = &mut n.layout {
+                            layout.columns = value.round().clamp(1.0, 1000.0) as usize;
+                            if !layout.column_tracks.is_empty() {
+                                layout.column_tracks.resize(layout.columns, core::GridTrack::Fraction(1.0));
                             }
                         }
-                        "LayoutColumnsField" => {
-                            if let Some(layout) = &mut n.layout {
-                                layout.columns = value.round().clamp(1.0, 1000.0) as usize;
-                                if !layout.column_tracks.is_empty() {
-                                    layout.column_tracks.resize(layout.columns, core::GridTrack::Fraction(1.0));
-                                }
-                            }
+                    }
+                    "GapField" => {
+                        if let Some(layout) = &mut n.layout {
+                            layout.gap = value.max(0.0);
                         }
-                        "GapField" => {
-                            if let Some(layout) = &mut n.layout {
-                                layout.gap = value.max(0.0);
-                            }
+                    }
+                    "PaddingField" => {
+                        if let Some(layout) = &mut n.layout {
+                            layout.padding = Padding::all(value.max(0.0));
                         }
-                        "PaddingField" => {
-                            if let Some(layout) = &mut n.layout {
-                                layout.padding = Padding::all(value.max(0.0));
-                            }
-                        }
-                        _ => {}
-                    });
-                }
+                    }
+                    _ => {}
+                });
             }
         }
         self.field(name).set_border_brush(Some(icons::brush("#E5E5E5")));
@@ -1852,6 +1805,21 @@ impl EditorShell {
     }
 
     pub fn command(self: &Rc<Self>, command: &str) -> bool {
+        if command != "storage-status" && self.has_page_drag() {
+            self.finish_page_drag(false);
+            if matches!(command, "undo" | "redo") { return true; }
+        }
+        if command != "storage-status" && self.geometry_scrub.borrow().is_some() {
+            let cancel = matches!(command, "undo" | "redo");
+            self.finish_geometry_scrub(!cancel);
+            if cancel { return true; }
+        }
+        if matches!(command, "toggle-ui" | "minimize-ui" | "restore-ui") {
+            return self.change_workspace_ui(command);
+        }
+        if command != "storage-status" && self.canvas.cancel_scale_drag() && matches!(command, "undo" | "redo") {
+            return true;
+        }
         if command == "commit-edit" {
             self.canvas.finish_linear_gradient_edit();
             self.canvas.finish_corner_radius_edit();
@@ -1877,7 +1845,7 @@ impl EditorShell {
         self.canvas.finish_network_bucket();
         self.canvas.finish_stroke_width_edit();
         self.finish_inline_text(true);
-        if matches!(command, "new" | "open" | "import-json" | "save" | "export-json" | "export-svg" | "export-png" | "export-xaml")
+        if matches!(command, "new" | "add-page" | "duplicate-page" | "delete-page" | "open" | "import-json" | "save" | "export-json" | "export-svg" | "export-png" | "export-xaml")
             && !self.flush_inspector_drafts() {
             self.toast("Correct the inspector value or press Escape before continuing.");
             return false;
@@ -1886,7 +1854,7 @@ impl EditorShell {
         if self.prototype.is_active()
             && !matches!(
                 command,
-                "present" | "prototype-back" | "save" | "export-json"
+                "present" | "prototype-back" | "prototype-next" | "prototype-restart" | "prototype-exit" | "save" | "export-json"
             )
         {
             self.prototype.stop();
@@ -1899,10 +1867,12 @@ impl EditorShell {
         }
         let tool = match command {
             "select" => Some(Tool::Select),
+            "scale" => Some(Tool::Scale),
             "frame" => Some(Tool::Frame),
             "rectangle" => Some(Tool::Rectangle),
             "ellipse" => Some(Tool::Ellipse),
             "line" => Some(Tool::Line),
+            "arrow" => Some(Tool::Arrow),
             "polygon" => Some(Tool::Polygon),
             "star" => Some(Tool::Star),
             "pen" => Some(Tool::Pen),
@@ -1911,6 +1881,7 @@ impl EditorShell {
             "hand" => Some(Tool::Hand),
             "comment" => Some(Tool::Comment),
             "section" => Some(Tool::Section),
+            "slice" => Some(Tool::Slice),
             _ => None,
         };
         if let Some(tool) = tool {
@@ -1919,6 +1890,18 @@ impl EditorShell {
             return true;
         }
         match command {
+            "find-layers" => {
+                if !self.flush_inspector_drafts() { return false; }
+                self.show_layers_panel();
+                self.assets.set(false);
+                self.refresh_layers();
+                let search = self.field("LayerSearch");
+                search.focus();
+                search.select_all();
+                return true;
+            }
+            "rename-layer" if self.editor.borrow().selection.len() > 1 => return self.bulk_rename_dialog(),
+            "reveal-layer" | "rename-layer" => return self.reveal_selected_layer(command == "rename-layer"),
             "select-matching" => { self.select_matching_dialog(); return true; }
             "select-same-properties" => return self.select_same(core::SelectionMatch::Appearance),
             "select-same-fill" => return self.select_same(core::SelectionMatch::Fill),
@@ -2032,14 +2015,18 @@ impl EditorShell {
                 return true;
             }
             "actions" => {
-                self.action_dialog("Actions", "Choose a tool or run a command.", ACTIONS);
+                self.quick_actions();
                 return true;
             }
+            "nudge-settings" => { self.nudge_dialog(); return true; }
             "close-modal" => {
+                if self.nudge_form.borrow().is_some() { return self.apply_nudge_settings(); }
                 self.close_modal();
                 return true;
             }
             "file" | "layers" | "assets" => {
+                if !self.flush_inspector_drafts() { return false; }
+                self.show_layers_panel();
                 self.assets.set(command == "assets");
                 self.refresh_layers();
                 return true;
@@ -2073,6 +2060,11 @@ impl EditorShell {
                 self.canvas.focus();
                 return true;
             }
+            "actual-size" => {
+                self.canvas.set_zoom(1.0);
+                self.canvas.focus();
+                return true;
+            }
             "fit-selection" => {
                 self.canvas.zoom_to_selection();
                 self.canvas.focus();
@@ -2083,14 +2075,26 @@ impl EditorShell {
                 self.canvas.invalidate_visual();
                 return true;
             }
+            "show-outlines" | "outline-bounds" | "outline-hidden" => {
+                let option = match command {
+                    "show-outlines" => &self.canvas.show_outlines,
+                    "outline-bounds" => &self.canvas.outline_bounds,
+                    _ => &self.canvas.outline_hidden,
+                };
+                option.set(!option.get());
+                self.sync_outline_options();
+                self.canvas.invalidate_visual();
+                return true;
+            }
             "grid" => {
                 self.canvas.show_grid.set(!self.canvas.show_grid.get());
                 self.canvas.invalidate_visual();
                 self.close_modal();
                 return true;
             }
+            "ruler-guide-settings" => { self.ruler_guides_dialog(0); return true; }
             "rulers" => {
-                self.canvas.show_rulers.set(!self.canvas.show_rulers.get());
+                self.canvas.set_rulers_visible(!self.canvas.show_rulers.get());
                 self.canvas.invalidate_visual();
                 self.close_modal();
                 return true;
@@ -2101,13 +2105,9 @@ impl EditorShell {
                 return true;
             }
             "collapse-layers" => {
-                let mut expanded = self.expanded.borrow_mut();
-                if expanded.is_empty() {
-                    expanded.extend(self.editor.borrow().document.nodes.keys().copied());
-                } else {
-                    expanded.clear();
+                if !self.layer_projection.borrow().toggle_tree(&self.editor.borrow(), &mut self.expanded.borrow_mut()) {
+                    return false;
                 }
-                drop(expanded);
                 self.refresh_layers();
                 return true;
             }
@@ -2164,41 +2164,14 @@ impl EditorShell {
                 self.advanced_dialog();
                 return true;
             }
-            "present" => {
-                let editor = self.editor.borrow();
-                let root = editor
-                    .selection
-                    .first()
-                    .copied()
-                    .or_else(|| {
-                        editor
-                            .document
-                            .page(editor.active_page)
-                            .and_then(|p| p.prototype_start)
-                    })
-                    .or_else(|| {
-                        editor
-                            .document
-                            .page(editor.active_page)
-                            .and_then(|p| p.children.first())
-                            .copied()
-                    });
-                let root = root.map(|mut id| {
-                    while let Some(parent) = editor.document.nodes.get(&id).and_then(|n| n.parent) {
-                        if !editor.document.nodes.contains_key(&parent) {
-                            break;
-                        }
-                        id = parent;
-                    }
-                    id
-                });
-                drop(editor);
-                self.set_presentation(root);
-                return root.is_some();
+            "present" => return self.present_preview(),
+            "prototype-back" | "prototype-next" => {
+                let changed = self.prototype.step(command == "prototype-next");
+                if changed { self.canvas.focus(); }
+                return changed;
             }
-            "prototype-back" => {
-                return self.prototype.back();
-            }
+            "prototype-restart" => return self.prototype.restart(),
+            "prototype-exit" => return self.prototype.stop(),
             "connect" => {
                 return self.connect_prototype();
             }
@@ -2250,32 +2223,8 @@ impl EditorShell {
                 self.import_dialog();
                 return true;
             }
-            "export-svg" => {
-                let report = {
-                    let editor = self.editor.borrow();
-                    editor.document.export_svg_report(editor.active_page, &editor.selection)
-                };
-                platform::download("FerroDesign.svg", &report.source, "image/svg+xml");
-                self.close_modal();
-                if let Some(first) = report.warnings.first() {
-                    let message = if report.warnings.len() == 1 {
-                        first.clone()
-                    } else {
-                        format!("{} ({} export warnings.)", first, report.warnings.len())
-                    };
-                    self.toast(&message);
-                }
-                return true;
-            }
-            "export-png" => {
-                match self.canvas.export_png() {
-                    Ok(bytes) => {
-                        if !platform::download_bytes("FerroDesign.png", &bytes, "image/png") {
-                            self.toast("Could not save the PNG.");
-                        }
-                    }
-                    Err(message) => self.toast(&message),
-                }
+            "export-svg" | "export-png" => {
+                self.export_artwork(command == "export-svg");
                 return true;
             }
             "copy-css" => {
@@ -2285,6 +2234,13 @@ impl EditorShell {
             }
             "export-xaml" => {
                 let editor = self.editor.borrow();
+                if !editor.selection.is_empty() && editor.selection.iter()
+                    .all(|id| editor.document.nodes.get(id).is_some_and(|n| n.kind == NodeKind::Slice))
+                {
+                    drop(editor);
+                    self.toast("Export slice regions using SVG or PNG.");
+                    return false;
+                }
                 let roots = if editor.selection.is_empty() {
                     editor
                         .document
@@ -2389,33 +2345,26 @@ impl EditorShell {
                 });
             }
             "toggle-visible" | "toggle-lock" => {
-                let ids = self.editor.borrow().selection.clone();
                 let mut editor = self.editor.borrow_mut();
-                editor.begin_transaction("Toggle layer state");
-                for id in ids {
-                    if command == "toggle-visible" {
-                        editor.toggle_visibility(id)
-                    } else {
-                        editor.toggle_locked(id)
-                    }
-                }
-                editor.commit_transaction();
+                let ids = editor.selection.clone();
+                let visibility = command == "toggle-visible";
+                let target = !ids.iter().filter_map(|id| editor.document.nodes.get(id))
+                    .all(|node| if visibility { node.visible } else { node.locked });
+                editor.update_nodes(&ids, "Toggle layer state", |node| {
+                    if visibility { node.visible = target; } else { node.locked = target; }
+                });
             }
             "flip" => self.modify("Flip horizontal", |n| n.flip_x = !n.flip_x),
-            "add-page" => {
-                let mut editor = self.editor.borrow_mut();
-                let name = format!("Page {}", editor.document.pages.len() + 1);
-                let id = editor.transact("Add page", |doc| doc.add_page(name));
-                editor.active_page = id;
-                editor.selection.clear();
-                editor.refresh();
-                drop(editor);
-                self.canvas.reset_fit();
+            "add-page" => self.add_workspace_page(),
+            "duplicate-page" | "delete-page" => {
+                self.canvas.cancel_active_edit();
+                let changed = if command == "duplicate-page" { self.duplicate_workspace_page() }
+                    else { self.editor.borrow_mut().delete_active_page() };
+                if !changed { return false; }
             }
             "new" => {
                 let document = core::Document::new("Untitled");
                 *self.editor.borrow_mut() = Editor::new(document);
-                self.canvas.reset_fit();
                 self.expanded.borrow_mut().clear();
             }
             "auto-layout" => {
@@ -2493,20 +2442,12 @@ impl EditorShell {
                 self.add_effect();
                 return true;
             }
-            "bold" => self.modify("Text weight", |n| {
-                n.font_weight = if n.font_weight >= 600 { 400 } else { 700 }
-            }),
-            "italic" => self.modify("Text italic", |n| n.italic = !n.italic),
-            "text-left" | "text-center" | "text-right" | "text-justify" => {
-                self.modify("Text alignment", |n| {
-                    n.text_align = match command {
-                        "text-center" => TextAlign::Center,
-                        "text-justify" => TextAlign::Justify,
-                        "text-right" => TextAlign::Right,
-                        _ => TextAlign::Left,
-                    }
-                })
-            }
+            "bold" => return self.apply_text_format(text::TextFormat::Bold),
+            "italic" => return self.apply_text_format(text::TextFormat::Italic),
+            "text-left" => return self.apply_text_format(text::TextFormat::Align(TextAlign::Left)),
+            "text-center" => return self.apply_text_format(text::TextFormat::Align(TextAlign::Center)),
+            "text-right" => return self.apply_text_format(text::TextFormat::Align(TextAlign::Right)),
+            "text-justify" => return self.apply_text_format(text::TextFormat::Align(TextAlign::Justify)),
             "component" => {
                 self.editor.borrow_mut().create_component();
             }
@@ -2570,11 +2511,15 @@ impl EditorShell {
         if !self.updating.get() && !self.flush_inspector_drafts() { return; }
         self.release_panel_drag();
         self.visible("ModalBackdrop", false);
+        self.nudge_form.borrow_mut().take();
+        self.reset_action_search();
         self.paint_region.set(None);
         self.canvas.focus();
         self.sync_document_draft_dirty();
     }
     fn modal(&self, title: &str, description: &str) {
+        self.nudge_form.borrow_mut().take();
+        self.reset_action_search();
         self.configure_panel(title);
         self.text("ModalTitle", title);
         self.text("ModalDescription", description);
@@ -2599,53 +2544,6 @@ impl EditorShell {
         self.control::<StackPanel>("ModalActions")
             .children()
             .add(button);
-    }
-    fn action_dialog(
-        self: &Rc<Self>,
-        title: &str,
-        description: &str,
-        actions: &[(&str, &'static str)],
-    ) {
-        // Every action menu replaces the current panel. Retain an invalid
-        // inspector draft until it is corrected or explicitly discarded.
-        if !self.flush_inspector_drafts() {
-            return;
-        }
-        self.modal(title, description);
-        let host = self.control::<StackPanel>("ModalContent");
-        let search = TextBox::new();
-        search.set_name(Some("ActionSearch".into()));
-        search.set_placeholder_text(Some("Search actions…"));
-        host.children().add(search.clone());
-        let rows = StackPanel::new();
-        rows.set_spacing(3.0);
-        host.children().add(rows.clone());
-        let mut buttons = Vec::new();
-        for &(caption, command) in actions {
-            let button = Button::new();
-            button.set_name(Some(format!("Action-{command}")));
-            button.classes().add("layer");
-            button.set_height(34.0);
-            button.set_content(Some(Rc::new(caption.to_string())));
-            let weak = Rc::downgrade(self);
-            button.click(move |_, _| {
-                if let Some(s) = weak.upgrade() {
-                    s.command(command);
-                }
-            });
-            rows.children().add(button.clone());
-            buttons.push((caption.to_lowercase(), button));
-        }
-        let weak = search.downgrade();
-        search.text_changed(move |_, _| {
-            if let Some(search) = weak.upgrade() {
-                let value = search.text().unwrap_or_default().to_lowercase();
-                for (name, button) in &buttons {
-                    button.set_is_visible(name.contains(&value));
-                }
-            }
-        });
-        search.focus();
     }
     fn import_dialog(self: &Rc<Self>) {
         self.modal(
@@ -2885,39 +2783,40 @@ impl EditorShell {
             false
         }
     }
-    fn set_presentation(self: &Rc<Self>, root: Option<NodeId>) {
+    fn set_presentation(self: &Rc<Self>, root: Option<NodeId>) -> bool {
         self.finish_inline_text(true);
         self.close_modal();
         if let Some(root) = root {
-            self.prototype.start(root);
+            self.prototype.start(root)
         } else {
-            self.prototype.stop();
+            self.prototype.stop()
         }
     }
+    fn sync_preview_controls(&self) {
+        let editor = self.editor.borrow();
+        let name = self.prototype.visible_frame().and_then(|id| editor.document.nodes.get(&id))
+            .map(|node| node.name.as_str()).unwrap_or_default();
+        self.text("PreviewFrameTitle", name);
+        self.button("PreviewBack").set_is_enabled(self.prototype.can_step(false));
+        self.button("PreviewNext").set_is_enabled(self.prototype.can_step(true));
+    }
+
     fn prototype_event(self: &Rc<Self>, event: PrototypeRuntimeEvent) {
         match event {
             PrototypeRuntimeEvent::Started(_) | PrototypeRuntimeEvent::Stopped => {
                 let present = self.prototype.is_active();
-                for name in [
-                    "NavigationRail",
-                    "LeftPanel",
-                    "RightPanel",
-                    "Toolbar",
-                    "ZoomPanel",
-                    "CanvasCaption",
-                ] {
-                    self.visible(name, !present);
-                }
-                self.control::<Grid>("Workspace").set_column_definitions(
-                    ColumnDefinitions::parse(if present { "0,0,*,0" } else { "48,248,*,288" })
-                        .unwrap(),
-                );
-                if !present {
+                self.layout_workspace();
+                if present {
+                    self.sync_preview_controls();
+                } else {
                     self.refresh();
                 }
                 self.canvas.focus();
             }
-            PrototypeRuntimeEvent::Changed => self.canvas.invalidate_visual(),
+            PrototypeRuntimeEvent::Changed => {
+                self.sync_preview_controls();
+                self.canvas.invalidate_visual();
+            }
             PrototypeRuntimeEvent::OpenUrl(url) => {
                 if !platform::open_url(&url) {
                     self.toast("The link could not be opened by this host.");
@@ -3195,6 +3094,7 @@ fn xaml_paint(
 
 fn xaml_node(doc: &core::Document, id: NodeId, depth: usize, result: &mut String) -> Result<(), String> {
     let Some(n) = doc.nodes.get(&id) else { return Ok(()) };
+    if n.kind == NodeKind::Slice { return Ok(()); }
     if n.kind == NodeKind::Text { return text_export::write_node(n, depth, result); }
     let unsupported = |detail: &str| format!("Layer ‘{}’: XAML export cannot preserve {detail}. Use native PNG for this artwork or keep the editable design.", n.name);
     if n.is_mask || n.effects.iter().any(|effect| effect.visible)
@@ -3330,6 +3230,7 @@ const BLEND_OPTIONS: &[(&str, core::BlendMode)] = &[
     ("Pass through", core::BlendMode::PassThrough),
 ];
 const FILE_ACTIONS: &[(&str, &str)] = &[
+    ("Preferences · Nudge amount…", "nudge-settings"),
     ("New design", "new"),
     ("Open design or SVG…  Ctrl+O", "open"),
     ("Place image…", "place-image"),
@@ -3348,6 +3249,8 @@ const FILE_ACTIONS: &[(&str, &str)] = &[
     ("Present prototype", "present"),
 ];
 const LAYER_ACTIONS: &[(&str, &str)] = &[
+    ("Rename layer  F2", "rename-layer"),
+    ("Reveal in Layers", "reveal-layer"),
     ("Select layer under pointer…", "select-layer"),
     ("Select same properties…", "select-matching"),
     ("Select inverse  Ctrl+Shift+A", "select-inverse"),
@@ -3400,6 +3303,9 @@ const LAYER_ACTIONS: &[(&str, &str)] = &[
 ];
 const ACTIONS: &[(&str, &str)] = &[
     ("Move / Select  V", "select"),
+    ("Rename layer  F2", "rename-layer"),
+    ("Reveal in Layers", "reveal-layer"),
+    ("Scale  K", "scale"),
     ("Select groups · toggle", "toggle-select-groups"),
     ("Select layer under pointer…", "select-layer"),
     ("Select same properties…", "select-matching"),
@@ -3423,6 +3329,7 @@ const ACTIONS: &[(&str, &str)] = &[
     ("Rectangle  R", "rectangle"),
     ("Ellipse  O", "ellipse"),
     ("Line  L", "line"),
+    ("Arrow  ⇧L", "arrow"),
     ("Polygon", "polygon"),
     ("Star", "star"),
     ("Pen  P", "pen"),
@@ -3434,6 +3341,7 @@ const ACTIONS: &[(&str, &str)] = &[
     ("Hand  H", "hand"),
     ("Comment  C", "comment"),
     ("Section  Shift+S", "section"),
+    ("Slice  S", "slice"),
     ("Undo  Ctrl+Z", "undo"),
     ("Redo  Ctrl+Shift+Z", "redo"),
     ("Duplicate  Ctrl+D", "duplicate"),
@@ -3451,11 +3359,17 @@ const ACTIONS: &[(&str, &str)] = &[
     ("Update instances", "sync-instances"),
     ("Local variables", "variables"),
     ("Local styles", "styles"),
+    ("Show outlines   Ctrl/⌘+Shift+O", "show-outlines"),
     ("Toggle grid", "grid"),
     ("Layout grid guides…", "layout-grid-settings"),
-    ("Toggle rulers", "rulers"),
+    ("Toggle rulers  Shift+R", "rulers"),
+    ("Adjust ruler guides…", "ruler-guide-settings"),
+    ("Preferences · Nudge amount…", "nudge-settings"),
     ("Toggle pixel and object snapping", "snapping"),
-    ("Zoom to fit  1", "fit"),
-    ("Zoom to selection  2", "fit-selection"),
+    ("Show or hide UI  Ctrl+\\", "toggle-ui"),
+    ("Minimize or expand UI  Ctrl+Shift+\\", "minimize-ui"),
+    ("Zoom to 100%  Shift+0", "actual-size"),
+    ("Zoom to fit  Shift+1", "fit"),
+    ("Zoom to selection  Shift+2", "fit-selection"),
     ("Layer data…", "advanced"),
 ];

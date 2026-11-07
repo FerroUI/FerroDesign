@@ -311,6 +311,9 @@ impl Default for Viewport {
     }
 }
 impl Viewport {
+    pub const MIN_ZOOM: f64 = 0.02;
+    pub const MAX_ZOOM: f64 = 64.0;
+
     pub fn screen_to_world(self, p: Point) -> Point {
         Point::new(
             (p.x - self.pan.x) / self.zoom,
@@ -325,14 +328,16 @@ impl Viewport {
         Rect::new(p.x, p.y, self.width / self.zoom, self.height / self.zoom)
     }
     pub fn zoom_at(&mut self, screen: Point, zoom: f64) {
+        let zoom = zoom.clamp(Self::MIN_ZOOM, Self::MAX_ZOOM);
+        if zoom == self.zoom { return; }
         let world = self.screen_to_world(screen);
-        self.zoom = zoom.clamp(0.02, 64.0);
+        self.zoom = zoom;
         self.pan = screen - world * self.zoom
     }
     pub fn fit(&mut self, b: Rect, padding: f64) {
         self.zoom = (((self.width - 2.0 * padding).max(1.0) / b.width.max(1.0))
             .min((self.height - 2.0 * padding).max(1.0) / b.height.max(1.0)))
-        .clamp(0.02, 64.0);
+        .clamp(Self::MIN_ZOOM, Self::MAX_ZOOM);
         self.pan = Point::new(
             self.width / 2.0 - b.center().x * self.zoom,
             self.height / 2.0 - b.center().y * self.zoom,

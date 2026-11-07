@@ -1,13 +1,23 @@
 //! Interactive retained-mode surface. Artwork uses only FerroUI's public DrawingContext API.
+mod drawing;
+mod drag_copy;
+mod measure;
+mod resize;
+mod rotation;
+mod selection_resize;
+mod line_endpoint;
 mod network;
 mod network_bucket;
 mod grids;
+mod rulers;
 mod image_crop;
 mod layout_drag;
 mod selection;
 mod input_observations;
 mod vector_width;
+pub(crate) mod scale;
 mod corner_radius;
+mod slices;
 mod gradient_edit;
 use crate::{
     icons::brush,
@@ -18,7 +28,7 @@ use ferrodesign_core::{
     Point, Rect, VectorPath, Viewport,
 };
 use ferroui_base::input::{
-    InputElement, InputElementImpl, InputElementImplExt, Key, KeyEventArgs, KeyModifiers,
+    FocusChangedEventArgs, InputElement, InputElementImpl, InputElementImplExt, Key, KeyEventArgs, KeyModifiers,
     PointerCaptureLostEventArgs, PointerEventArgs, PointerPressedEventArgs,
     PointerReleasedEventArgs, PointerWheelEventArgs,
 };
@@ -44,10 +54,12 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
     Select,
+    Scale,
     Frame,
     Rectangle,
     Ellipse,
     Line,
+    Arrow,
     Polygon,
     Star,
     Pen,
@@ -56,15 +68,18 @@ pub enum Tool {
     Hand,
     Comment,
     Section,
+    Slice,
 }
 impl Tool {
     pub fn name(self) -> &'static str {
         match self {
             Self::Select => "Select",
+            Self::Scale => "Scale",
             Self::Frame => "Frame",
             Self::Rectangle => "Rectangle",
             Self::Ellipse => "Ellipse",
             Self::Line => "Line",
+            Self::Arrow => "Arrow",
             Self::Polygon => "Polygon",
             Self::Star => "Star",
             Self::Pen => "Pen",
@@ -73,18 +88,20 @@ impl Tool {
             Self::Hand => "Hand",
             Self::Comment => "Comment",
             Self::Section => "Section",
+            Self::Slice => "Slice",
         }
     }
     fn kind(self) -> NodeKind {
         match self {
             Self::Frame => NodeKind::Frame,
             Self::Ellipse => NodeKind::Ellipse,
-            Self::Line => NodeKind::Line,
+            Self::Line | Self::Arrow => NodeKind::Line,
             Self::Polygon => NodeKind::Polygon,
             Self::Star => NodeKind::Star,
             Self::Pen | Self::Pencil => NodeKind::Vector,
             Self::Text => NodeKind::Text,
             Self::Section => NodeKind::Section,
+            Self::Slice => NodeKind::Slice,
             _ => NodeKind::Rectangle,
         }
     }
@@ -97,6 +114,7 @@ pub enum CanvasEvent {
     Selection,
     Document,
     Draft,
+    ResizePreview,
     Camera,
     Tool,
     EditText(NodeId),
@@ -113,10 +131,7 @@ pub enum CanvasEvent {
 }
 enum Gesture {
     None,
-    Pan {
-        start: Point,
-        original: Point,
-    },
+    Pan { previous: Point },
     Move {
         start: Point,
         nodes: Vec<Node>,
@@ -124,24 +139,16 @@ enum Gesture {
         exclude: Vec<NodeId>,
         moved: bool,
     },
-    Resize {
-        node: Node,
-        corner: usize,
-    },
-    Rotate {
-        node: Node,
-        center: Point,
-        angle: f64,
-    },
-    Marquee {
-        start: Point,
-        current: Point,
-        additive: bool,
-    },
-    Draw {
-        start: Point,
-        id: NodeId,
-    },
+    Scale(scale::ScaleDrag),
+    EdgePress { hit: resize::Hit, world: Point, screen: Point, modifiers: KeyModifiers, clicks: i32 },
+    Resize(resize::ResizeDrag),
+    MultiResize(selection_resize::MultiResize),
+    Rotate(rotation::Drag),
+    RotationOrigin(rotation::OriginDrag),
+    Marquee(selection::Marquee),
+    AltDrag(Box<drag_copy::AltDrag>),
+    Draw(drawing::ShapeDrag),
+    LineEndpoint(line_endpoint::EndpointDrag),
     Pencil {
         id: NodeId,
         origin: Point,
@@ -169,14 +176,28 @@ pub struct DesignCanvas {
     pub viewport: Cell<Viewport>,
     pub tool: Cell<Tool>,
     gesture: RefCell<Gesture>,
+    manipulation_cursor: Cell<Option<ferroui_base::input::StandardCursorType>>,
+    hovered_resize_edge: Cell<Option<(NodeId, usize)>>,
+    size_badge: RefCell<Option<(resize::BadgeValue, FormattedText)>>,
+    size_badge_obstacle: Cell<Option<Rect>>,
+    scale_bounds: RefCell<Option<scale::CachedBounds>>,
+    rotation: rotation::RotationState,
     painter: RefCell<ScenePainter>,
     callback: RefCell<Option<Rc<dyn Fn(CanvasEvent)>>>,
     hover: Cell<Option<NodeId>>,
+    measurements: measure::Measurements,
+    layer_preview: Cell<Option<NodeId>>,
     prototype_press: Cell<Option<(NodeId, Point, bool)>>,
     space: Cell<bool>,
     initialized: Cell<bool>,
+    pub show_outlines: Cell<bool>,
+    pub outline_hidden: Cell<bool>,
+    pub outline_bounds: Cell<bool>,
+    outlines: RefCell<crate::renderer::outlines::OutlineScene>,
     pub show_grid: Cell<bool>,
+    pub(crate) nudge: Cell<crate::platform::NudgeAmounts>,
     pub show_rulers: Cell<bool>,
+    rulers: RefCell<rulers::Rulers>,
     pub dark: Cell<bool>,
     pub presentation: Cell<Option<NodeId>>,
     pub overlays: RefCell<Vec<(NodeId, Point)>>,
@@ -185,6 +206,7 @@ pub struct DesignCanvas {
     pub snap: Cell<bool>,
     snap_guides: Cell<(Option<f64>, Option<f64>)>,
     pen_node: Cell<Option<NodeId>>,
+    creation_parent: Cell<Option<(NodeId, NodeId)>>,
     pen_tangent: Cell<Option<Point>>,
     pub vector_node: Cell<Option<NodeId>>,
     pub vector_point: Cell<Option<PathPointId>>,
@@ -217,14 +239,28 @@ impl DesignCanvas {
             viewport: Cell::new(Viewport::default()),
             tool: Cell::new(Tool::Select),
             gesture: RefCell::new(Gesture::None),
+            manipulation_cursor: Cell::new(None),
+            hovered_resize_edge: Cell::new(None),
+            size_badge: RefCell::default(),
+            size_badge_obstacle: Cell::default(),
+            scale_bounds: RefCell::default(),
+            rotation: Default::default(),
             painter: RefCell::new(ScenePainter::default()),
             callback: RefCell::new(None),
             hover: Cell::new(None),
+            measurements: Default::default(),
+            layer_preview: Cell::new(None),
             prototype_press: Cell::new(None),
             space: Cell::new(false),
             initialized: Cell::new(false),
+            show_outlines: Cell::new(false),
+            outline_hidden: Cell::new(false),
+            outline_bounds: Cell::new(true),
+            outlines: RefCell::default(),
             show_grid: Cell::new(false),
+            nudge: Cell::new(crate::platform::NudgeAmounts::load()),
             show_rulers: Cell::new(false),
+            rulers: RefCell::default(),
             dark: Cell::new(false),
             presentation: Cell::new(None),
             overlays: RefCell::new(Vec::new()),
@@ -233,6 +269,7 @@ impl DesignCanvas {
             snap: Cell::new(true),
             snap_guides: Cell::new((None, None)),
             pen_node: Cell::new(None),
+            creation_parent: Cell::new(None),
             pen_tangent: Cell::new(None),
             vector_node: Cell::new(None),
             vector_point: Cell::new(None),
@@ -293,6 +330,8 @@ impl DesignCanvas {
     }
     /// Activation changes cannot reuse a press or hover from an earlier frame.
     pub fn reset_presentation_input(&self) {
+        self.clear_measurement();
+        self.set_resize_hover(None);
         self.leave_linear_gradient_edit();
         self.cancel_corner_radius_gesture();
         self.clear_corner_radius_hover();
@@ -302,7 +341,25 @@ impl DesignCanvas {
         self.hover.set(None);
         self.space.set(false);
     }
+    pub(crate) fn preview_layer(&self, id: Option<NodeId>) {
+        if self.layer_preview.replace(id) != id {
+            self.invalidate_visual();
+        }
+    }
+
+    pub(crate) fn end_layer_preview(&self, id: NodeId) {
+        if self.layer_preview.get() == Some(id) {
+            self.preview_layer(None);
+        }
+    }
+
+    pub(crate) fn highlighted_layer(&self) -> Option<NodeId> {
+        self.layer_preview.get().or(self.hover.get())
+    }
+
     pub fn set_tool(&self, tool: Tool) {
+        self.forget_selected_ruler();
+        self.clear_measurement();
         self.leave_linear_gradient_edit();
         self.cancel_corner_radius_gesture();
         self.clear_corner_radius_hover();
@@ -312,15 +369,108 @@ impl DesignCanvas {
         self.cancel_layout_drag();
         self.finish_image_crop();
         self.finish_pen();
+        if self.tool.get() != tool && !matches!(*self.gesture.borrow(), Gesture::None) {
+            self.cancel_active_edit();
+        }
         if tool != Tool::Select {
             self.leave_vector_edit();
         }
+        self.set_resize_hover(None);
         self.tool.set(tool);
+        self.hover.set(None);
         self.focus();
         self.invalidate_visual();
         self.emit(CanvasEvent::Tool);
     }
+    pub(crate) fn has_pointer_gesture(&self) -> bool {
+        self.guide_drag_active() || !matches!(*self.gesture.borrow(), Gesture::None)
+    }
+
+    pub(crate) fn editor_shortcut(&self, e: &KeyEventArgs) -> Option<&'static str> {
+        let command = e.key_modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META);
+        let shift = e.key_modifiers.contains(KeyModifiers::SHIFT);
+        let alt = e.key_modifiers.contains(KeyModifiers::ALT);
+        if command {
+            match e.key {
+                Key::Add | Key::OemPlus if !alt => Some("zoom-in"),
+                Key::Subtract | Key::OemMinus if !alt => Some("zoom-out"),
+                Key::Z => Some(if shift { "redo" } else { "undo" }),
+                Key::Y => Some("redo"),
+                Key::C => Some("copy"),
+                Key::X => Some("cut"),
+                Key::V => Some("paste"),
+                Key::D => Some("duplicate"),
+                Key::A => Some(if shift { "select-inverse" } else { "select-all" }),
+                Key::G => Some(if alt {
+                    "frame-selection"
+                } else if shift {
+                    "ungroup"
+                } else {
+                    "group"
+                }),
+                Key::S => Some("save"),
+                Key::O if shift && !alt => Some("show-outlines"),
+                Key::O => Some("open"),
+                Key::F if !alt && !shift => Some("find-layers"),
+                Key::R if !alt && !shift => Some("rename-layer"),
+                Key::OemQuestion if !alt && !shift => Some("actions"),
+                Key::K => Some(if shift {
+                    "place-image"
+                } else if alt {
+                    "component"
+                } else {
+                    "actions"
+                }),
+                _ => None,
+            }
+        } else {
+            match e.key {
+                Key::Delete | Key::Back => Some("delete"),
+                Key::F2 => Some("rename-layer"),
+                Key::V => Some("select"),
+                Key::F => Some(if shift { "section" } else { "frame" }),
+                Key::R if !alt => Some(if shift { "rulers" } else { "rectangle" }),
+                Key::O => Some("ellipse"),
+                Key::L => Some(if shift { "arrow" } else { "line" }),
+                Key::P => Some(if shift { "pencil" } else { "pen" }),
+                Key::B if shift && self.vector_node.get().is_some() => Some("network-bucket"),
+                Key::T => Some("text"),
+                Key::H => Some("hand"),
+                Key::C => Some("comment"),
+                Key::A if shift => Some("auto-layout"),
+                Key::S => Some(if shift { "section" } else { "slice" }),
+                Key::Add | Key::OemPlus if !alt => Some("zoom-in"),
+                Key::Subtract | Key::OemMinus if !alt => Some("zoom-out"),
+                Key::D0 if shift && !alt => Some("actual-size"),
+                Key::D1 => Some("fit"),
+                Key::D2 => Some("fit-selection"),
+                Key::K if !shift && !alt => Some("scale"),
+                _ => None,
+            }
+        }
+    }
+
+    pub(crate) fn page_camera(&self) -> Option<Viewport> {
+        self.initialized.get().then(|| self.viewport.get())
+    }
+
+    pub(crate) fn restore_page_camera(&self, camera: Option<Viewport>) {
+        self.reset_fit();
+        let current = self.viewport.get();
+        let mut restored = camera.unwrap_or_default();
+        if camera.is_some() {
+            // After a window or phone rotation, keep the same world point at center.
+            restored.pan.x += (current.width - restored.width) * 0.5;
+            restored.pan.y += (current.height - restored.height) * 0.5;
+            self.initialized.set(true);
+        }
+        restored.width = current.width;
+        restored.height = current.height;
+        self.viewport.set(restored);
+    }
+
     pub fn reset_fit(&self) {
+        self.clear_measurement();
         self.cancel_linear_gradient_gesture();
         self.clear_gradient_hover();
         self.cancel_corner_radius_gesture();
@@ -329,19 +479,59 @@ impl DesignCanvas {
         self.initialized.set(false);
         self.invalidate_visual();
     }
-    pub fn zoom(&self, factor: f64) {
+    pub fn set_zoom(&self, zoom: f64) {
         self.cancel_linear_gradient_gesture();
         self.clear_gradient_hover();
         self.cancel_corner_radius_gesture();
         self.clear_corner_radius_hover();
         self.cancel_layout_drag();
         let mut v = self.viewport.get();
-        v.zoom_at(Point::new(v.width / 2.0, v.height / 2.0), v.zoom * factor);
-        self.viewport.set(v);
-        self.invalidate_visual();
-        self.emit(CanvasEvent::Camera);
+        v.zoom_at(Point::new(v.width / 2.0, v.height / 2.0), zoom);
+        self.update_camera(v);
+    }
+    pub fn zoom(&self, factor: f64) {
+        self.set_zoom(self.viewport.get().zoom * factor);
+    }
+    pub(crate) fn update_camera(&self, viewport: Viewport) {
+        if self.viewport.replace(viewport) != viewport {
+            self.clear_measurement();
+            self.set_resize_hover(None);
+            self.invalidate_visual();
+            self.emit(CanvasEvent::Camera);
+        }
+    }
+    // Pointer movement and a modifier change at a stationary pointer must agree
+    // on the target. Geometry handles own their hit area before layer measurement.
+    fn hover_edit_handle(&self, world: Point, modifiers: KeyModifiers) -> bool {
+        if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::META) && self.hover_rotation(world) { return true; }
+        let can_resize = self.resize_with_modifiers(modifiers);
+        if can_resize && self.multi_resize_hover(world) { return true; }
+        let resize = can_resize
+            .then(|| self.handle_at(world)).flatten();
+        self.set_resize_hover(resize);
+        if resize.is_some() {
+            self.clear_corner_radius_hover();
+        } else if !self.corner_radius_hover(world, modifiers) {
+            return false;
+        }
+        self.clear_measurement();
+        if self.hover.take().is_some() { self.invalidate_visual(); }
+        true
+    }
+    fn pan_pointer(&self, screen: Point) -> bool {
+        // A captured pan is independent of the document. In particular, do not
+        // run vector/gradient hover probes while dragging over their handles.
+        let delta = match &mut *self.gesture.borrow_mut() {
+            Gesture::Pan { previous } => screen - std::mem::replace(previous, screen),
+            _ => return false,
+        };
+        let mut viewport = self.viewport.get();
+        viewport.pan = viewport.pan + delta;
+        self.update_camera(viewport);
+        true
     }
     pub fn zoom_to_selection(&self) {
+        self.clear_measurement();
         self.cancel_linear_gradient_gesture();
         self.clear_gradient_hover();
         self.cancel_corner_radius_gesture();
@@ -369,25 +559,33 @@ impl DesignCanvas {
         self.painter.borrow_mut().register_image_data(href)
     }
     pub fn export_png(&self) -> Result<Vec<u8>, String> {
+        let selection = self.editor.borrow().selection.clone();
+        self.export_png_for(&selection)
+    }
+
+    pub fn export_png_for(&self, selection: &[NodeId]) -> Result<Vec<u8>, String> {
         use ferroui_base::media::imaging::{
             BitmapEncoderOptions, PngBitmapEncoderOptions, RenderTargetBitmap,
         };
         use ferroui_base::PixelSize;
         let editor = self.editor.borrow();
-        let roots = if editor.selection.is_empty() {
-            editor
-                .document
-                .page(editor.active_page)
-                .map(|p| p.children.clone())
-                .unwrap_or_default()
+        let doc = &editor.document;
+        let slice = doc.export_slice(editor.active_page, selection);
+        if let [id] = selection {
+            if doc.nodes.get(id).is_some_and(|node| node.kind == NodeKind::Slice) && slice.is_none() {
+                return Err("This slice has empty or singular bounds.".into());
+            }
+        }
+        let roots = if slice.is_some() || selection.is_empty() {
+            doc.page(editor.active_page).map(|p| p.children.clone()).unwrap_or_default()
         } else {
-            editor.root_selection()
+            editor.root_selection_for(selection)
         };
-        let bounds = self
-            .painter
-            .borrow_mut()
-            .rendered_editor_bounds(&editor, &roots)
-            .ok_or_else(|| "There are no layers to export.".to_string())?;
+        let bounds = match slice {
+            Some(slice) => slice.local,
+            None => self.painter.borrow_mut().rendered_editor_bounds(&editor, &roots)
+                .ok_or_else(|| "There are no layers to export.".to_string())?,
+        };
         let width = bounds.width.ceil().max(1.0);
         let height = bounds.height.ceil().max(1.0);
         if width > 16384.0 || height > 16384.0 || width * height > 32_000_000.0 {
@@ -396,14 +594,17 @@ impl DesignCanvas {
         let bitmap = RenderTargetBitmap::new(PixelSize::new(width as i32, height as i32));
         {
             let mut context = bitmap.create_drawing_context();
-            let transform =
-                context.push_transform(Matrix::create_translation(-bounds.x, -bounds.y));
+            let clip = slice.map(|slice| context.push_clip(rect(slice.local)));
+            let matrix = slice.map_or_else(|| Matrix::create_translation(-bounds.x, -bounds.y),
+                |s| crate::renderer::ui_matrix(s.world_to_local));
+            let transform = context.push_transform(matrix);
             let mut painter = self.painter.borrow_mut();
             // This export has one output pixel per document unit. Canvas zoom
             // and the window's display density must not affect the saved PNG.
             painter.set_raster_scale(1.0);
-            painter.render_editor(&mut context, &editor, &roots, bounds);
+            painter.render_editor(&mut context, &editor, &roots, slice.map_or(bounds, |s| s.world_bounds));
             context.pop(transform);
+            if let Some(clip) = clip { context.pop(clip); }
             context.dispose();
         }
         let mut bytes = Vec::new();
@@ -431,7 +632,7 @@ impl DesignCanvas {
         if let Some(id) = self.pen_node.take() {
             let mut editor = self.editor.borrow_mut();
             normalize_drawn_vector(&mut editor, id);
-            editor.commit_transaction();
+            self.commit_created_layer(&mut editor, id);
             drop(editor);
             self.invalidate_visual();
             self.emit(CanvasEvent::Document);
@@ -440,6 +641,11 @@ impl DesignCanvas {
     /// Undo during a live pointer edit cancels that transaction and its gesture.
     /// Later pointer events must never continue writing after history restored it.
     pub fn cancel_active_edit(&self) -> bool {
+        if self.cancel_guide_drag() { return true; }
+        if matches!(*self.gesture.borrow(), Gesture::Pan { .. }) {
+            *self.gesture.borrow_mut() = Gesture::None;
+            return true;
+        }
         if self.cancel_linear_gradient_gesture() { return true; }
         if self.cancel_corner_radius_gesture() { return true; }
         if self.cancel_stroke_width_gesture() { return true; }
@@ -454,6 +660,39 @@ impl DesignCanvas {
         active
     }
     pub fn cancel(&self) {
+        if self.cancel_guide_drag() { return; }
+        self.clear_measurement();
+        if matches!(*self.gesture.borrow(), Gesture::Rotate(_) | Gesture::RotationOrigin(_)) {
+            match self.gesture.replace(Gesture::None) {
+                Gesture::Rotate(drag) => drag.cancel(self),
+                Gesture::RotationOrigin(drag) => drag.cancel(self),
+                _ => unreachable!(),
+            }
+            self.set_resize_hover(None);
+            return;
+        }
+        if matches!(*self.gesture.borrow(), Gesture::MultiResize(_) | Gesture::Resize(_)) {
+            match self.gesture.replace(Gesture::None) {
+                Gesture::MultiResize(drag) => drag.cancel(self),
+                Gesture::Resize(drag) => drag.cancel(self),
+                _ => unreachable!(),
+            }
+            return;
+        }
+        if matches!(*self.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_)) {
+            *self.gesture.borrow_mut() = Gesture::None;
+            self.set_resize_hover(None);
+            self.snap_guides.set((None, None));
+            self.layout_grids.borrow_mut().clear_snap();
+            self.invalidate_visual();
+            return;
+        }
+        if matches!(*self.gesture.borrow(), Gesture::EdgePress { .. }) {
+            *self.gesture.borrow_mut() = Gesture::None;
+            self.set_resize_hover(None);
+            return;
+        }
+        if self.cancel_scale_drag() { return; }
         self.layout_grids.borrow_mut().clear_snap();
         if self.cancel_linear_gradient_gesture() { return; }
         self.clear_gradient_hover();
@@ -466,6 +705,7 @@ impl DesignCanvas {
         if self.cancel_layout_drag() { return; }
         self.cancel_image_crop();
         self.editor.borrow_mut().cancel_transaction();
+        self.creation_parent.set(None);
         self.pen_node.set(None);
         self.pen_tangent.set(None);
         *self.gesture.borrow_mut() = Gesture::None;
@@ -688,41 +928,21 @@ impl DesignCanvas {
             p
         }
     }
-    fn handle_at(&self, p: Point) -> Option<usize> {
-        let editor = self.editor.borrow();
-        if editor.selection.len() != 1 {
-            return None;
-        }
-        let id = editor.selection[0];
-        let node = editor.document.nodes.get(&id)?;
-        if node.locked {
-            return None;
-        }
-        let transform = editor.document.world_transform(id)?;
-        let corners = node.local_bounds().corners().map(|p| transform.apply(p));
-        let tolerance = 8.0 / self.viewport.get().zoom;
-        for (i, c) in corners.iter().enumerate() {
-            if c.distance(p) < tolerance {
-                return Some(i);
-            }
-        }
-        let top = (corners[0] + corners[1]) * 0.5;
-        let center = transform.apply(Point::new(node.width / 2.0, node.height / 2.0));
-        let direction = top - center;
-        let length = direction.distance(Point::new(0.0, 0.0)).max(0.001);
-        if (top + direction * (24.0 / self.viewport.get().zoom / length)).distance(p) < tolerance {
-            return Some(4);
-        }
-        None
-    }
-    fn new_node(&self, tool: Tool, p: Point) -> NodeId {
+    fn new_node(&self, tool: Tool, p: Point) -> Option<NodeId> {
+        let destination = self.drawing_parent_at(p, tool);
         let mut editor = self.editor.borrow_mut();
         editor.begin_transaction(format!("Draw {}", tool.name()));
         let mut node = Node::new(tool.kind(), tool.name(), p.x, p.y, 1.0, 1.0)
-            .with_fill(Color::rgb(123, 97, 255));
+            .with_fill(Color::rgb(217, 217, 217));
         if tool == Tool::Frame {
             node = node.with_fill(Color::WHITE);
             node.clip_content = true;
+        }
+        if tool == Tool::Slice {
+            node.fills.clear();
+            let last = editor.document.nodes.values().filter(|n| n.kind == NodeKind::Slice)
+                .filter_map(|n| n.name.strip_prefix("Slice ")?.parse::<u32>().ok()).max().unwrap_or(0);
+            node.name = format!("Slice {}", u64::from(last) + 1);
         }
         if tool == Tool::Section {
             node = node.with_fill(Color::rgba(216, 209, 255, 48));
@@ -734,26 +954,41 @@ impl DesignCanvas {
             node.width = 160.0;
             node.height = 36.0;
         }
-        if matches!(tool, Tool::Line | Tool::Pen | Tool::Pencil) {
+        if matches!(tool, Tool::Line | Tool::Arrow | Tool::Pen | Tool::Pencil) {
             node.fills.clear();
-            node.strokes = vec![core::Stroke::new(Color::rgb(30, 30, 30), 2.0)];
+            let mut stroke = if node.kind == NodeKind::Line {
+                core::Stroke::new(Color::BLACK, 1.0)
+            } else {
+                core::Stroke::new(Color::rgb(30, 30, 30), 2.0)
+            };
+            if tool == Tool::Arrow {
+                stroke.cap = core::StrokeCap::Arrow;
+            }
+            node.strokes = vec![stroke];
         }
         if tool == Tool::Star {
             node.polygon_sides = 5;
         }
         let parent = editor.active_page;
-        let id = editor
-            .document
-            .insert_node(parent, node)
-            .expect("valid page");
+        let id = match editor.document.insert_node(parent, node) {
+            Ok(id) => id,
+            Err(error) => {
+                editor.cancel_transaction();
+                drop(editor);
+                self.emit(CanvasEvent::Notice(error.to_string()));
+                return None;
+            }
+        };
+        self.creation_parent.set(destination.map(|parent| (id, parent)));
         editor.selection = vec![id];
         editor.refresh();
-        id
+        Some(id)
     }
 }
 impl InputElementImpl for DesignCanvas {
     fn on_pointer_pressed(this: &Self, e: &PointerPressedEventArgs) {
         Self::parent_on_pointer_pressed(this, e);
+        this.clear_measurement();
         this.layout_grids.borrow_mut().clear_snap();
         this.cancel_linear_gradient_gesture();
         this.cancel_corner_radius_gesture();
@@ -768,7 +1003,16 @@ impl InputElementImpl for DesignCanvas {
         let world = this.viewport.get().screen_to_world(screen);
         this.pointer_presses.borrow_mut().record(e, screen, world, this.viewport.get(),
             this.editor.borrow().selection.len(), this.frames.get());
+        if matches!(*this.gesture.borrow(), Gesture::Scale(_) | Gesture::MultiResize(_) | Gesture::Rotate(_) | Gesture::RotationOrigin(_)) { return; }
+        if this.guide_drag_active() { return; }
         if e.properties().is_right_button_pressed {
+            if this.show_rulers.get() && this.presentation.get().is_none() {
+                if let Some(id) = this.guide_at(screen) {
+                    this.select_ruler_guide(Some(id));
+                    this.emit(CanvasEvent::Action("ruler-guide-settings"));
+                    return;
+                }
+            }
             if this.presentation.get().is_none() {
                 this.emit(CanvasEvent::ContextMenu);
             }
@@ -787,109 +1031,52 @@ impl InputElementImpl for DesignCanvas {
             || this.tool.get() == Tool::Hand
             || e.properties().is_middle_button_pressed
         {
-            *this.gesture.borrow_mut() = Gesture::Pan {
-                start: screen,
-                original: this.viewport.get().pan,
-            };
+            this.set_resize_hover(None);
+            *this.gesture.borrow_mut() = Gesture::Pan { previous: screen };
+            if this.hover.take().is_some() { this.invalidate_visual(); }
             return;
         }
+        if this.press_ruler(screen, e.pointer().id(), e.key_modifiers(), true) { return; }
         if this.linear_gradient_press(world, e.click_count()) { return; }
         if this.image_crop_press(world) { return; }
         if this.stroke_width_press(world) { return; }
         let additive = e.key_modifiers().contains(KeyModifiers::SHIFT);
         match this.tool.get() {
             Tool::Comment => this.emit(CanvasEvent::Comment(world)),
-            Tool::Select => {
+            Tool::Select | Tool::Scale => {
+                let scaling = this.tool.get() == Tool::Scale;
                 let deep = e.key_modifiers().intersects(KeyModifiers::CONTROL | KeyModifiers::META);
-                if this.corner_radius_press(world, e.key_modifiers()) { return; }
+                if scaling && !deep && this.press_scale_handle(world) { return; }
+                if !deep && this.press_rotation(world, screen, e.key_modifiers(), e.click_count()) { return; }
+                let can_resize = this.resize_with_modifiers(e.key_modifiers());
+                if can_resize && this.press_multi_resize(world, screen, e.key_modifiers(), e.click_count()) { return; }
+                if !scaling && this.corner_radius_press(world, e.key_modifiers()) { return; }
                 this.clear_corner_radius_hover();
-                if e.key_modifiers().contains(KeyModifiers::ALT) && !deep && this.vector_node.get().is_none() {
-                    this.cycle_selection_at(world, if additive { core::SelectionCycle::InFront } else { core::SelectionCycle::Behind });
-                    return;
-                }
+                let handle = if scaling || !can_resize { None } else { this.handle_at(world) };
+                if handle.is_none() && !deep && this.press_ruler(screen, e.pointer().id(), e.key_modifiers(), false) { return; }
+                this.forget_selected_ruler();
+                if handle.is_none() && this.press_alt_drag(world, screen, e.key_modifiers()) { return; }
                 if this.vector_press(world, e.click_count(), additive) {
                     return;
                 }
-                if let Some(corner) = if deep { None } else { this.handle_at(world) } {
+                if let Some(hit) = handle {
                     let mut editor = this.editor.borrow_mut();
                     let id = editor.selection[0];
-                    let node = editor.document.nodes[&id].clone();
-                    if corner == 4 {
-                        let center = editor
-                            .document
-                            .world_transform(id)
-                            .unwrap()
-                            .apply(Point::new(node.width / 2.0, node.height / 2.0));
-                        let angle = (world.y - center.y).atan2(world.x - center.x).to_degrees();
-                        editor.begin_node_transaction(&[id], "Rotate");
-                        *this.gesture.borrow_mut() = Gesture::Rotate {
-                            node,
-                            center,
-                            angle,
-                        };
-                    } else {
-                        editor.begin_transaction("Resize");
-                        *this.gesture.borrow_mut() = Gesture::Resize { node, corner };
-                    }
-                } else if let Some(id) = this.pick_with_modifiers(world, e.key_modifiers(), e.click_count() == 2) {
-                    let mut editor = this.editor.borrow_mut();
-                    if additive {
-                        if editor.selection.contains(&id) {
-                            editor.selection.retain(|x| *x != id);
-                        } else {
-                            editor.selection.push(id);
+                    let node = &editor.document.nodes[&id];
+                    if node.kind == NodeKind::Line {
+                        if let Some(drag) = line_endpoint::EndpointDrag::new(&editor, node.clone(), hit.handle == resize::Handle::Corner(0), world) {
+                            editor.begin_node_transaction(&[id], "Move line endpoint");
+                            *this.gesture.borrow_mut() = Gesture::LineEndpoint(drag);
                         }
-                    } else if !editor.selection.contains(&id) {
-                        editor.selection = vec![id];
+                    } else if deep || matches!(hit.handle, resize::Handle::Edge(_)) {
+                        *this.gesture.borrow_mut() = Gesture::EdgePress {
+                            hit, world, screen, modifiers: e.key_modifiers(), clicks: e.click_count(),
+                        };
+                    } else if let Some(drag) = resize::ResizeDrag::new(&mut editor, hit, world) {
+                        *this.gesture.borrow_mut() = Gesture::Resize(drag);
                     }
-                    if e.click_count() == 2 && editor.document.nodes[&id].kind == NodeKind::Text {
-                        drop(editor);
-                        this.emit(CanvasEvent::EditText(id));
-                        return;
-                    }
-                    if e.click_count() == 2 && editor.document.nodes[&id].kind == NodeKind::Vector {
-                        drop(editor);
-                        this.edit_vector();
-                        return;
-                    }
-                    if this.layout_drag_press(&editor, id, world, screen) {
-                        drop(editor);
-                        this.emit(CanvasEvent::Selection);
-                        this.invalidate_visual();
-                        return;
-                    }
-                    let exclude = editor.root_selection();
-                    let bounds = exclude
-                        .iter()
-                        .filter_map(|&id| editor.document.world_bounds(id))
-                        .reduce(|a, b| a.union(b));
-                    let nodes = exclude
-                        .iter()
-                        .filter_map(|id| editor.document.nodes.get(id).cloned())
-                        .collect();
-                    editor.begin_node_transaction(&exclude, "Move layers");
-                    if let Some(probe) = this.free_layout_probe.borrow_mut().as_mut() {
-                        probe.record_transaction(&editor);
-                    }
-                    *this.gesture.borrow_mut() = Gesture::Move {
-                        start: world,
-                        nodes,
-                        bounds,
-                        exclude,
-                        moved: false,
-                    };
-                    drop(editor);
-                    this.emit(CanvasEvent::Selection);
                 } else {
-                    if !additive {
-                        this.editor.borrow_mut().selection.clear();
-                    }
-                    *this.gesture.borrow_mut() = Gesture::Marquee {
-                        start: world,
-                        current: world,
-                        additive,
-                    };
-                    this.emit(CanvasEvent::Selection);
+                    this.select_at_pointer(world, e.key_modifiers(), e.click_count(), Some(screen));
                 }
             }
             Tool::Pen => {
@@ -903,7 +1090,7 @@ impl InputElementImpl for DesignCanvas {
                 let id = if let Some(id) = this.pen_node.get() {
                     id
                 } else {
-                    let id = this.new_node(Tool::Pen, p);
+                    let Some(id) = this.new_node(Tool::Pen, p) else { return };
                     this.pen_node.set(Some(id));
                     id
                 };
@@ -974,13 +1161,8 @@ impl InputElementImpl for DesignCanvas {
                     if let Some(snap) = this.layout_grids.borrow_mut().snap(&editor, &[start],
                         5.0 / this.viewport.get().zoom, &[], None) { start = start + snap.delta; }
                 }
-                let id = this.new_node(tool, start);
-                if tool == Tool::Text {
-                    this.editor.borrow_mut().commit_transaction();
-                    this.tool.set(Tool::Select);
-                    this.emit(CanvasEvent::Document);
-                    this.emit(CanvasEvent::EditText(id));
-                } else if tool == Tool::Pencil {
+                let Some(id) = this.new_node(tool, start) else { return };
+                if tool == Tool::Pencil {
                     this.editor
                         .borrow_mut()
                         .document
@@ -994,7 +1176,7 @@ impl InputElementImpl for DesignCanvas {
                         });
                     *this.gesture.borrow_mut() = Gesture::Pencil { id, origin: start };
                 } else {
-                    *this.gesture.borrow_mut() = Gesture::Draw { start, id };
+                    *this.gesture.borrow_mut() = Gesture::Draw(drawing::ShapeDrag::new(id, tool, world, start));
                 }
                 this.emit(CanvasEvent::Selection);
             }
@@ -1004,11 +1186,25 @@ impl InputElementImpl for DesignCanvas {
     fn on_pointer_moved(this: &Self, e: &PointerEventArgs) {
         Self::parent_on_pointer_moved(this, e);
         let screen = e.get_position(Some(this));
-        this.selection_pointer.set(Some(Point::new(screen.x, screen.y)));
+        let position = Point::new(screen.x, screen.y);
+        this.selection_pointer.set(Some(position));
+        if this.move_ruler(position, e.pointer().id(), e.key_modifiers()) { e.set_handled(true); return; }
+        if this.presentation.get().is_none() {
+            if this.pan_pointer(position) {
+                e.set_handled(true);
+                return;
+            }
+            if (this.space.get() || this.tool.get() == Tool::Hand)
+                && matches!(*this.gesture.borrow(), Gesture::None)
+                && this.layout_drag.borrow().is_none()
+                && this.image_crop_gesture.borrow().is_none()
+            {
+                return;
+            }
+        }
         let world = this.world(screen);
         if this.presentation.get().is_some() {
             this.emit(CanvasEvent::PrototypePointerMoved(Point::new(screen.x, screen.y)));
-            let world = this.world(screen);
             let hover = this.prototype_pick(world);
             let previous = this.hover.replace(hover);
             if previous != hover {
@@ -1027,20 +1223,27 @@ impl InputElementImpl for DesignCanvas {
             }
             return;
         }
-        if this.linear_gradient_move(world) { return; }
+        if this.linear_gradient_move(world) { this.set_resize_hover(None); return; }
         if this.corner_radius_move(world) { return; }
-        if this.image_crop_move(world) { return; }
-        if this.stroke_width_move(world) { return; }
+        if this.image_crop_move(world) { this.set_resize_hover(None); return; }
+        if this.stroke_width_move(world) { this.set_resize_hover(None); return; }
         if this.network_bucket_move(world, e.key_modifiers().contains(KeyModifiers::SHIFT)) { return; }
         let shift = e.key_modifiers().contains(KeyModifiers::SHIFT);
         if this.layout_drag_move_constrained(world, Point::new(screen.x, screen.y), shift) { return; }
-        if this.corner_radius_hover(world, e.key_modifiers()) {
-            if this.hover.take().is_some() { this.invalidate_visual(); }
-            return;
+        if matches!(*this.gesture.borrow(), Gesture::None) {
+            if this.measure_hover(world, e.key_modifiers()) { return; }
+            if this.tool.get() == Tool::Scale {
+                this.update_scale_cursor(world);
+            } else if this.hover_edit_handle(world, e.key_modifiers()) {
+                return;
+            }
         }
-        let mut camera_changed = false;
         let mut gesture = this.gesture.borrow_mut();
+        this.activate_edge_drag(&mut gesture, position);
+        let resize_revision = matches!(*gesture, Gesture::Resize(_) | Gesture::MultiResize(_) | Gesture::Rotate(_))
+            .then(|| this.editor.borrow().revision);
         match &mut *gesture {
+            Gesture::EdgePress { .. } => return,
             Gesture::None => {
                 let hover = this.pick_with_modifiers(world, e.key_modifiers(), false);
                 if this.hover.replace(hover) != hover {
@@ -1048,204 +1251,17 @@ impl InputElementImpl for DesignCanvas {
                 }
                 return;
             }
-            Gesture::Pan { start, original } => {
-                let mut v = this.viewport.get();
-                v.pan = *original + Point::new(screen.x - start.x, screen.y - start.y);
-                this.viewport.set(v);
-                camera_changed = true;
-            }
-            Gesture::Move {
-                start,
-                nodes,
-                bounds,
-                exclude,
-                moved,
-            } => {
-                let mut delta = world - *start;
-                if delta.distance(Point::new(0.0, 0.0)) < 0.5 / this.viewport.get().zoom && !*moved
-                {
-                    return;
-                }
-                if shift {
-                    if delta.x.abs() > delta.y.abs() {
-                        delta.y = 0.0
-                    } else {
-                        delta.x = 0.0
-                    }
-                }
-                if this.snap.get() {
-                    delta.x = delta.x.round();
-                    delta.y = delta.y.round();
-                }
-                let mut editor = this.editor.borrow_mut();
-                this.snap_guides.set((None, None));
-                this.layout_grids.borrow_mut().clear_snap();
-                if this.snap.get() {
-                    if let Some(bounds) = bounds {
-                        let proposed = Rect::new(
-                            bounds.x + delta.x,
-                            bounds.y + delta.y,
-                            bounds.width,
-                            bounds.height,
-                        );
-                        // An axis-constrained drag must stay on its original axis.
-                        let snap_x = !shift || delta.x != 0.0;
-                        let snap_y = !shift || delta.y != 0.0;
-                        let direction = shift.then_some(if snap_x { Point::new(1.0, 0.0) } else { Point::new(0.0, 1.0) });
-                        let guide = this.layout_grids.borrow_mut().snap_bounds(&editor, proposed,
-                            5.0 / this.viewport.get().zoom, exclude, direction);
-                        if let Some(guide) = guide {
-                            delta = delta + guide.delta;
-                        } else {
-                            let snap = editor.smart_snap(proposed, 5.0 / this.viewport.get().zoom, exclude);
-                            if snap_x { delta.x += snap.delta.x; }
-                            if snap_y { delta.y += snap.delta.y; }
-                            this.snap_guides.set((
-                                if snap_x { snap.vertical_guide } else { None },
-                                if snap_y { snap.horizontal_guide } else { None },
-                            ));
-                        }
-                    }
-                }
-                for original in nodes.iter() {
-                    if editor.document.effective_locked(original.id) { continue; }
-                    let parent = original
-                        .parent
-                        .and_then(|id| editor.document.world_transform(id))
-                        .unwrap_or(core::Transform::IDENTITY);
-                    let local = parent
-                        .inverse()
-                        .unwrap_or(core::Transform::IDENTITY)
-                        .apply_vector(delta);
-                    if let Some(node) = editor.document.nodes.get_mut(&original.id) {
-                        node.x = original.x + local.x;
-                        node.y = original.y + local.y;
-                    }
-                }
-                editor.refresh_preview_nodes(exclude);
-                if let Some(probe) = this.free_layout_probe.borrow_mut().as_mut() {
-                    probe.record_revision(editor.revision);
-                }
-                *moved = true;
-            }
-            Gesture::Resize { node, corner } => {
-                let mut editor = this.editor.borrow_mut();
-                this.layout_grids.borrow_mut().clear_snap();
-                if editor.document.effective_locked(node.id) { return; }
-                let parent = node
-                    .parent
-                    .and_then(|id| editor.document.world_transform(id))
-                    .unwrap_or(core::Transform::IDENTITY);
-                let transform = parent * node.local_transform();
-                let local = transform
-                    .inverse()
-                    .unwrap_or(core::Transform::IDENTITY)
-                    .apply(world);
-                let opposite = match *corner {
-                    0 => Point::new(node.width, node.height),
-                    1 => Point::new(0.0, node.height),
-                    2 => Point::new(0.0, 0.0),
-                    _ => Point::new(node.width, 0.0),
-                };
-                let mut width = (local.x - opposite.x).abs().max(1.0);
-                let mut height = (local.y - opposite.y).abs().max(1.0);
-                if shift {
-                    let ratio = node.width / node.height.max(0.001);
-                    if width / height > ratio {
-                        height = width / ratio
-                    } else {
-                        width = height * ratio
-                    }
-                }
-                if this.snap.get() {
-                    width = width.round().max(1.0);
-                    height = height.round().max(1.0);
-                    // Project the final handle after pixel/aspect calculations.
-                    // A later rounding pass must not undo the guide alignment.
-                    let sign = match *corner {
-                        0 => Point::new(-1.0, -1.0), 1 => Point::new(1.0, -1.0),
-                        2 => Point::new(1.0, 1.0), _ => Point::new(-1.0, 1.0),
-                    };
-                    let handle = transform.apply(opposite + Point::new(sign.x * width, sign.y * height));
-                    let direction = shift.then_some(transform.apply_vector(Point::new(sign.x * width, sign.y * height)));
-                    let guide = this.layout_grids.borrow_mut().snap(&editor, &[handle],
-                        5.0 / this.viewport.get().zoom, &[node.id], direction);
-                    if let (Some(guide), Some(inverse)) = (guide, transform.inverse()) {
-                        let local = inverse.apply(handle + guide.delta);
-                        let adjusted_width = sign.x * (local.x - opposite.x);
-                        let adjusted_height = sign.y * (local.y - opposite.y);
-                        if adjusted_width >= 1.0 && adjusted_height >= 1.0 {
-                            width = adjusted_width; height = adjusted_height;
-                        } else { this.layout_grids.borrow_mut().clear_snap(); }
-                    }
-                }
-                let new_opposite = match *corner {
-                    0 => Point::new(width, height),
-                    1 => Point::new(0.0, height),
-                    2 => Point::new(0.0, 0.0),
-                    _ => Point::new(width, 0.0),
-                };
-                let mut updated = node.clone();
-                updated.x = 0.0;
-                updated.y = 0.0;
-                updated.width = width;
-                updated.height = height;
-                let anchor_in_parent = node.local_transform().apply(opposite);
-                let offset = updated.local_transform().apply(new_opposite);
-                editor.resize_node_and_position(
-                    node.id,
-                    width,
-                    height,
-                    Point::new(anchor_in_parent.x - offset.x, anchor_in_parent.y - offset.y),
-                );
-            }
-            Gesture::Rotate {
-                node,
-                center,
-                angle,
-            } => {
-                let mut rotation = node.rotation
-                    + (world.y - center.y).atan2(world.x - center.x).to_degrees()
-                    - *angle;
-                if shift {
-                    rotation = (rotation / 15.0).round() * 15.0
-                }
-                let mut editor = this.editor.borrow_mut();
-                if let Some(n) = editor.document.nodes.get_mut(&node.id) {
-                    n.rotation = rotation;
-                }
-                editor.refresh_preview_nodes(&[node.id]);
-            }
-            Gesture::Marquee { current, .. } => *current = world,
-            Gesture::Draw { start, id } => {
-                let mut end = this.snap_point(world);
-                if shift {
-                    let size = (end.x - start.x).abs().max((end.y - start.y).abs());
-                    end = Point::new(
-                        start.x + size * (end.x - start.x).signum(),
-                        start.y + size * (end.y - start.y).signum(),
-                    );
-                }
-                this.layout_grids.borrow_mut().clear_snap();
-                if this.snap.get() {
-                    let editor = this.editor.borrow();
-                    let direction = shift.then_some(end - *start);
-                    if let Some(snap) = this.layout_grids.borrow_mut().snap(&editor, &[end],
-                        5.0 / this.viewport.get().zoom, &[*id], direction) { end = end + snap.delta; }
-                }
-                let bounds = Rect::from_points(*start, end);
-                let mut editor = this.editor.borrow_mut();
-                if let Some(n) = editor.document.nodes.get_mut(id) {
-                    n.x = bounds.x;
-                    n.y = bounds.y;
-                    n.width = bounds.width.max(1.0);
-                    n.height = bounds.height.max(1.0);
-                    if n.kind == NodeKind::Line {
-                        n.flip_y = (end.x - start.x) * (end.y - start.y) < 0.0;
-                    }
-                }
-                editor.refresh();
-            }
+            Gesture::Pan { .. } => return, // Handled before tool hit testing.
+            move_drag @ Gesture::Move { .. } => this.update_free_move(move_drag, world, shift),
+            Gesture::Scale(drag) => drag.update(&mut this.editor.borrow_mut(), world, e.key_modifiers().contains(KeyModifiers::ALT)),
+            Gesture::Resize(drag) => drag.update(this, world, e.key_modifiers()),
+            Gesture::MultiResize(drag) => drag.update(this, world, e.key_modifiers()),
+            Gesture::Rotate(drag) => drag.update(this, world, e.key_modifiers()),
+            Gesture::RotationOrigin(drag) => drag.update(this, world, e.key_modifiers()),
+            Gesture::AltDrag(drag) => drag.update(this, world, e.key_modifiers()),
+            Gesture::Marquee(drag) => { drag.update(this, &this.editor.borrow(), world, e.key_modifiers()); }
+            Gesture::Draw(drag) => drag.update(this, world, e.key_modifiers(), false),
+            Gesture::LineEndpoint(drag) => drag.update(this, world, e.key_modifiers()),
             Gesture::Pencil { id, origin } => {
                 let local = world - *origin;
                 let mut editor = this.editor.borrow_mut();
@@ -1261,9 +1277,9 @@ impl InputElementImpl for DesignCanvas {
                         n.path.segments.push(PathSegment::LineTo { point: local });
                         n.width = n.width.max(local.x);
                         n.height = n.height.max(local.y);
+                        editor.refresh_preview_nodes(&[*id]);
                     }
                 }
-                editor.refresh();
             }
             Gesture::PenHandle {
                 id,
@@ -1309,7 +1325,7 @@ impl InputElementImpl for DesignCanvas {
                     }
                     this.pen_tangent.set(Some(*anchor + delta));
                 }
-                editor.refresh();
+                editor.refresh_preview_nodes(&[*id]);
             }
             Gesture::NetworkPoint { node, point, start, original } => {
                 let mut delta = world - *start;
@@ -1348,10 +1364,10 @@ impl InputElementImpl for DesignCanvas {
             }
         }
         drop(gesture);
-        this.invalidate_visual();
-        if camera_changed {
-            this.emit(CanvasEvent::Camera);
+        if resize_revision.is_some_and(|revision| revision != this.editor.borrow().revision) {
+            this.emit(CanvasEvent::ResizePreview);
         }
+        this.invalidate_visual();
     }
     fn on_pointer_released(this: &Self, e: &PointerReleasedEventArgs) {
         Self::parent_on_pointer_released(this, e);
@@ -1370,8 +1386,18 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
+        let screen = e.get_position(Some(this));
+        if this.release_ruler(Point::new(screen.x, screen.y), e.pointer().id(), e.key_modifiers()) {
+            e.pointer().capture(None); e.set_handled(true); return;
+        }
+        if this.pan_pointer(Point::new(screen.x, screen.y)) {
+            *this.gesture.borrow_mut() = Gesture::None;
+            e.pointer().capture(None);
+            e.set_handled(true);
+            return;
+        }
         if this.linear_gradient_active() {
-            this.linear_gradient_move(this.world(e.get_position(Some(this))));
+            this.linear_gradient_move(this.world(screen));
         }
         if this.finish_linear_gradient_edit() {
             e.pointer().capture(None);
@@ -1414,21 +1440,49 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
+        let mut gesture = std::mem::replace(&mut *this.gesture.borrow_mut(), Gesture::None);
+        this.activate_edge_drag(&mut gesture, Point::new(release_screen.x, release_screen.y));
+        // Hosts may coalesce the last move into the release event.
+        match &mut gesture {
+            move_drag @ Gesture::Move { .. } => this.update_free_move(
+                move_drag, this.world(release_screen), e.key_modifiers().contains(KeyModifiers::SHIFT),
+            ),
+            Gesture::Scale(drag) => drag.update(&mut this.editor.borrow_mut(), this.world(release_screen), e.key_modifiers().contains(KeyModifiers::ALT)),
+            Gesture::Draw(drag) => drag.update(this, this.world(release_screen), e.key_modifiers(), true),
+            Gesture::LineEndpoint(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
+            Gesture::Resize(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
+            Gesture::Rotate(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
+            Gesture::RotationOrigin(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
+            Gesture::MultiResize(drag) => drag.update(this, this.world(release_screen), e.key_modifiers()),
+            _ => {}
+        }
         this.snap_guides.set((None, None));
         this.layout_grids.borrow_mut().clear_snap();
-        let gesture = std::mem::replace(&mut *this.gesture.borrow_mut(), Gesture::None);
         // Clear the gesture before releasing capture: capture-lost is synchronous.
         e.pointer().capture(None);
         match gesture {
-            Gesture::Marquee {
-                start,
-                current,
-                additive,
-            } => {
-                this.editor
-                    .borrow_mut()
-                    .select_rect(Rect::from_points(start, current), additive);
-                this.emit(CanvasEvent::Selection);
+            Gesture::EdgePress { world, modifiers, clicks, .. } => {
+                this.set_resize_hover(None);
+                if !this.cycle_pointer_click(world, modifiers) {
+                    this.select_at_pointer(world, modifiers, clicks, None);
+                }
+            }
+            Gesture::Rotate(drag) => drag.finish(this),
+            Gesture::MultiResize(drag) => drag.finish(this),
+            Gesture::Resize(drag) => drag.finish(this),
+            Gesture::AltDrag(drag) => drag.finish(this, this.world(release_screen), e.key_modifiers()),
+            Gesture::Marquee(mut drag) => {
+                let mut editor = this.editor.borrow_mut();
+                if drag.update(this, &editor, this.world(release_screen), e.key_modifiers())
+                    && editor.selection != drag.preview {
+                    editor.selection = drag.preview;
+                    drop(editor);
+                    this.emit(CanvasEvent::Selection);
+                }
+            }
+            Gesture::Scale(drag) => {
+                let changed = drag.commit(&mut this.editor.borrow_mut());
+                this.emit(if changed { CanvasEvent::Document } else { CanvasEvent::Selection });
             }
             Gesture::Move { moved: false, .. } => {
                 this.editor.borrow_mut().cancel_transaction();
@@ -1436,21 +1490,27 @@ impl InputElementImpl for DesignCanvas {
             Gesture::Pencil { id, .. } => {
                 let mut editor = this.editor.borrow_mut();
                 normalize_drawn_vector(&mut editor, id);
-                editor.commit_transaction();
+                this.commit_created_layer(&mut editor, id);
                 drop(editor);
                 this.tool.set(Tool::Select);
                 this.emit(CanvasEvent::Document);
             }
+            Gesture::Draw(drag) => {
+                this.commit_created_layer(&mut this.editor.borrow_mut(), drag.id);
+                this.tool.set(Tool::Select);
+                this.emit(CanvasEvent::Document);
+                if drag.tool == Tool::Text {
+                    this.emit(CanvasEvent::EditText(drag.id));
+                }
+            }
             Gesture::Move { .. }
-            | Gesture::Resize { .. }
-            | Gesture::Rotate { .. }
+            | Gesture::LineEndpoint(_)
             | Gesture::VectorPoint { .. }
             | Gesture::VectorBend { .. }
             | Gesture::NetworkPoint { .. }
-            | Gesture::NetworkBend { .. }
-            | Gesture::Draw { .. } => {
+            | Gesture::NetworkBend { .. } => {
                 this.editor.borrow_mut().commit_transaction();
-                this.tool.set(Tool::Select);
+                if this.tool.get() != Tool::Scale { this.tool.set(Tool::Select); }
                 this.emit(CanvasEvent::Document);
             }
             _ => {}
@@ -1459,6 +1519,13 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_pointer_capture_lost(this: &Self, e: &PointerCaptureLostEventArgs) {
         Self::parent_on_pointer_capture_lost(this, e);
+        if this.lost_ruler_capture(e.pointer().id()) { return; }
+        if matches!(*this.gesture.borrow(), Gesture::Pan { .. }) {
+            // A temporary hand drag can coexist with an unfinished pen path.
+            // Losing camera capture must never roll back that transaction.
+            *this.gesture.borrow_mut() = Gesture::None;
+            return;
+        }
         if this.cancel_linear_gradient_gesture() { return; }
         if this.cancel_corner_radius_gesture() { return; }
         if this.cancel_stroke_width_gesture() { return; }
@@ -1476,6 +1543,8 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_pointer_exited(this: &Self, e: &PointerEventArgs) {
         Self::parent_on_pointer_exited(this, e);
+        this.clear_measurement();
+        this.set_resize_hover(None);
         this.clear_gradient_hover();
         this.clear_corner_radius_hover();
         this.clear_stroke_width_hover();
@@ -1485,6 +1554,8 @@ impl InputElementImpl for DesignCanvas {
             if let Some(id) = this.hover.take() {
                 this.emit(CanvasEvent::PrototypeTrigger(id, core::Trigger::MouseLeave));
             }
+        } else if this.hover.take().is_some() {
+            this.invalidate_visual();
         }
     }
     fn on_pointer_wheel_changed(this: &Self, e: &PointerWheelEventArgs) {
@@ -1514,9 +1585,17 @@ impl InputElementImpl for DesignCanvas {
         } else {
             v.pan = v.pan + Point::new(e.delta().x * 36.0, e.delta().y * 36.0);
         }
-        this.viewport.set(v);
-        this.invalidate_visual();
-        this.emit(CanvasEvent::Camera);
+        this.update_camera(v);
+    }
+    fn on_lost_focus(this: &Self, e: &FocusChangedEventArgs) {
+        Self::parent_on_lost_focus(this, e);
+        this.cancel_guide_drag();
+        this.clear_measurement();
+        if matches!(*this.gesture.borrow(), Gesture::Marquee(_) | Gesture::AltDrag(_) | Gesture::Resize(_) | Gesture::MultiResize(_) | Gesture::Rotate(_) | Gesture::RotationOrigin(_)) {
+            this.cancel();
+        }
+        // KeyUp is routed to the new focus owner.
+        this.space.set(false);
     }
     fn on_key_down(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_down(this, e);
@@ -1528,6 +1607,19 @@ impl InputElementImpl for DesignCanvas {
             )));
             e.set_handled(true);
             return;
+        }
+        if this.ruler_alt(e.key, true) || this.ruler_key(e) { e.set_handled(true); return; }
+        if this.rotation_key(e) { e.set_handled(true); return; }
+        if this.rotation_modifier(e, true) || this.resize_modifier(e, true) || this.marquee_modifier(e, true) || this.alt_drag_modifier(e, true) {
+            e.set_handled(true);
+            return;
+        }
+        if matches!(e.key, Key::LeftAlt | Key::RightAlt) && this.measure_at_pointer(e.key_modifiers | KeyModifiers::ALT) {
+            e.set_handled(true);
+            return;
+        }
+        if matches!(e.key, Key::LeftCtrl | Key::RightCtrl | Key::LWin | Key::RWin) && e.key_modifiers.contains(KeyModifiers::ALT) {
+            this.measure_at_pointer(e.key_modifiers);
         }
         if this.linear_gradient_key(e.key, e.key_modifiers) { e.set_handled(true); return; }
         if e.key == Key::Escape && this.cancel_corner_radius_gesture() {
@@ -1541,6 +1633,13 @@ impl InputElementImpl for DesignCanvas {
             return;
         }
         if e.key == Key::Space {
+            this.clear_measurement();
+            if this.space.replace(true) {
+                e.set_handled(true);
+                return;
+            }
+            this.set_resize_hover(None);
+            if this.hover.take().is_some() { this.invalidate_visual(); }
             this.cancel_linear_gradient_gesture();
             this.clear_gradient_hover();
             this.cancel_corner_radius_gesture();
@@ -1549,7 +1648,6 @@ impl InputElementImpl for DesignCanvas {
             this.clear_stroke_width_hover();
             this.cancel_network_bucket_gesture();
             this.clear_bucket_hover();
-            this.space.set(true);
             e.set_handled(true);
             return;
         }
@@ -1583,7 +1681,6 @@ impl InputElementImpl for DesignCanvas {
             .key_modifiers
             .intersects(KeyModifiers::CONTROL | KeyModifiers::META);
         let shift = e.key_modifiers.contains(KeyModifiers::SHIFT);
-        let alt = e.key_modifiers.contains(KeyModifiers::ALT);
         if matches!(e.key, Key::Left | Key::Right | Key::Up | Key::Down | Key::Enter | Key::Tab | Key::Delete | Key::Back) {
             this.finish_corner_radius_edit();
             this.finish_network_bucket();
@@ -1607,61 +1704,14 @@ impl InputElementImpl for DesignCanvas {
             e.set_handled(true);
             return;
         }
-        let action = if command {
-            match e.key {
-                Key::Z => Some(if shift { "redo" } else { "undo" }),
-                Key::Y => Some("redo"),
-                Key::C => Some("copy"),
-                Key::X => Some("cut"),
-                Key::V => Some("paste"),
-                Key::D => Some("duplicate"),
-                Key::A => Some(if shift { "select-inverse" } else { "select-all" }),
-                Key::G => Some(if alt {
-                    "frame-selection"
-                } else if shift {
-                    "ungroup"
-                } else {
-                    "group"
-                }),
-                Key::S => Some("save"),
-                Key::O => Some("open"),
-                Key::K => Some(if shift {
-                    "place-image"
-                } else if alt {
-                    "component"
-                } else {
-                    "actions"
-                }),
-                _ => None,
-            }
-        } else {
-            match e.key {
-                Key::Delete | Key::Back => Some("delete"),
-                Key::V => Some("select"),
-                Key::F => Some(if shift { "section" } else { "frame" }),
-                Key::R => Some("rectangle"),
-                Key::O => Some("ellipse"),
-                Key::L => Some("line"),
-                Key::P => Some(if shift { "pencil" } else { "pen" }),
-                Key::B if shift && this.vector_node.get().is_some() => Some("network-bucket"),
-                Key::T => Some("text"),
-                Key::H => Some("hand"),
-                Key::C => Some("comment"),
-                Key::A if shift => Some("auto-layout"),
-                Key::S if shift => Some("section"),
-                Key::D1 => Some("fit"),
-                Key::D2 => Some("fit-selection"),
-                Key::K => Some("actions"),
-                _ => None,
-            }
-        };
+        let action = this.editor_shortcut(e);
         if let Some(action) = action {
             if !matches!(action, "undo" | "redo") { this.cancel_layout_drag(); }
             this.emit(CanvasEvent::Action(action));
             e.set_handled(true);
             return;
         }
-        let step = if shift { 10.0 } else { 1.0 };
+        let step = this.nudge.get().step(shift);
         let delta = match e.key {
             Key::Left => Some((-step, 0.0)),
             Key::Right => Some((step, 0.0)),
@@ -1671,7 +1721,15 @@ impl InputElementImpl for DesignCanvas {
         };
         if let Some((x, y)) = delta {
             this.cancel_layout_drag();
-            if let (Some(id), Some(point)) = (this.vector_node.get(), this.vector_point.get()) {
+            if let Some(id) = this.vector_node.get() {
+                if let Some(point) = this.network_point.get() {
+                    let changed = this.editor.borrow_mut().nudge_network_points(id, point,
+                        &this.network_vertices.borrow(), Point::new(x, y));
+                    if changed { this.emit(CanvasEvent::Document); this.invalidate_visual(); }
+                    e.set_handled(true);
+                    return;
+                }
+                let Some(point) = this.vector_point.get() else { e.set_handled(true); return; };
                 let mut editor = this.editor.borrow_mut();
                 let world = editor
                     .document
@@ -1683,8 +1741,9 @@ impl InputElementImpl for DesignCanvas {
                 if let Some(world) = world {
                     editor.move_vector_point(id, point, world + Point::new(x, y));
                 }
-            } else {
-                this.editor.borrow_mut().move_selection(x, y);
+            } else if !this.editor.borrow_mut().nudge_selection(Point::new(x, y)) {
+                e.set_handled(true);
+                return;
             }
             this.emit(CanvasEvent::Document);
             this.invalidate_visual();
@@ -1693,6 +1752,14 @@ impl InputElementImpl for DesignCanvas {
     }
     fn on_key_up(this: &Self, e: &KeyEventArgs) {
         Self::parent_on_key_up(this, e);
+        if this.ruler_alt(e.key, false) || this.rotation_modifier(e, false) || this.resize_modifier(e, false) || this.marquee_modifier(e, false) || this.alt_drag_modifier(e, false) {
+            e.set_handled(true);
+            return;
+        }
+        if matches!(e.key, Key::LeftAlt | Key::RightAlt) { this.clear_measurement(); }
+        if matches!(e.key, Key::LeftCtrl | Key::RightCtrl | Key::LWin | Key::RWin) && e.key_modifiers.contains(KeyModifiers::ALT) {
+            this.measure_at_pointer(e.key_modifiers);
+        }
         if e.key == Key::Space {
             this.space.set(false);
             e.set_handled(true);
@@ -1803,6 +1870,20 @@ fn label(ctx: &mut DrawingContext, text: &str, point: Point, size: f64, color: &
     );
     ctx.draw_text(&text, ui(point));
 }
+/// Captions stay at a readable screen font size while the artboard zooms.
+fn canvas_caption(ctx: &mut DrawingContext, name: &str, origin: Point, screen_width: f64, color: &str) {
+    // The root-origin query includes 400 DIPs to the left of the viewport.
+    let width = (screen_width - 4.0).min(400.0);
+    if width < 20.0 || name.is_empty() { return; }
+    let caption = FormattedText::new(
+        name, CultureInfo::invariant_culture(), FlowDirection::LeftToRight,
+        Typeface::from_name("fonts:Inter#Inter"), 11.0, Some(brush(color)),
+    );
+    caption.set_max_text_width(width);
+    caption.set_max_line_count(1);
+    caption.set_trimming(<dyn ferroui_base::media::TextTrimming>::character_ellipsis());
+    ctx.draw_text(&caption, ui(origin));
+}
 fn render_vector_editor(
     ctx: &mut DrawingContext,
     path: &VectorPath,
@@ -1897,32 +1978,33 @@ impl VisualImpl for DesignCanvas {
     fn render(this: &Self, ctx: &mut DrawingContext) {
         let bounds = this.bounds();
         let mut v = this.viewport.get();
+        let resized = v.width != bounds.width || v.height != bounds.height;
         v.width = bounds.width;
         v.height = bounds.height;
-        if v.width <= 0.0 || v.height <= 0.0 {
+        // The browser surface reports 1×1 until its first real resize. A
+        // placeholder frame must not consume the pending document fit.
+        if v.width <= 1.0 || v.height <= 1.0 {
             return;
         }
         let editor = this.editor.borrow();
         let prototype_scene = this.prototype_scene.borrow();
         let doc = prototype_scene.as_ref().map(|scene| &scene.document).unwrap_or(&editor.document);
-        let roots: Vec<NodeId> = if let Some(scene) = prototype_scene.as_ref() {
-            vec![scene.root]
-        } else if let Some(root) = this.presentation.get() {
-            vec![root]
-        } else {
-            doc.page(editor.active_page)
-                .map(|p| p.children.clone())
-                .unwrap_or_default()
+        let presentation_root = prototype_scene.as_ref().map(|scene| scene.root).or(this.presentation.get());
+        let roots = match &presentation_root {
+            Some(root) => std::slice::from_ref(root),
+            None => doc.page(editor.active_page).map_or(&[][..], |page| page.children.as_slice()),
         };
-        let fitted = prototype_scene.is_none() && !this.initialized.replace(true);
+        let fitted = prototype_scene.is_none() && (!this.initialized.replace(true) || (resized && presentation_root.is_some()));
         if fitted {
             if let Some(bounds) = roots
                 .iter()
                 .filter_map(|&id| doc.world_bounds(id))
                 .reduce(|a, b| a.union(b))
             {
-                v.fit(bounds, 65.0);
-                if this.presentation.get().is_none() {
+                if presentation_root.is_some() {
+                    crate::prototype::fit_preview_frame(&mut v, bounds);
+                } else {
+                    v.fit(bounds, 65.0);
                     v.pan.y -= 22.0;
                 }
             }
@@ -1951,6 +2033,8 @@ impl VisualImpl for DesignCanvas {
             "#181818"
         } else if this.dark.get() {
             "#252525"
+        } else if this.show_outlines.get() && prototype_scene.is_none() {
+            "#FCFCFC"
         } else {
             &page_hex
         });
@@ -1992,14 +2076,23 @@ impl VisualImpl for DesignCanvas {
             let mut painter = this.painter.borrow_mut();
             painter.set_raster_scale(v.zoom * display_scale);
             if prototype_scene.is_none() && this.presentation.get().is_none() {
-                painter.render_editor(ctx, &editor, &roots, v.visible_rect());
+                if this.show_outlines.get() {
+                    this.outlines.borrow_mut().render(ctx, &editor, v.visible_rect(), v.zoom,
+                        this.outline_hidden.get(), this.outline_bounds.get(), this.dark.get(), &[]);
+                } else {
+                    painter.render_editor(ctx, &editor, roots, v.visible_rect());
+                }
+                if let Gesture::AltDrag(drag) = &*this.gesture.borrow() {
+                    drag.render(ctx, this, &editor, v.visible_rect(), v.zoom * display_scale);
+                }
             } else {
-                painter.render(ctx, doc, &roots, v.visible_rect());
+                painter.render(ctx, doc, roots, v.visible_rect());
             }
         }
         ctx.pop(camera);
         if this.presentation.get().is_none() && prototype_scene.is_none() {
             this.layout_grids.borrow_mut().render(ctx, &editor, v);
+            this.render_ruler_guides(ctx, &editor, v);
         }
         if let Some(current) = this.presentation.get() {
             for &(id, position) in this.overlays.borrow().iter().filter(|_| prototype_scene.is_none()) {
@@ -2037,13 +2130,7 @@ impl VisualImpl for DesignCanvas {
                     ctx.pop(transform);
                 }
             }
-            label(
-                ctx,
-                "Esc to return to editor",
-                Point::new(20.0, v.height - 30.0),
-                11.0,
-                "#AAAAAA",
-            );
+
             return;
         }
         let blue = pen(0xFF0D99FF, 1.0);
@@ -2059,50 +2146,72 @@ impl VisualImpl for DesignCanvas {
                 ctx.draw_line(&guide, UiPoint::new(0.0, y), UiPoint::new(v.width, y));
             }
         }
-        for &id in &roots {
-            if let Some(n) = doc.nodes.get(&id) {
-                if n.kind.is_container() && n.visible {
-                    if let Some(bounds) = doc.world_bounds(id) {
-                        let p = v.world_to_screen(Point::new(bounds.x, bounds.y));
-                        if p.x > -400.0 && p.x < v.width && p.y > -30.0 && p.y < v.height {
-                            label(
-                                ctx,
-                                &n.name,
-                                Point::new(p.x, p.y - 20.0),
-                                11.0,
-                                if matches!(n.kind, NodeKind::Component | NodeKind::Instance) {
-                                    "#9747FF"
-                                } else if this.dark.get() {
-                                    "#999999"
-                                } else {
-                                    "#777777"
-                                },
-                            );
+        let captions = Rect::from_points(
+            v.screen_to_world(Point::new(-400.0, -30.0)),
+            v.screen_to_world(Point::new(v.width, v.height)),
+        );
+        slices::draw(ctx, &editor, v);
+        for (id, origin) in editor.scene.root_container_origins_in(captions) {
+            let node = &doc.nodes[&id];
+            let point = v.world_to_screen(origin);
+            let color = if matches!(node.kind, NodeKind::Component | NodeKind::Instance) {
+                "#9747FF"
+            } else if this.dark.get() { "#999999" } else { "#777777" };
+            // Reuse the world transform prepared by the spatial index, including shear/rotation.
+            let transform = editor.scene.transforms[&id];
+            let local = node.local_bounds();
+            let world_width = transform.a.abs() * local.width + transform.c.abs() * local.height;
+            canvas_caption(ctx, &node.name, Point::new(point.x, point.y - 20.0), world_width * v.zoom, color);
+        }
+        let measuring = this.measurement_target();
+        if let Some(id) = measuring.or_else(|| this.highlighted_layer()) {
+            let outline = if measuring.is_some() { pen(measure::GUIDE_COLOR, 1.0) } else { blue.clone() };
+            if !editor.selection.contains(&id) && doc.effective_visible(id) {
+                if let (Some(node), Some(transform)) = (doc.nodes.get(&id), editor.scene.transforms.get(&id)) {
+                    let points = node.local_bounds().corners()
+                        .map(|p| ui(v.world_to_screen(transform.apply(p))));
+                    if node.kind == NodeKind::Line {
+                        ctx.draw_line(&outline, points[0], points[2]);
+                    } else {
+                        for i in 0..4 {
+                            ctx.draw_line(&outline, points[i], points[(i + 1) % 4]);
                         }
                     }
                 }
             }
         }
-        if let Some(id) = this.hover.get() {
-            if !editor.selection.contains(&id) {
-                if let Some(b) = doc.world_bounds(id) {
-                    let a = v.world_to_screen(Point::new(b.x, b.y));
-                    ctx.draw_rectangle_outline(
-                        &blue,
-                        UiRect::new(a.x, a.y, b.width * v.zoom, b.height * v.zoom),
-                        0.0,
-                    );
-                }
-            }
-        }
         let white = brush("#FFFFFF");
-        for &id in &editor.selection {
+        let scale_mode = this.tool.get() == Tool::Scale;
+        let gesture = this.gesture.borrow();
+        let marquee = match &*gesture {
+            Gesture::Marquee(drag) => Some(drag),
+            _ => None,
+        };
+        if marquee.is_none() && (scale_mode || (this.tool.get() == Tool::Select && editor.selection.len() > 1
+            && matches!(*gesture, Gesture::None | Gesture::MultiResize(_) | Gesture::RotationOrigin(_)))) {
+            this.render_scale_handles(ctx, &editor, v);
+        }
+        let selection = match &*gesture {
+            Gesture::Marquee(drag) => drag.preview.as_slice(),
+            Gesture::AltDrag(drag) if drag.is_previewing(&editor) => &[],
+            _ => editor.selection.as_slice(),
+        };
+        for &id in selection {
             let Some(n) = doc.nodes.get(&id) else {
                 continue;
             };
-            let Some(t) = doc.world_transform(id) else {
+            let Some(&t) = editor.scene.transforms.get(&id) else {
                 continue;
             };
+            if marquee.is_some() {
+                let points = n.local_bounds().corners().map(|p| ui(v.world_to_screen(t.apply(p))));
+                if n.kind == NodeKind::Line {
+                    ctx.draw_line(&blue, points[0], points[2]);
+                } else {
+                    for i in 0..4 { ctx.draw_line(&blue, points[i], points[(i + 1) % 4]); }
+                }
+                continue;
+            }
             if this.render_linear_gradient(ctx, &editor, id) { continue; }
             if this.render_image_crop(ctx, n, t, v) { continue; }
             if this.render_stroke_width(ctx, &editor, id, t, v) { continue; }
@@ -2133,10 +2242,29 @@ impl VisualImpl for DesignCanvas {
                 .local_bounds()
                 .corners()
                 .map(|p| v.world_to_screen(t.apply(p)));
+            if scale_mode {
+                for i in 0..4 { ctx.draw_line(&blue, ui(corners[i]), ui(corners[(i + 1) % 4])); }
+                continue;
+            }
+            let show_grips = editor.selection.len() == 1 && this.tool.get() == Tool::Select
+                && !this.space.get() && !doc.effective_locked(id) && doc.effective_visible(id)
+                && t.inverse().is_some();
+            if n.kind == NodeKind::Line {
+                ctx.draw_line(&blue, ui(corners[0]), ui(corners[2]));
+                if show_grips {
+                    for point in [corners[0], corners[2]] {
+                        ctx.draw_ellipse_at(Some(&white), Some(&blue), ui(point), 3.5, 3.5);
+                    }
+                }
+                continue;
+            }
             for i in 0..4 {
                 ctx.draw_line(&blue, ui(corners[i]), ui(corners[(i + 1) % 4]));
             }
-            if editor.selection.len() == 1 {
+            if show_grips {
+                if let Some((_, edge)) = this.hovered_resize_edge.get().filter(|(target, _)| *target == id) {
+                    ctx.draw_line(&pen(0xFF0D99FF, 2.0), ui(corners[edge]), ui(corners[(edge + 1) % 4]));
+                }
                 for p in corners {
                     ctx.draw_rectangle(
                         Some(&white),
@@ -2147,40 +2275,18 @@ impl VisualImpl for DesignCanvas {
                         &BoxShadows::default(),
                     );
                 }
-                let top = (corners[0] + corners[1]) * 0.5;
-                let center = (corners[0] + corners[2]) * 0.5;
-                let direction = top - center;
-                let length = direction.distance(Point::new(0.0, 0.0)).max(0.001);
-                let rotate = top + direction * (24.0 / length);
-                ctx.draw_line(&blue, ui(top), ui(rotate));
-                ctx.draw_ellipse_at(Some(&white), Some(&blue), ui(rotate), 3.0, 3.0);
-                if let Some(b) = doc.world_bounds(id) {
-                    let p = v.world_to_screen(Point::new(b.x + b.width / 2.0, b.bottom()));
-                    let value = format!("{} × {}", n.width.round(), n.height.round());
-                    let width = value.len() as f64 * 6.2 + 16.0;
-                    let fill = brush("#0D99FF");
-                    ctx.draw_rectangle(
-                        Some(&fill),
-                        None,
-                        UiRect::new(p.x - width / 2.0, p.y + 9.0, width, 22.0),
-                        4.0,
-                        4.0,
-                        &BoxShadows::default(),
-                    );
-                    label(
-                        ctx,
-                        &value,
-                        Point::new(p.x - width / 2.0 + 8.0, p.y + 13.0),
-                        10.0,
-                        "#FFFFFF",
-                    );
-                }
+            }
+            if editor.selection.len() == 1 {
+                let bounds = Rect::from_points(corners[0], corners[2])
+                    .union(Rect::from_points(corners[1], corners[3]));
+                if measuring.is_none() && !matches!(*gesture, Gesture::Rotate(_)) { this.draw_size_badge(ctx, resize::BadgeValue::Dimensions(n.width, n.height), bounds, v); }
                 this.render_corner_radius(ctx, &editor, id);
             }
         }
-        if let Gesture::Marquee { start, current, .. } = &*this.gesture.borrow() {
-            let a = v.world_to_screen(*start);
-            let b = v.world_to_screen(*current);
+        this.render_rotation(ctx, &editor, v, &gesture);
+        if let Some(drag) = marquee {
+            let a = v.world_to_screen(drag.start);
+            let b = v.world_to_screen(drag.current);
             let fill = brush("#200D99FF");
             ctx.draw_rectangle(
                 Some(&fill),
@@ -2191,7 +2297,9 @@ impl VisualImpl for DesignCanvas {
                 &BoxShadows::default(),
             );
         }
+        if let Gesture::AltDrag(drag) = &*gesture { drag.draw_guides(ctx, &editor, v); }
         this.render_layout_drag(ctx, v);
+        this.draw_measurements(ctx, &editor, v);
         for comment in &doc.comments {
             if !comment.resolved && doc.comment_page(comment) == Some(editor.active_page) {
                 let p = v.world_to_screen(comment.position);
@@ -2200,31 +2308,6 @@ impl VisualImpl for DesignCanvas {
                 label(ctx, "C", Point::new(p.x - 3.5, p.y - 6.0), 10.0, "#2A2200");
             }
         }
-        if this.show_rulers.get() {
-            let fill = brush("#F5F5F5");
-            ctx.draw_rectangle(
-                Some(&fill),
-                None,
-                UiRect::new(0.0, 0.0, v.width, 20.0),
-                0.0,
-                0.0,
-                &BoxShadows::default(),
-            );
-            let step = 100.0 * if v.zoom < 0.3 { 5.0 } else { 1.0 };
-            let mut x = (v.visible_rect().x / step).floor() * step;
-            let tick = pen(0xFFBBBBBB, 1.0);
-            while x < v.visible_rect().right() {
-                let px = v.world_to_screen(Point::new(x, 0.0)).x;
-                ctx.draw_line(&tick, UiPoint::new(px, 14.0), UiPoint::new(px, 20.0));
-                label(
-                    ctx,
-                    &format!("{x:.0}"),
-                    Point::new(px + 3.0, 3.0),
-                    9.0,
-                    "#777777",
-                );
-                x += step;
-            }
-        }
+        this.render_rulers(ctx, &editor, v);
     }
 }

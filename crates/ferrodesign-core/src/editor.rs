@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
+/// The authored layer dimension changed by a batch resize.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayerDimension { Width, Height }
+
 const RENDER_CHANGE_HISTORY: usize = 128;
 const RENDER_CHANGE_NODE_LIMIT: usize = 4096;
 const RENDER_CHANGE_RETAINED_IDS: usize = 16384;
@@ -174,6 +178,7 @@ struct HistoryEntry {
     selection_after: Vec<NodeId>,
     page_before: NodeId,
     page_after: NodeId,
+    replaced_document: bool,
     node_only: bool,
 }
 #[derive(Clone, Debug)]
@@ -189,15 +194,26 @@ struct PendingTransaction {
     token: EditorTransactionToken,
     label: String,
     before: PendingSnapshot,
+    replaced_document: bool,
     selection: Vec<NodeId>,
     page: NodeId,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Clipboard {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub guides: BTreeMap<NodeId, Vec<Guide>>,
     pub roots: Vec<NodeId>,
     pub nodes: BTreeMap<NodeId, Node>,
     pub bounds: Option<Rect>,
 }
+struct DuplicatePlacement {
+    token: EditorRenderToken,
+    page: NodeId,
+    selection: Vec<NodeId>,
+    grab: Point,
+    delta: Point,
+}
+
 /// Committed history is a node delta. A gesture captures once, updates at pointer
 /// frequency, and commits a single undo step with stable selection identities.
 pub struct Editor {
@@ -221,6 +237,7 @@ pub struct Editor {
     layout_node_count: usize,
     history_limit: usize,
     paste_count: u32,
+    duplicate_placement: Option<DuplicatePlacement>,
     render_changes: RenderChangeLog,
 }
 impl Default for Editor {
@@ -252,6 +269,7 @@ impl Editor {
             layout_node_count: 0,
             history_limit: 100,
             paste_count: 0,
+            duplicate_placement: None,
             render_changes: RenderChangeLog::default(),
         };
         e.refresh();
@@ -265,6 +283,11 @@ impl Editor {
             identity: self.render_changes.identity.clone(),
             sequence: self.render_changes.sequence,
         }
+    }
+    /// Imported files can reuse every page and node ID. A document replacement
+    /// starts a new render history, including when undo or redo crosses the open.
+    pub fn owns_render_token(&self, token: &EditorRenderToken) -> bool {
+        Arc::ptr_eq(&token.identity, &self.render_changes.identity)
     }
     /// Return every dependency changed since `token`, or request a full scene
     /// preparation. Consumers never need to assert that their own dirty list is
@@ -534,6 +557,7 @@ impl Editor {
                 token: EditorTransactionToken { identity: Arc::new(()) },
                 label: label.into(),
                 before: PendingSnapshot::Document(self.document.clone()),
+                replaced_document: false,
                 selection: self.selection.clone(),
                 page: self.active_page,
             })
@@ -554,6 +578,12 @@ impl Editor {
             self.begin_transaction(label);
             return;
         }
+        self.begin_scoped_node_transaction(ids, label);
+    }
+
+    /// The caller has enumerated every existing node that this operation can
+    /// change, including layout participants. Hierarchy and metadata stay fixed.
+    fn begin_scoped_node_transaction(&mut self, ids: &[NodeId], label: impl Into<String>) {
         if self.pending.is_some() {
             self.capture_pending_nodes(ids, false);
             return;
@@ -561,6 +591,7 @@ impl Editor {
         self.pending = Some(PendingTransaction {
             token: EditorTransactionToken { identity: Arc::new(()) },
             label: label.into(),
+            replaced_document: false,
             before: PendingSnapshot::Nodes {
                 nodes: ids.iter().filter_map(|id| {
                     self.document.nodes.get(id).map(|node| (*id, node.clone()))
@@ -651,6 +682,7 @@ impl Editor {
             selection_after: self.selection.clone(),
             page_before: p.page,
             page_after: self.active_page,
+            replaced_document: p.replaced_document,
             node_only,
         });
         if self.undo.len() > self.history_limit {
@@ -669,6 +701,7 @@ impl Editor {
             self.promote_node_transaction(true);
         }
         if let Some(p) = self.pending.take() {
+            if p.replaced_document { self.render_changes = RenderChangeLog::default(); }
             self.selection = p.selection;
             self.active_page = p.page;
             match p.before {
@@ -767,6 +800,7 @@ impl Editor {
                 selection_after: self.selection.clone(),
                 page_before,
                 page_after: self.active_page,
+                replaced_document: false,
                 node_only: true,
             });
             if self.undo.len() > self.history_limit {
@@ -796,6 +830,10 @@ impl Editor {
     pub fn redo_label(&self) -> Option<&str> {
         self.redo.last().map(|e| e.label.as_str())
     }
+    /// A removed page's last camera is useful while Undo or Redo can reopen it.
+    pub fn can_revisit_page(&self, id: NodeId) -> bool {
+        self.undo.iter().chain(&self.redo).any(|entry| entry.page_before == id || entry.page_after == id)
+    }
     pub fn history_len(&self) -> usize {
         self.undo.len()
     }
@@ -807,6 +845,7 @@ impl Editor {
         let Some(e) = self.undo.pop() else {
             return false;
         };
+        if e.replaced_document { self.render_changes = RenderChangeLog::default(); }
         for (id, (before, _)) in &e.nodes {
             if let Some(n) = before {
                 self.document.nodes.insert(*id, n.clone());
@@ -834,6 +873,7 @@ impl Editor {
         let Some(e) = self.redo.pop() else {
             return false;
         };
+        if e.replaced_document { self.render_changes = RenderChangeLog::default(); }
         for (id, (_, after)) in &e.nodes {
             if let Some(n) = after {
                 self.document.nodes.insert(*id, n.clone());
@@ -897,29 +937,48 @@ impl Editor {
             .unwrap_or_default()
     }
     pub fn select_rect(&mut self, r: Rect, additive: bool) {
-        if !additive {
-            self.selection.clear()
-        }
-        let mut ids: Vec<_> = self
-            .scene
-            .spatial
-            .query(r)
-            .into_iter()
-            .filter(|id| {
-                !self.document.effective_locked(*id)
-                    && self
-                        .document
-                        .world_bounds(*id)
-                        .is_some_and(|b| r.contains_rect(b))
-            })
-            .collect();
-        let set: BTreeSet<_> = ids.iter().copied().collect();
-        ids.retain(|id| !has_selected_ancestor(&self.document, *id, &set));
-        for id in ids {
-            if !self.selection.contains(&id) {
-                self.selection.push(id)
+        self.selection = self.marquee_selection(r, additive, false);
+    }
+
+    /// Project a marquee without changing selection, history, or the document.
+    /// Normal drags keep the outermost enclosed layer of each branch. A deep
+    /// drag picks the innermost enclosed layers, including empty containers.
+    pub fn marquee_selection(&self, rect: Rect, additive: bool, deep: bool) -> Vec<NodeId> {
+        let mut hits = self.scene.spatial.query(rect);
+        hits.retain(|id| {
+            let node = &self.document.nodes[id];
+            !self.document.effective_locked(*id)
+                && self.scene.transforms.get(id)
+                    .is_some_and(|t| rect.contains_rect(t.transform_rect(node.local_bounds())))
+        });
+        self.marquee_from_enclosed(hits, additive, deep)
+    }
+
+    /// Apply hierarchy and range rules to the current view's enclosed, editable layers.
+    pub fn marquee_from_enclosed(&self, mut hits: Vec<NodeId>, additive: bool, deep: bool) -> Vec<NodeId> {
+        if deep {
+            let mut ancestors = BTreeSet::new();
+            for id in &hits {
+                let mut parent = self.document.nodes[id].parent;
+                while let Some(id) = parent {
+                    if !ancestors.insert(id) {
+                        break;
+                    }
+                    parent = self.document.nodes.get(&id).and_then(|n| n.parent);
+                }
             }
+            hits.retain(|id| !ancestors.contains(id));
+        } else {
+            let set = hits.iter().copied().collect();
+            hits.retain(|id| !has_selected_ancestor(&self.document, *id, &set));
         }
+        if !additive || self.selection.is_empty() {
+            return hits;
+        }
+        let mut result = self.selection.clone();
+        let selected: BTreeSet<_> = result.iter().copied().collect();
+        result.extend(hits.into_iter().filter(|id| !selected.contains(id)));
+        result
     }
     pub fn hit_test(&self, p: Point, tolerance: f64) -> Option<NodeId> {
         self.scene.hit_test(&self.document, p, tolerance, false)
@@ -939,8 +998,11 @@ impl Editor {
             .reduce(|a, b| a.union(b))
     }
     pub fn root_selection(&self) -> Vec<NodeId> {
-        let selected: BTreeSet<_> = self.selection.iter().copied().collect();
-        self.selection
+        self.root_selection_for(&self.selection)
+    }
+    pub fn root_selection_for(&self, ids: &[NodeId]) -> Vec<NodeId> {
+        let selected: BTreeSet<_> = ids.iter().copied().collect();
+        ids
             .iter()
             .filter(|id| {
                 !self.document.effective_locked(**id)
@@ -1100,34 +1162,119 @@ impl Editor {
         {
             return;
         }
-        self.edit("Resize layer", |e| {
-            if let Some(n) = e.document.nodes.get(&id) {
-                let (ow, oh) = (n.width, n.height);
-                let original_transform = n.local_transform();
-                if !e.document.nodes.get_mut(&id).unwrap().resize_vector_geometry(w.max(0.0), h.max(0.0)) {
-                    return;
-                }
-                e.document
-                    .apply_constraints(id, ow, oh, w.max(0.0), h.max(0.0));
-                if let Some(n) = e.document.nodes.get_mut(&id) {
-                    n.width = w.max(0.0);
-                    n.height = h.max(0.0);
-                    // Resizing preserves the transformed local origin, including
-                    // imported affine layers; dimensions change in local space.
-                    let resized_transform = n.local_transform();
-                    n.x += original_transform.e - resized_transform.e;
-                    n.y += original_transform.f - resized_transform.f;
-                }
-                e.document.layout_node(id);
-                if let Some(position) = position {
-                    if let Some(n) = e.document.nodes.get_mut(&id) {
-                        n.x = position.x;
-                        n.y = position.y;
-                    }
-                }
-            }
-        })
+        let resize = |editor: &mut Self| { editor.apply_resize(id, w.max(0.0), h.max(0.0), position); };
+        // Only containers can propagate constraints to children. Keep ordinary leaf drags
+        // on the node-scoped render journal, including their previews and undo records.
+        if self.layout_node_count == 0 && self.document.nodes.get(&id).is_some_and(|n| n.children.is_empty()) {
+            self.edit_nodes("Resize layer", &[id], resize);
+        } else {
+            self.edit("Resize layer", resize);
+        }
     }
+    fn apply_resize(&mut self, id: NodeId, width: f64, height: f64, position: Option<Point>) -> bool {
+        let Some(node) = self.document.nodes.get_mut(&id) else { return false; };
+        let old_size = (node.width, node.height);
+        let original = node.local_transform();
+        if !node.resize_vector_geometry(width, height) { return false; }
+        self.document.apply_constraints(id, old_size.0, old_size.1, width, height);
+        let node = self.document.nodes.get_mut(&id).unwrap();
+        node.width = width;
+        node.height = height;
+        // Preserve the transformed local origin, including imported affine geometry.
+        let resized = node.local_transform();
+        node.x += original.e - resized.e;
+        node.y += original.f - resized.f;
+        self.document.layout_node(id);
+        if let Some(position) = position {
+            let node = self.document.nodes.get_mut(&id).unwrap();
+            node.x = position.x;
+            node.y = position.y;
+        }
+        true
+    }
+
+    /// Apply evaluated inspector dimensions in one undo step. Resize parents first
+    /// so a selected child's explicit result wins over inherited constraints.
+    pub fn set_layer_dimensions(
+        &mut self, dimension: LayerDimension, values: &BTreeMap<NodeId, f64>,
+    ) -> Result<(), DocumentError> {
+        self.write_layer_dimensions(dimension, values, None)
+    }
+
+    /// Update an inspector scrub inside the caller's own transaction. Another
+    /// gesture cannot accidentally join it, even if it targets the same nodes.
+    pub fn preview_layer_dimensions(
+        &mut self, dimension: LayerDimension, values: &BTreeMap<NodeId, f64>, owner: &EditorTransactionToken,
+    ) -> Result<(), DocumentError> {
+        self.write_layer_dimensions(dimension, values, Some(owner))
+    }
+
+    fn write_layer_dimensions(
+        &mut self, dimension: LayerDimension, values: &BTreeMap<NodeId, f64>, owner: Option<&EditorTransactionToken>,
+    ) -> Result<(), DocumentError> {
+        if self.active_transaction_token().as_ref() != owner {
+            return Err(DocumentError::Invalid("Finish the active edit before resizing layers.".into()));
+        }
+        let binding = match dimension { LayerDimension::Width => "width", LayerDimension::Height => "height" };
+        let mut overrides = Vec::new();
+        let mut ids = Vec::with_capacity(values.len());
+        for (&id, &value) in values {
+            if !(1.0..=1.0e7).contains(&value) {
+                return Err(DocumentError::Invalid("Layer dimensions must be between 1 and 10,000,000.".into()));
+            }
+            let node = self.document.nodes.get(&id).ok_or(DocumentError::MissingNode(id))?;
+            if self.document.effective_locked(id) { continue; }
+            let original = match dimension { LayerDimension::Width => node.width, LayerDimension::Height => node.height };
+            if original != value && (node.variable_bindings.contains_key(binding) || node.component_source.is_some()) {
+                overrides.push(id);
+            }
+            ids.push(id);
+        }
+        if ids.is_empty() { return Ok(()); }
+        let has_children = ids.iter().any(|id| !self.document.nodes[id].children.is_empty());
+        if has_children {
+            ids.sort_by_cached_key(|id| {
+                std::iter::successors(self.document.nodes.get(id), |node| {
+                    node.parent.and_then(|parent| self.document.nodes.get(&parent))
+                }).take(MAX_DOCUMENT_DEPTH).count()
+            });
+        }
+        if owner.is_none() {
+            if has_children { self.begin_transaction("Resize layers"); }
+            else { self.begin_node_transaction(&ids, "Resize layers"); }
+        } else if has_children {
+            self.promote_node_transaction(false);
+        } else {
+            // Capture every requested leaf before the first mutation. A later
+            // invalid vector can roll the transaction back before a render refresh.
+            self.capture_pending_nodes(&ids, false);
+        }
+        for &id in &ids {
+            let node = &self.document.nodes[&id];
+            let value = values[&id];
+            let (width, height) = match dimension {
+                LayerDimension::Width => (value, node.height),
+                LayerDimension::Height => (node.width, value),
+            };
+            if width == node.width && height == node.height { continue; }
+            if !self.apply_resize(id, width, height, None) {
+                self.cancel_transaction();
+                return Err(DocumentError::Invalid("The new size would exceed the limits of the vector geometry.".into()));
+            }
+        }
+        for id in overrides {
+            let node = self.document.nodes.get_mut(&id).unwrap();
+            node.variable_bindings.remove(binding);
+            if node.component_source.is_some() { node.overridden_properties.insert(binding.into()); }
+        }
+        if owner.is_none() { self.commit_transaction(); }
+        else if has_children || self.has_auto_layout() { self.refresh(); }
+        else { self.refresh_preview_nodes(&ids); }
+        Ok(())
+    }
+
+    /// Rotate each selected root in its local coordinate system. For a rigid
+    /// collective orbit, use `rotate_selection_about` with a world-space pivot.
     pub fn rotate_selection(&mut self, degrees: f64) {
         if !degrees.is_finite() {
             return;
@@ -1196,7 +1343,9 @@ impl Editor {
                 }
             }
         }
+        let guides = nodes.keys().filter_map(|id| self.document.guides.get(id).map(|v| (*id,v.clone()))).collect();
         self.clipboard = Some(Clipboard {
+            guides,
             roots,
             nodes,
             bounds: self.selection_bounds(),
@@ -1231,7 +1380,7 @@ impl Editor {
     }
     pub fn paste_clipboard(&mut self, c: &Clipboard, parent: NodeId, offset: Point) -> Vec<NodeId> {
         self.edit("Paste layers", |e| {
-            let roots = clone_tree_into(&mut e.document, &c.nodes, &c.roots, parent, offset, false);
+            let roots = clone_tree_into(&mut e.document, &c.nodes, &c.guides, &c.roots, parent, offset, false);
             e.selection = roots.clone();
             roots
         })
@@ -1270,6 +1419,7 @@ impl Editor {
             let roots = clone_tree_into(
                 &mut editor.document,
                 &imported.document.nodes,
+                &imported.document.guides,
                 &[imported.root],
                 editor.active_page,
                 offset,
@@ -1279,10 +1429,30 @@ impl Editor {
             roots
         }))
     }
+    pub(crate) fn remember_duplicate_placement(&mut self, grab: Point, delta: Point) {
+        self.duplicate_placement = Some(DuplicatePlacement {
+            token: self.render_change_token(), page: self.active_page,
+            selection: self.selection.clone(), grab, delta,
+        });
+    }
+
     pub fn duplicate_selection(&mut self) -> Vec<NodeId> {
+        if let Some(last) = self.duplicate_placement.take().filter(|last| {
+            !self.has_active_transaction() && last.page == self.active_page
+                && last.token == self.render_change_token() && last.selection == self.selection
+        }) {
+            if let Some(&anchor) = self.selection.first() {
+                if let Ok(session) = LayoutTransferSession::for_copy(&self.document, &self.selection, anchor, last.grab) {
+                    if let Some(target) = session.repeat_copy_target(last.grab + last.delta) {
+                        return self.commit_drag_copy(&session, target).unwrap_or_default();
+                    }
+                }
+            }
+        }
         self.edit("Duplicate layers", |e| {
             let roots = e.root_selection();
             let source = e.document.nodes.clone();
+            let guides = e.document.guides.clone();
             let mut out = Vec::new();
             for id in roots {
                 let Some(n) = source.get(&id) else { continue };
@@ -1290,6 +1460,7 @@ impl Editor {
                 let ids = clone_tree_into(
                     &mut e.document,
                     &source,
+                    &guides,
                     &[id],
                     parent,
                     Point::new(24.0, 24.0),
@@ -1728,6 +1899,8 @@ impl Editor {
     pub fn load_json(&mut self, json: &str) -> Result<(), DocumentError> {
         let d = Document::from_json(json)?;
         self.edit("Open document", |e| {
+            e.render_changes = RenderChangeLog::default();
+            if let Some(pending) = &mut e.pending { pending.replaced_document = true; }
             e.active_page = d.pages[0].id;
             e.document = d;
             e.selection.clear()
@@ -2251,9 +2424,10 @@ mod performance_tests {
 fn assign_transform(n: &mut Node, t: Transform) {
     n.set_local_transform(t)
 }
-fn clone_tree_into(
+pub(crate) fn clone_tree_into(
     d: &mut Document,
     source: &BTreeMap<NodeId, Node>,
+    source_guides: &BTreeMap<NodeId, Vec<Guide>>,
     roots: &[NodeId],
     parent: NodeId,
     offset: Point,
@@ -2282,22 +2456,12 @@ fn clone_tree_into(
         let Some(original) = source.get(&old) else {
             continue;
         };
-        let mut n = original.clone();
-        n.id = remap[&old];
-        n.revision = 0;
-        n.children = n
-            .children
-            .iter()
-            .filter_map(|id| remap.get(id).copied())
-            .collect();
-        n.parent = if roots.contains(&old) {
-            Some(parent)
-        } else {
-            original.parent.and_then(|id| remap.get(&id).copied())
-        };
+        let mut n = original.clone_for_copy(remap[&old], &remap);
+        if let Some(guides) = source_guides.get(&old) { d.guides.insert(n.id, guides.clone()); }
         if roots.contains(&old) {
+            n.parent = Some(parent);
             n.x += offset.x;
-            n.y += offset.y
+            n.y += offset.y;
         }
         if instance {
             n.component_source = Some(old);
@@ -2311,18 +2475,6 @@ fn clone_tree_into(
             crate::components::remap_component_references(&mut n, &remap);
             if roots.contains(&old) && n.kind == NodeKind::Component && d.is_component_set(parent) {
                 n.variant_properties = crate::components::unique_variant_properties(d, parent, &n.variant_properties);
-            }
-        }
-        for i in &mut n.interactions {
-            match &mut i.action {
-                PrototypeAction::NavigateTo { target }
-                | PrototypeAction::OpenOverlay { target, .. }
-                | PrototypeAction::ScrollTo { target } => {
-                    if let Some(id) = remap.get(target) {
-                        *target = *id
-                    }
-                }
-                _ => {}
             }
         }
         d.nodes.insert(n.id, n);
@@ -2360,6 +2512,117 @@ mod render_change_tests {
         nodes.sort_unstable(); nodes.dedup();
         ancestors.sort_unstable(); ancestors.dedup();
         assert_eq!(editor.render_changes_since(token), EditorRenderChanges::Nodes { nodes, ancestors });
+    }
+
+    #[test]
+    fn batch_layer_dimensions_apply_parents_first_and_restore_exact_undo() {
+        let mut doc = Document::new("Nested width calculation");
+        let mut child = Node::new(NodeKind::Rectangle, "Child", 8.0, 10.0, 20.0, 16.0);
+        child.constraints.horizontal = Constraint::Scale;
+        let id = doc.insert_node(1, child).unwrap();
+        let frame = doc.insert_node(1, Node::new(NodeKind::Frame, "Frame", 40.0, 40.0, 100.0, 80.0)).unwrap();
+        doc.reparent(id, frame, 0).unwrap();
+        doc.variables.insert(900, Variable {
+            id: 900, name: "Width".into(), collection: "Sizing".into(),
+            values: BTreeMap::from([("Default".into(), VariableValue::Number(20.0))]),
+        });
+        doc.next_id = 901;
+        doc.nodes.get_mut(&id).unwrap().variable_bindings.insert("width".into(), 900);
+        let mut editor = Editor::new(doc);
+        let before = editor.document.to_json().unwrap();
+        editor.set_layer_dimensions(LayerDimension::Width, &BTreeMap::from([(id, 40.0), (frame, 200.0)])).unwrap();
+        assert_eq!(editor.document.nodes[&id].width, 40.0);
+        assert_eq!(editor.document.nodes[&id].x, 16.0);
+        assert!(!editor.document.nodes[&id].variable_bindings.contains_key("width"));
+        assert_eq!(editor.history_len(), 1);
+        assert!(editor.undo());
+        assert_eq!(editor.document.to_json().unwrap(), before);
+    }
+
+    #[test]
+    fn batch_layer_dimensions_follow_component_path_edits_at_the_overridden_size() {
+        let mut doc = Document::new("Instance width");
+        let master = doc.insert_node(1, Node::new(NodeKind::Component, "Icon", 0.0, 0.0, 100.0, 60.0)).unwrap();
+        let mut part = Node::new(NodeKind::Vector, "Mark", 4.0, 5.0, 100.0, 20.0);
+        part.rotation = 30.0;
+        part.path.segments = vec![PathSegment::MoveTo { point: Point::default() },
+            PathSegment::LineTo { point: Point::new(100.0, 20.0) }];
+        doc.variables.insert(900, Variable { id: 900, name: "Width".into(), collection: "Sizing".into(),
+            values: BTreeMap::from([("Default".into(), VariableValue::Number(100.0))]) });
+        doc.next_id = 901;
+        part.variable_bindings.insert("width".into(), 900);
+        let source = doc.insert_node(master, part).unwrap();
+        let mut editor = Editor::new(doc);
+        let instance = editor.create_instance(master, 140.0, 50.0).unwrap();
+        let child = editor.document.nodes[&instance].children[0];
+        let origin = editor.document.nodes[&child].local_transform().apply(Point::default());
+        editor.set_layer_dimensions(LayerDimension::Width, &BTreeMap::from([(child, 200.0)])).unwrap();
+        editor.update_node(source, "Revise source path", |n| {
+            n.path.segments[1] = PathSegment::LineTo { point: Point::new(40.0, 15.0) };
+        });
+        editor.sync_instances(master);
+        let child = &editor.document.nodes[&child];
+        assert_eq!(child.width, 200.0);
+        assert!(!child.variable_bindings.contains_key("width"));
+        assert_eq!(child.path.segments[1], PathSegment::LineTo { point: Point::new(80.0, 15.0) });
+        assert!(child.local_transform().apply(Point::default()).distance(origin) < 1e-8);
+    }
+
+    #[test]
+    fn batch_layer_dimensions_roll_back_earlier_layers_if_vector_resize_overflows() {
+        let mut doc = Document::new("Atomic resize");
+        let ordinary = doc.insert_node(1, Node::new(NodeKind::Rectangle, "Box", 0.0, 0.0, 20.0, 10.0)).unwrap();
+        let mut network = VectorNetwork::default();
+        network.add_vertex(Point::new(1.0e304, 0.0)).unwrap();
+        let mut vector = Node::new(NodeKind::Vector, "Wide network", 0.0, 0.0, 1.0, 10.0);
+        vector.vector_network = Some(network);
+        let vector = doc.insert_node(1, vector).unwrap();
+        let mut editor = Editor::new(doc);
+        let before = editor.document.to_json().unwrap();
+        let result = editor.set_layer_dimensions(LayerDimension::Width, &BTreeMap::from([(ordinary, 30.0), (vector, 1.0e7)]));
+        assert!(result.is_err());
+        assert_eq!(editor.document.to_json().unwrap(), before);
+        assert_eq!(editor.history_len(), 0);
+        assert!(!editor.has_active_transaction());
+        editor.begin_node_transaction(&[vector], "Previous gesture");
+        let stale = editor.active_transaction_token().unwrap();
+        editor.cancel_transaction();
+        editor.begin_node_transaction(&[vector], "Inspector scrub");
+        let current = editor.active_transaction_token().unwrap();
+        let values = BTreeMap::from([(ordinary, 30.0), (vector, 1.0e7)]);
+        assert!(editor.preview_layer_dimensions(LayerDimension::Width, &values, &stale).is_err());
+        assert_eq!(editor.active_transaction_token(), Some(current.clone()));
+        // The ordinary layer was not explicitly captured by the caller. The
+        // vector overflow must still roll its earlier edit back atomically.
+        assert!(editor.preview_layer_dimensions(LayerDimension::Width, &values, &current).is_err());
+        assert_eq!(editor.document.to_json().unwrap(), before);
+        assert!(!editor.has_active_transaction());
+        assert_eq!(editor.history_len(), 0);
+    }
+
+    #[test]
+    fn resize_previews_scope_leaf_changes_and_preserve_constraint_children_in_history() {
+        let (mut editor, frame, child, _) = nested_editor();
+        editor.document.nodes.get_mut(&child).unwrap().constraints.horizontal = crate::Constraint::End;
+        editor.refresh();
+        let initial = editor.document.to_json().unwrap();
+        let before = editor.render_change_token();
+        editor.begin_node_transaction(&[child], "Resize");
+        editor.resize_node_and_position(child, 30.0, 20.0, Point::new(5.0, 6.0));
+        editor.resize_node_and_position(child, 32.0, 20.0, Point::new(5.0, 6.0));
+        assert!(matches!(editor.pending.as_ref().unwrap().before, PendingSnapshot::Nodes { .. }));
+        scoped(&editor, &before, &[child], &[frame]);
+        assert!(editor.commit_transaction());
+        assert!(editor.undo());
+        assert_eq!(editor.document.to_json().unwrap(), initial);
+
+        editor.begin_node_transaction(&[frame], "Resize");
+        editor.resize_node_and_position(frame, 150.0, 100.0, Point::new(8.0, 20.0));
+        assert_eq!(editor.document.nodes[&child].x, 35.0);
+        assert!(matches!(editor.pending.as_ref().unwrap().before, PendingSnapshot::Document(_)));
+        assert!(editor.commit_transaction());
+        assert!(editor.undo());
+        assert_eq!(editor.document.to_json().unwrap(), initial);
     }
 
     #[test]
@@ -2476,3 +2739,12 @@ mod render_change_tests {
         assert_eq!(editor.render_changes.sequence, 1);
     }
 }
+
+#[path = "selection_resize.rs"]
+mod selection_resize;
+pub use selection_resize::SelectionResize;
+
+
+#[path = "selection_rotation.rs"]
+mod selection_rotation;
+pub use selection_rotation::{RotationBounds, SelectionRotation};

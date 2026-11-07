@@ -121,4 +121,216 @@ export async function inspectorLifecycleRegressions(page, reference, check, help
     await waitForReload(page);
     assert.deepEqual(await documentState(page), renamed, "Reload restores confirmed Unicode, never a preedit deletion or unconfirmed characters");
     check("Pagehide during native inspector composition saves the confirmed Unicode draft once and survives a real reload without persisting IME preedit");
+
+    await mixedSelectionAndDock(page, reference, check, helpers);
+}
+
+export async function mixedSelectionAndDock(page, reference, check, helpers) {
+    const { fixtureNode, isolatedDocument, importFixture, documentState, state, clickWorld, clickNative } = helpers;
+    const box = (id, x, width) => fixtureNode(reference, id, {
+        kind: "rectangle", name: "Box " + id, x, y: 40, width, height: 60,
+        fills: [{ visible: true, opacity: 1, paint: { type: "solid", r: 30, g: 110, b: 210, a: 255 } }],
+    });
+    await importFixture(page, isolatedDocument(reference, [box(2, 20, 64), box(3, 140, 96)], "Inspector selection"));
+    await clickNative(page, "SelectTool");
+    await page.keyboard.press("v");
+    await clickWorld(page, 50, 70);
+    await page.keyboard.down("Shift");
+    try { await clickWorld(page, 175, 70); } finally { await page.keyboard.up("Shift"); }
+    const selected = await state(page);
+    assert.deepEqual(selected.selection, [2, 3]);
+    assert.equal(selected.chrome.WidthField.text, "");
+    assert.equal(selected.chrome.HeightField.text, "60");
+    const before = await documentState(page);
+    await clickNative(page, "WidthField", "InspectorViewport");
+    await page.keyboard.insertText("64");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 64);
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 96);
+    assert.deepEqual(await documentState(page), before);
+    check("Mixed widths accept the first layer's existing value as a batch edit, while a common height remains visible and undo restores both layers");
+
+    await clickNative(page, "WidthField", "InspectorViewport");
+    await page.keyboard.insertText("(Mixed / 2) + 6");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => {
+        const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return nodes[2].width === 38 && nodes[3].width === 54;
+    });
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 96);
+    assert.deepEqual(await documentState(page), before);
+    check("A mixed width equation evaluates each original size, commits once and restores both layers on undo");
+
+    await clickNative(page, "WidthField", "InspectorViewport");
+    await page.keyboard.press("Shift+ArrowDown");
+    await page.waitForFunction(() => {
+        const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return nodes[2].width === 54 && nodes[3].width === 86;
+    });
+    assert.equal((await state(page)).chrome.WidthField.focused, true);
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.insertText("Mixed/2");
+    await page.keyboard.press("ArrowUp");
+    await page.waitForFunction(() => {
+        const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return nodes[2].width === 28 && nodes[3].width === 44;
+    });
+    await page.keyboard.press("Enter");
+    assert.equal((await state(page)).historyLength, selected.historyLength + 2);
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 96);
+    assert.deepEqual(await documentState(page), before);
+    check("Native width arrows step mixed selections and typed formulas once per key, keep field focus, and undo exactly");
+
+    await clickNative(page, "WidthField", "InspectorViewport");
+    const label = (await state(page)).chrome.WidthScrub;
+    const x = label.x + label.width / 2, y = label.y + label.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 12, y);
+    await page.waitForFunction(() => {
+        const {nodes} = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return nodes[2].width === 76 && nodes[3].width === 108;
+    });
+    assert.equal((await state(page)).historyLength, selected.historyLength);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    assert.deepEqual(await documentState(page), before);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 7, y);
+    await page.mouse.up();
+    assert.equal((await documentState(page)).nodes[3].width, 103);
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].width === 96);
+    assert.deepEqual(await documentState(page), before);
+    check("Dragging the native width prefix previews both mixed widths live, Escape rolls them back, and release commits one reversible change");
+
+    // The trusted press must activate the real browser capability. Chromium
+    // keeps client coordinates fixed under lock; native dimensions follow the
+    // relative movement even when the driver's virtual mouse leaves the viewport.
+    const scrub = async () => {
+        await clickNative(page, "WidthField", "InspectorViewport");
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 8, y);
+    };
+    const expectLock = () => page.waitForFunction(() => document.pointerLockElement === document.getElementById("out"));
+    const expectUnlocked = () => page.waitForFunction(() => !document.pointerLockElement);
+    await expectUnlocked();
+    await scrub();
+    await expectLock();
+    // Chromium can report a recentered screen coordinate on lock acquisition.
+    // Measure its trusted relative displacement instead of assuming a driver origin.
+    const beforeMotion = (await documentState(page)).nodes[2].width;
+    await page.evaluate(() => {
+        const movement = [];
+        const observe = e => {
+            if (e.isTrusted && (e.buttons & 1)) movement.push([e.movementX, e.movementY, e.shiftKey]);
+        };
+        document.addEventListener("pointermove", observe, true);
+        window.takeScrubMovement = () => {
+            document.removeEventListener("pointermove", observe, true);
+            return movement;
+        };
+    });
+    const screenWidth = page.viewportSize().width;
+    await page.keyboard.down("Shift");
+    try {
+        await page.mouse.move(Math.max(screenWidth + 64, x + screenWidth / 2), y);
+    } finally { await page.keyboard.up("Shift"); }
+    const movement = await page.evaluate(() => window.takeScrubMovement());
+    assert.ok(movement.length > 0 && movement.every(([, , shift]) => shift));
+    let expected = beforeMotion, vertical = 0;
+    for (const [dx, dy] of movement) {
+        vertical += dy;
+        const speed = vertical <= -48 ? 2 : vertical >= 96 ? 0.25 : vertical >= 48 ? 0.5 : 1;
+        expected += dx * speed * 10;
+    }
+    assert.ok(expected > screenWidth, "The trusted Shift drag must enlarge the box beyond the viewport");
+    await page.waitForFunction(expected => {
+        const { nodes } = JSON.parse(globalThis.ferroDesign.ferroDesignExportJson());
+        return Math.abs(nodes[2].width - expected) < 1e-6 && Math.abs(nodes[3].width - expected - 32) < 1e-6;
+    }, expected);
+    const lockedWidths = await documentState(page);
+    assert.equal((await state(page)).historyLength, selected.historyLength);
+    await page.mouse.up();
+    await expectUnlocked();
+    assert.deepEqual(await documentState(page), lockedWidths);
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].width === 64);
+    assert.deepEqual(await documentState(page), before);
+    check("Genuine pointer lock extends a mixed-width scrub beyond the viewport, preserves the width difference, and commits one exact undo");
+
+    await scrub();
+    await expectLock();
+    await page.evaluate(() => document.exitPointerLock());
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].width === 64);
+    await page.mouse.up();
+    assert.deepEqual(await documentState(page), before);
+    assert.equal((await state(page)).historyLength, selected.historyLength);
+    check("Releasing the browser's pointer lock without a native key restores the authored geometry before pointer-up");
+
+    await scrub();
+    await expectLock();
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await expectUnlocked();
+    await page.mouse.up();
+    assert.deepEqual(await documentState(page), before);
+    assert.equal((await state(page)).historyLength, selected.historyLength);
+    check("Page hiding cancels a locked scrub before the document storage boundary can commit its preview");
+
+    // Exercise the same native field when the embedding document denies lock.
+    await page.evaluate(() => Object.defineProperty(document.getElementById("out"), "requestPointerLock", {
+        configurable: true, value() { return Promise.reject(new DOMException("Blocked in fixture", "NotAllowedError")); },
+    }));
+    try {
+        await scrub();
+        await page.mouse.move(x + 16, y);
+        await page.mouse.up();
+        await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].width === 80);
+        await expectUnlocked();
+        assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+        await page.keyboard.press("Enter");
+        await page.keyboard.press("Control+z");
+        await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].width === 64);
+        assert.deepEqual(await documentState(page), before);
+    } finally {
+        await page.evaluate(() => Reflect.deleteProperty(document.getElementById("out"), "requestPointerLock"));
+    }
+    check("A rejected pointer-lock request falls back to bounded native scrubbing and retains exact undo");
+
+    await page.keyboard.press("F6");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.SelectTool.focused === true);
+    await page.keyboard.press("End");
+    assert.equal((await state(page)).chrome.ActionsButton.focused, true);
+    await page.keyboard.press("Home");
+    assert.equal((await state(page)).chrome.SelectTool.focused, true);
+    await page.keyboard.press("Escape");
+    assert.equal((await state(page)).chrome.CanvasHost.focusWithin, true);
+    assert.deepEqual(await documentState(page), before);
+    check("F6 enters the tool dock; Home, End and Escape navigate and restore native canvas focus without editing the document");
+
+    await page.keyboard.press("F2");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.RenameReplacement?.focused);
+    await page.keyboard.insertText("Icon/$nn-$&");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignState()).chrome.RenameApply.enabled);
+    assert.deepEqual(await documentState(page), before);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[3].name === "Icon/01-Box 3");
+    assert.equal((await documentState(page)).nodes[2].name, "Icon/02-Box 2");
+    assert.equal((await state(page)).historyLength, selected.historyLength + 1);
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => JSON.parse(globalThis.ferroDesign.ferroDesignExportJson()).nodes[2].name === "Box 2");
+    assert.deepEqual(await documentState(page), before);
+    check("F2 focuses bulk rename immediately, previews without editing, numbers layers in stacking order and undoes once");
 }

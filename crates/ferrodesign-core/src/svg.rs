@@ -401,6 +401,17 @@ pub fn outline_path(node: &Node) -> VectorPath {
 }
 
 fn node_shape(node: &Node, attributes: &str) -> String {
+    if node.kind == NodeKind::Rectangle && node.corner_smoothing == 0.0 {
+        let corners = node.corner_radii.unwrap_or([node.corner_radius; 4]);
+        let radius = normalized_corner_radii(node.width, node.height, corners)[0];
+        if radius > 0.0 && corners == [corners[0]; 4] {
+            // Keep circular corners exact and let SVG rasterizers use their rounded-rect primitive.
+            return format!(
+                r#"<rect width="{}" height="{}" rx="{}" {attributes}/>"#,
+                number(node.width), number(node.height), number(radius)
+            );
+        }
+    }
     match node.kind {
         NodeKind::Text => text_shape(node, attributes),
         _ => format!(
@@ -421,15 +432,16 @@ fn node_shape(node: &Node, attributes: &str) -> String {
     }
 }
 
-fn stroke_shape(node: &Node, attributes: &str) -> String {
-    if let Some(network) = &node.vector_network {
-        format!(
-            r#"<path d="{}" {attributes}/>"#,
-            path_data(&network.stroke_path(), Transform::IDENTITY)
-        )
+fn stroke_shape(node: &Node, stroke: &Stroke, attributes: &str) -> String {
+    let path = if let Some(network) = &node.vector_network {
+        network.stroke_path()
+    } else if node.kind == NodeKind::Rectangle && stroke.cap == StrokeCap::Arrow {
+        // SVG 1.1 markers attach to paths, lines and polygons, not rect elements.
+        outline_path(node)
     } else {
-        node_shape(node, attributes)
-    }
+        return node_shape(node, attributes);
+    };
+    format!(r#"<path d="{}" {attributes}/>"#, path_data(&path, Transform::IDENTITY))
 }
 
 fn variable_stroke_shape(node: &Node, index: usize, stroke: &Stroke, defs: &mut String,
@@ -698,13 +710,17 @@ impl Document {
         self.export_svg_report(page, selection).source
     }
     pub fn export_svg_report(&self, page: NodeId, selection: &[NodeId]) -> SvgExport {
+        let slice = self.export_slice(page, selection);
+        // The slice viewport includes every visible overlapping layer on the
+        // page, including those outside the slice's own parent or z position.
+        let selection = if slice.is_some() { &[] } else { selection };
         let selection_set: BTreeSet<_> = selection.iter().copied().collect();
         let mut roots: Vec<_> = if selection.is_empty() {
             self.page(page)
                 .map(|p| p.children.clone())
                 .unwrap_or_default()
         } else {
-            selection
+            let mut selected_roots: Vec<_> = selection
                 .iter()
                 .filter(|id| {
                     self.nodes.contains_key(id)
@@ -713,38 +729,53 @@ impl Document {
                             .any(|other| other != *id && self.is_ancestor(*other, **id))
                 })
                 .copied()
-                .collect()
+                .collect();
+            selected_roots.sort_by_cached_key(|id| {
+                let mut order = Vec::new();
+                let mut current = *id;
+                for _ in 0..MAX_DOCUMENT_DEPTH {
+                    let Some(parent) = self.nodes.get(&current).and_then(|n| n.parent) else {
+                        break;
+                    };
+                    order.push(
+                        self.children(parent)
+                            .unwrap_or_default()
+                            .iter()
+                            .position(|id| *id == current)
+                            .unwrap_or(0),
+                    );
+                    current = parent;
+                }
+                order.reverse();
+                order
+            });
+            selected_roots.dedup();
+            selected_roots
         };
-        roots.sort_by_key(|id| {
-            let mut order = Vec::new();
-            let mut current = *id;
-            for _ in 0..MAX_DOCUMENT_DEPTH {
-                let Some(parent) = self.nodes.get(&current).and_then(|n| n.parent) else {
-                    break;
-                };
-                order.push(
-                    self.children(parent)
-                        .unwrap_or_default()
-                        .iter()
-                        .position(|id| *id == current)
-                        .unwrap_or(0),
-                );
-                current = parent;
-            }
-            order.reverse();
-            order
-        });
-        roots.dedup();
-        let bounds = roots
+        roots.retain(|id| self.nodes.get(id).is_some_and(|node| node.kind != NodeKind::Slice));
+        if let Some(slice) = slice {
+            // Preserve mask scopes in painter order; a disjoint mask can still
+            // suppress artwork within the slice. Ordinary disjoint top-level
+            // subtrees need not be serialized into the exported asset.
+            roots.retain(|id| {
+                let node = &self.nodes[id];
+                node.visible && (node.is_mask || self.world_transform(*id).is_some_and(|world|
+                    world.transform_rect(self.svg_ink_bounds(*id, 0)).intersects(slice.world_bounds)))
+            });
+        }
+        let bounds = slice.map(|slice| slice.local).unwrap_or_else(|| roots
             .iter()
             .filter_map(|id| self.world_transform(*id)
                 .map(|transform| transform.transform_rect(self.svg_export_bounds(*id, 0))))
             .reduce(|a, b| a.union(b))
-            .unwrap_or(Rect::new(0.0, 0.0, 1.0, 1.0));
+            .unwrap_or(Rect::new(0.0, 0.0, 1.0, 1.0)));
         let mut defs = String::new();
         let mut body = String::new();
         let mut warnings = Vec::new();
-        let needs_mask_context = roots.iter().any(|id| {
+        // Page roots already have painter order and carry every sibling mask.
+        // Slices also render page roots. Only isolated selected subtrees need
+        // a search for masks inherited from siblings outside the selection.
+        let needs_mask_context = !selection.is_empty() && roots.iter().any(|id| {
             let mut current = *id;
             for _ in 0..MAX_DOCUMENT_DEPTH {
                 let Some(parent) = self.nodes.get(&current).and_then(|n| n.parent) else {
@@ -771,7 +802,7 @@ impl Document {
             &projected
         };
         document.export_svg_siblings(
-            if selection.is_empty() || needs_mask_context {
+            if slice.is_none() && (selection.is_empty() || needs_mask_context) {
                 document.children(page).unwrap_or_default()
             } else {
                 &roots
@@ -783,15 +814,23 @@ impl Document {
             0,
             false,
         );
+        if let Some(slice) = slice {
+            let _ = write!(defs, r#"<clipPath id="ferro-slice-viewport"><rect width="{}" height="{}"/></clipPath>"#,
+                number(slice.local.width), number(slice.local.height));
+            body = format!(r#"<g clip-path="url(#ferro-slice-viewport)"><g transform="{}">{}</g></g>"#,
+                matrix(slice.world_to_local), body);
+        }
+        let (width, height) = if slice.is_some() { (bounds.width, bounds.height) }
+            else { (bounds.width.max(1.0), bounds.height.max(1.0)) };
         let source = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{}" height="{}" viewBox="{} {} {} {}" role="img" aria-label="{}"><title>{}</title><defs>{}</defs>{}</svg>"#,
-            number(bounds.width.max(1.0)),
-            number(bounds.height.max(1.0)),
+            number(width),
+            number(height),
             number(bounds.x),
             number(bounds.y),
-            number(bounds.width.max(1.0)),
-            number(bounds.height.max(1.0)),
+            number(width),
+            number(height),
             escape_xml(&self.name),
             escape_xml(&self.name),
             defs,
@@ -810,7 +849,7 @@ impl Document {
         if depth >= MAX_DOCUMENT_DEPTH { return bounds; }
         if let Some(band) = variable_stroke_bounds(node) { bounds = bounds.union(band); }
         for child in &node.children {
-            if let Some(child_node) = self.nodes.get(child).filter(|node| node.visible) {
+            if let Some(child_node) = self.nodes.get(child).filter(|node| node.visible && node.kind != NodeKind::Slice) {
                 let child = child_node.local_transform()
                     .transform_rect(self.svg_export_bounds(*child, depth + 1));
                 let child = if node.clip_content { child.intersection(node.local_bounds()) } else { Some(child) };
@@ -844,7 +883,7 @@ impl Document {
         let mut bounds = node.local_bounds().inflate(stroke);
         if let Some(band) = variable_stroke_bounds(node) { bounds = bounds.union(band); }
         for child in &node.children {
-            if let Some(child_node) = self.nodes.get(child).filter(|n| n.visible) {
+            if let Some(child_node) = self.nodes.get(child).filter(|n| n.visible && n.kind != NodeKind::Slice) {
                 let child = child_node.local_transform()
                     .transform_rect(self.svg_ink_bounds(*child, depth + 1));
                 let child = if node.clip_content { child.intersection(node.local_bounds()) } else { Some(child) };
@@ -855,7 +894,7 @@ impl Document {
     }
 
     fn svg_blends_with_parent(&self, id: NodeId, depth: usize) -> bool {
-        let Some(node) = self.nodes.get(&id).filter(|n| n.visible) else {
+        let Some(node) = self.nodes.get(&id).filter(|n| n.visible && n.kind != NodeKind::Slice) else {
             return false;
         };
         if depth >= MAX_DOCUMENT_DEPTH {
@@ -872,7 +911,7 @@ impl Document {
     }
 
     fn svg_has_region_paint_overrides(&self, id: NodeId, depth: usize) -> bool {
-        let Some(node) = self.nodes.get(&id).filter(|node| node.visible) else { return false; };
+        let Some(node) = self.nodes.get(&id).filter(|node| node.visible && node.kind != NodeKind::Slice) else { return false; };
         if depth >= MAX_DOCUMENT_DEPTH { return true; }
         node.vector_network.as_ref().is_some_and(|network| network.regions.values().any(|region| region.fills.is_some()))
             || node.children.iter().any(|child| self.svg_has_region_paint_overrides(*child, depth + 1))
@@ -892,10 +931,10 @@ impl Document {
         // In particular, do not retessellate every descendant's variable-width
         // bands at each ordinary frame level just to discard the bounds.
         let region = if children.iter().any(|id| self.nodes.get(id)
-            .is_some_and(|node| node.visible && node.is_mask))
+            .is_some_and(|node| node.kind != NodeKind::Slice && node.visible && node.is_mask))
         {
             children.iter().filter_map(|id| {
-                self.nodes.get(id).filter(|n| n.visible).map(|n| {
+                self.nodes.get(id).filter(|n| n.visible && n.kind != NodeKind::Slice).map(|n| {
                     let transform = if root {
                         self.world_transform(*id).unwrap_or_default()
                     } else {
@@ -910,7 +949,7 @@ impl Document {
         };
         let mut opened = 0;
         for id in children {
-            let Some(node) = self.nodes.get(id).filter(|n| n.visible) else {
+            let Some(node) = self.nodes.get(id).filter(|n| n.visible && n.kind != NodeKind::Slice) else {
                 continue;
             };
             if node.is_mask {
@@ -1196,7 +1235,7 @@ impl Document {
                     let _ = write!(attributes, r#" marker-end="url(#arrow-{id}-{i})""#);
                 }
                 match alignment {
-                    StrokeAlign::Center => body.push_str(&stroke_shape(node, &attributes)),
+                    StrokeAlign::Center => body.push_str(&stroke_shape(node, stroke, &attributes)),
                     StrokeAlign::Inside => {
                         let _ = write!(
                             defs,
@@ -1205,7 +1244,7 @@ impl Document {
                         let _ = write!(
                             body,
                             r#"<g clip-path="url(#stroke-clip-{id}-{i})">{}</g>"#,
-                            stroke_shape(node, &attributes)
+                            stroke_shape(node, stroke, &attributes)
                         );
                     }
                     StrokeAlign::Outside => {
@@ -1226,7 +1265,7 @@ impl Document {
                         let _ = write!(
                             body,
                             r#"<g mask="url(#stroke-mask-{id}-{i})">{}</g>"#,
-                            stroke_shape(node, &attributes)
+                            stroke_shape(node, stroke, &attributes)
                         );
                     }
                 }

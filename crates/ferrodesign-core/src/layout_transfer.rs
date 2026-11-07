@@ -37,7 +37,9 @@ struct TransferClip {
     world: Transform,
     inverse: Transform,
     bounds: Rect,
-    radius: f64,
+    radii: [f64; 4],
+    smoothing: f64,
+    contours: Vec<Vec<Point>>,
     parent: Option<usize>,
 }
 
@@ -251,6 +253,7 @@ fn transfer_edge(bounds: Rect, world: Transform, row: bool, after: bool) -> Layo
 /// or history. Entire selected subtrees move by stable ID on a successful drop.
 #[derive(Clone, Debug)]
 pub struct LayoutTransferSession {
+    copy_slots: bool,
     revision: u64,
     page: NodeId,
     selection: Vec<NodeId>,
@@ -270,6 +273,19 @@ pub struct LayoutTransferSession {
     original_marker: LayoutInsertionMarker,
 }
 
+impl Document {
+    /// Editable containers shared by drawing tools and cross-frame drags.
+    /// Materialized instance children cannot accept new authored children.
+    pub fn is_layer_destination(&self, id: NodeId) -> bool {
+        self.nodes.get(&id).is_some_and(|node| {
+            (matches!(node.kind, NodeKind::Frame | NodeKind::Component | NodeKind::Section)
+                || (node.kind == NodeKind::Group && node.layout.is_some()))
+                && !self.is_component_set(id)
+                && validate_layout_reorder_ancestry(self, id).is_ok()
+        })
+    }
+}
+
 impl LayoutTransferSession {
     pub fn new(
         document: &Document,
@@ -277,6 +293,15 @@ impl LayoutTransferSession {
         anchor: NodeId,
         origin: Point,
     ) -> Result<Self, DocumentError> {
+        Self::prepare(document, selection, anchor, origin, false)
+    }
+
+    /// Drop slots for a duplicate retain the originals in automatic layout.
+    pub fn for_copy(document: &Document, selection: &[NodeId], anchor: NodeId, origin: Point) -> Result<Self, DocumentError> {
+        Self::prepare(document, selection, anchor, origin, true)
+    }
+
+    fn prepare(document: &Document, selection: &[NodeId], anchor: NodeId, origin: Point, copy: bool) -> Result<Self, DocumentError> {
         if selection.is_empty() || !selection.contains(&anchor) || !finite_point(origin) {
             return Err(drag_error(
                 "Choose a visible selection and a finite drag origin",
@@ -385,8 +410,10 @@ impl LayoutTransferSession {
         let original_marker = transfer_edge(anchor_node.local_bounds(), anchor_world, true, false);
         let mut clips = Vec::new();
         let mut clip_indices = HashMap::new();
+        let empty = HashSet::new();
+        let remove_from_flow = if copy { &empty } else { &selected };
         let mut frames = vec![TransferFrame::capture(
-            document, page, &selected, None, 0, true,
+            document, page, remove_from_flow, None, 0, true,
         )?];
         let draw_order = document.draw_order(page);
         for (order, id) in draw_order.into_iter().enumerate() {
@@ -399,12 +426,22 @@ impl LayoutTransferSession {
                 if let Some(world) = document.world_transform(id) {
                     if let Some(inverse) = world.inverse() {
                         let index = clips.len();
+                        let radii = node.corner_radii.unwrap_or([node.corner_radius; 4]);
+                        // Keep rectangular clips on the bounds-only path. For a curved
+                        // clip, build the same contour used by native picking once.
+                        let contours = if radii.iter().any(|r| *r > 0.0) {
+                            crate::corner_path(node).fill_contours()
+                        } else {
+                            Vec::new()
+                        };
                         clips.push(TransferClip {
                             id,
                             world,
                             inverse,
                             bounds: node.local_bounds(),
-                            radius: node.corner_radius,
+                            radii,
+                            smoothing: node.corner_smoothing,
+                            contours,
                             parent: clip,
                         });
                         clip = Some(index);
@@ -413,16 +450,9 @@ impl LayoutTransferSession {
             }
             clip_indices.insert(id, clip);
             let source = source_parents.contains(&id);
-            let frame_kind = matches!(
-                node.kind,
-                NodeKind::Frame | NodeKind::Component | NodeKind::Section
-            ) || (node.layout.is_some() && node.kind == NodeKind::Group);
-            let eligible = frame_kind
-                && !excluded.contains(&id)
-                && !document.is_component_set(id)
-                && validate_layout_reorder_ancestry(document, id).is_ok();
+            let eligible = !excluded.contains(&id) && document.is_layer_destination(id);
             if eligible || source {
-                match TransferFrame::capture(document, id, &selected, clip, order + 1, eligible) {
+                match TransferFrame::capture(document, id, remove_from_flow, clip, order + 1, eligible) {
                     Ok(frame) => frames.push(frame),
                     Err(error) if source => return Err(error),
                     Err(_) => {}
@@ -451,6 +481,7 @@ impl LayoutTransferSession {
             build_transfer_frames(&mut spatial_frames, 0, &frames, &mut branches);
         }
         Ok(Self {
+            copy_slots: copy,
             revision: document.revision,
             page,
             selection: selection.to_vec(),
@@ -520,6 +551,9 @@ impl LayoutTransferSession {
         }
         let local = self.anchor_inverse.apply(point);
         if finite_point(local) && self.anchor_bounds.contains(local) {
+            if self.copy_slots && self.frames[self.frame_indices[&self.anchor_parent]].layout.is_some() {
+                return self.target_in(self.anchor_parent, point);
+            }
             return Some(LayoutTransferTarget {
                 parent: self.anchor_parent,
                 index: 0,
@@ -533,6 +567,18 @@ impl LayoutTransferSession {
             self.frame_at(0, point, &mut best);
         }
         self.target_in(self.frames[best.unwrap_or(0)].id, point)
+    }
+
+    /// Repeating a duplicate stays in the current containers even when its
+    /// projected position overlaps an unrelated frame elsewhere on the page.
+    pub(crate) fn repeat_copy_target(&self, point: Point) -> Option<LayoutTransferTarget> {
+        if self.frames[self.frame_indices[&self.anchor_parent]].layout.is_some() {
+            return self.target_in(self.anchor_parent, point);
+        }
+        finite_point(point).then_some(LayoutTransferTarget {
+            parent: self.anchor_parent, index: 0, marker: self.original_marker,
+            kind: LayoutTransferKind::Restore, position: point,
+        })
     }
 
     /// Explicit destination targeting is useful for keyboard/accessible moves
@@ -593,19 +639,10 @@ impl LayoutTransferSession {
             if !clip.bounds.contains(local) {
                 return false;
             }
-            let radius = clip
-                .radius
-                .max(0.0)
-                .min(clip.bounds.width * 0.5)
-                .min(clip.bounds.height * 0.5);
-            if radius > 0.0 {
-                let center = Point::new(
-                    local.x.clamp(radius, clip.bounds.width - radius),
-                    local.y.clamp(radius, clip.bounds.height - radius),
-                );
-                if local.distance(center) > radius {
-                    return false;
-                }
+            if !clip.contours.is_empty()
+                && !crate::geometry::path_contours_contain(FillRule::NonZero, &clip.contours, local)
+            {
+                return false;
             }
             index = clip.parent;
         }
@@ -660,7 +697,8 @@ impl LayoutTransferSession {
             if document.nodes.get(&snapshot.id).is_none_or(|node| {
                 !node.clip_content
                     || node.local_bounds() != snapshot.bounds
-                    || node.corner_radius != snapshot.radius
+                    || node.corner_radii.unwrap_or([node.corner_radius; 4]) != snapshot.radii
+                    || node.corner_smoothing != snapshot.smoothing
             }) || document.world_transform(snapshot.id) != Some(snapshot.world)
             {
                 return Err(drag_error(
@@ -931,3 +969,7 @@ fn build_transfer_frames(
 #[cfg(test)]
 #[path = "layout_transfer_tests.rs"]
 mod tests;
+
+
+#[path = "drag_copy.rs"]
+mod drag_copy;

@@ -125,6 +125,10 @@ impl Editor {
     /// Revalidate IDs before using it so a stale UI cannot select a deleted,
     /// hidden, locked or cross-page node. Duplicates never introduce extra steps.
     pub fn cycle_selection(&mut self, candidates: &[NodeId], direction: SelectionCycle) -> bool {
+        self.cycle_selection_with_visibility(candidates, direction, false)
+    }
+
+    pub fn cycle_selection_with_visibility(&mut self, candidates: &[NodeId], direction: SelectionCycle, include_hidden: bool) -> bool {
         if self.has_active_transaction() {
             return false;
         }
@@ -132,7 +136,10 @@ impl Editor {
         let candidates: Vec<_> = candidates
             .iter()
             .copied()
-            .filter(|id| seen.insert(*id) && selectable(self, *id))
+            .filter(|id| seen.insert(*id) && self.document.nodes.contains_key(id)
+                && self.document.page_of(*id) == Some(self.active_page)
+                && (include_hidden || self.document.effective_visible(*id))
+                && !self.document.effective_locked(*id))
             .collect();
         if candidates.is_empty() {
             return false;

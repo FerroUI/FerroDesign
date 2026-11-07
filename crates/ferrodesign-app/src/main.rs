@@ -57,6 +57,11 @@ pub fn editor_command(command: &str) -> bool {
     ferrodesign_app::app::with_shell(|s| s.command(command)).unwrap_or(false)
 }
 #[cfg(target_os = "emscripten")]
+#[wasm_bindgen(js_name = ferroDesignCancelPointerScrub)]
+pub fn cancel_pointer_scrub(token: u32) {
+    ferrodesign_app::app::with_shell(|s| s.cancel_browser_pointer_scrub(token));
+}
+#[cfg(target_os = "emscripten")]
 #[wasm_bindgen(js_name = ferroDesignExportJson)]
 pub fn export_document() -> String {
     ferrodesign_app::app::with_shell(|s| s.document_json()).unwrap_or_default()

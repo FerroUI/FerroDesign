@@ -155,6 +155,13 @@ impl LayoutGridOverlay {
             // it remains deterministic in the constant-work geometry helper.
             if preferred.contains(&id) { break; }
         }
+        if self.rulers_visible {
+            if let Some(ruler) = core::snap_ruler_guides(editor, points, threshold, exclude, direction) {
+                if self.active_snap.is_none_or(|grid| ruler.delta.x.hypot(ruler.delta.y) <= grid.delta.x.hypot(grid.delta.y)) {
+                    self.active_snap = Some(ruler);
+                }
+            }
+        }
         self.active_snap
     }
 

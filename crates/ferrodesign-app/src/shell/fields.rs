@@ -5,6 +5,35 @@ use super::*;
 use ferroui_base::interactivity::RoutingStrategies;
 use std::rc::Weak;
 
+/// Compare the displayed properties of a selection without cloning layers or
+/// their text, paths and paint stacks. Single selection needs no row buffer.
+pub(super) struct InspectorSelection<'a> {
+    pub first: Option<&'a Node>,
+    rest: Vec<&'a Node>,
+}
+
+impl<'a> InspectorSelection<'a> {
+    pub fn new(editor: &'a Editor) -> Self {
+        let mut nodes = editor.selection.iter().filter_map(|id| editor.document.nodes.get(id));
+        Self { first: nodes.next(), rest: nodes.collect() }
+    }
+
+    pub fn common<T: PartialEq>(&self, property: impl Fn(&'a Node) -> T) -> Option<T> {
+        let value = property(self.first?);
+        self.rest.iter().all(|node| property(node) == value).then_some(value)
+    }
+
+    pub fn show(&self, field: &TextBox, text: Option<&str>, hint: Option<&str>) {
+        let hint = if text.is_none() && !self.rest.is_empty() { Some("Mixed") } else { hint };
+        if field.placeholder_text().as_deref() != hint {
+            field.set_placeholder_text(hint);
+        }
+        // A mixed property has no editable value until the user types one.
+        // An untouched placeholder must stay outside draft and undo history.
+        field.set_text(Some(text.unwrap_or_default()));
+    }
+}
+
 pub(super) struct InspectorDraft {
     field: WeakRef<TextBox>,
     committed: Rc<RefCell<String>>,
@@ -43,6 +72,16 @@ impl InspectorDraft {
 }
 
 impl EditorShell {
+    pub(super) fn sync_state_button(&self, name: &str, glyph: &str, action: &str) {
+        use ferroui_controls::{automation::AutomationProperties, ToolTip};
+        let button = self.button(name);
+        if AutomationProperties::get_name(&button).as_deref() != Some(action) {
+            self.icon(name, glyph);
+            AutomationProperties::set_name(&button, Some(action));
+            ToolTip::set_tip(&button, Some(Rc::new(action.to_owned())));
+        }
+    }
+
     pub(super) fn reject_inspector_field(&self, name: &str, message: &str) -> bool {
         self.field(name)
             .set_border_brush(Some(icons::brush("#C8372B")));
@@ -92,6 +131,12 @@ impl EditorShell {
             }
             let value = field.text().unwrap_or_default();
             *editing.confirmed.borrow_mut() = value.clone();
+            // Live resize readouts only replace clean fields. Their projected
+            // text becomes the new baseline without creating a user draft.
+            if shell.geometry_readouts.writing.get() {
+                *editing.committed.borrow_mut() = value;
+                return;
+            }
             if shell.updating.get() {
                 *editing.committed.borrow_mut() = value;
             }
@@ -163,6 +208,10 @@ impl EditorShell {
         let committed = Rc::new(RefCell::new(field.text().unwrap_or_default()));
         let weak_shell = Rc::downgrade(self);
         let weak_field = field.downgrade();
+        if let Some(property) = super::geometry_fields::GeometryField::named(name) {
+            self.wire_geometry_scrub(name, property);
+            self.wire_geometry_steps(name, property, committed.clone());
+        }
         let value = committed.clone();
         let submit: Rc<dyn Fn(bool) -> bool> = Rc::new(move |explicit| {
             let (Some(shell), Some(field)) = (weak_shell.upgrade(), weak_field.upgrade()) else {
@@ -174,7 +223,7 @@ impl EditorShell {
             // Enter is an explicit literal override for radius, even if its
             // displayed number already equals the bound variable. Passive
             // blur/flush must not detach an unchanged binding or add history.
-            if !(explicit && name == "RadiusField")
+            if !(explicit && name == "RadiusField" && !value.borrow().is_empty())
                 && field.text().unwrap_or_default() == *value.borrow()
             {
                 return true;
@@ -236,7 +285,7 @@ impl EditorShell {
     }
 
     pub(super) fn sync_document_draft_dirty(&self) {
-        let dirty = self.inline_draft_dirty.get()
+        let dirty = self.geometry_scrub_active() || self.inline_draft_dirty.get()
             || self.canvas.network_bucket_state().1
             || self.canvas.stroke_width_active()
             || self.canvas.corner_radius_active()

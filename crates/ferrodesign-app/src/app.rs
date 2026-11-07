@@ -40,11 +40,11 @@ impl ApplicationImpl for App {
             .and_then(|l| l.as_classic_desktop_style_application_lifetime())
         {
             let window = Window::new();
-            window.set_title(Some("FerroDesign · Orbit".into()));
+            window.set_title(Some("FerroDesign".into()));
             window.set_width(1500.0);
             window.set_height(960.0);
-            window.set_min_width(980.0);
-            window.set_min_height(650.0);
+            window.set_min_width(360.0);
+            window.set_min_height(420.0);
             window.set_content(Some(Control::boxed(shell.root.clone())));
             let weak = Rc::downgrade(&shell);
             window.closing(move |event| {
