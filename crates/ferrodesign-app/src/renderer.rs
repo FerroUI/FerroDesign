@@ -60,7 +60,7 @@ use ferroui_base::media::{
     TextDecorationCollection, TextDecorations, TextHintingMode, TextOptions, TextWrapping, TileMode, Typeface,
 };
 use ferroui_base::platform::IGeometryContext;
-use ferroui_base::utilities::{CultureInfo, ValueSpan};
+use ferroui_base::utilities::{Locale, ValueSpan};
 use ferroui_base::{
     Matrix, Point as UiPoint, Rect as UiRect, Ref, RelativePoint, RelativeUnit, RoundedRect,
 };

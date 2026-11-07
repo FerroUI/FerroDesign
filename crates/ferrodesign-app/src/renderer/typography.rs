@@ -78,7 +78,7 @@ pub(crate) fn range_styles(node: &Node, brush: Rc<dyn IBrush>) -> Option<TextSty
             font_size(run.and_then(|run| run.font_size).unwrap_or(node.font_size)),
             decorations(run.and_then(|run| run.decoration).unwrap_or(node.text_decoration)),
             Some(run.and_then(|run| run.color).map(|color| solid_brush(color, brush.opacity())).unwrap_or_else(|| brush.clone())),
-            None, BaselineAlignment::Baseline, Some(CultureInfo::invariant_culture()), features.clone(),
+            None, BaselineAlignment::Baseline, Some(Locale::UNKNOWN), features.clone(),
         ))
     };
     let defaults = properties(None);

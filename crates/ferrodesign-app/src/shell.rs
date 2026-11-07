@@ -48,7 +48,7 @@ use ferroui_base::input::{InputElement, Key};
 use ferroui_base::layout::{Orientation, VerticalAlignment};
 use ferroui_base::media::{FontWeight, TextWrapping};
 use ferroui_base::metadata::from_markup_value;
-use ferroui_base::utilities::{Uri, UriKind};
+use ferroui_base::utilities::UriRef;
 use ferroui_base::reactive::{IDisposable, Subscription};
 use ferroui_base::threading::{DispatcherPriority, DispatcherTimer};
 use std::time::{Duration, Instant};
@@ -115,7 +115,7 @@ impl Drop for EditorShell {
 impl EditorShell {
     pub fn new() -> Rc<Self> {
         let uri =
-            Uri::new("ferres://FerroDesign/ui/Editor.xaml", UriKind::Absolute).expect("editor URI");
+            UriRef::parse("ferres://FerroDesign/ui/Editor.xaml").expect("editor URI");
         let value = FerroXamlLoader::load(&uri, None).expect("compiled editor XAML");
         let root = from_markup_value::<Ref<UserControl>>(&Some(value))
             .expect("EditorRoot is a UserControl");
