@@ -329,7 +329,7 @@ impl DesignCanvas {
             };
             let label = FormattedText::new(
                 &text,
-                CultureInfo::invariant_culture(),
+                Locale::UNKNOWN,
                 FlowDirection::LeftToRight,
                 Typeface::from_name("fonts:Inter#Inter"),
                 11.0,

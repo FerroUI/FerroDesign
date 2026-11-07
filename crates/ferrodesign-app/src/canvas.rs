@@ -40,7 +40,7 @@ use ferroui_base::media::{
 };
 use ferroui_base::platform::IGeometryContext;
 use ferroui_base::threading::{Dispatcher, DispatcherPriority};
-use ferroui_base::utilities::CultureInfo;
+use ferroui_base::utilities::Locale;
 use ferroui_base::{
     ferro_class, ferro_impl_classes, instantiate, FerroObjectImpl, Matrix, Point as UiPoint,
     Rect as UiRect, Ref, StyledElementImpl, VisualImpl,
@@ -1862,7 +1862,7 @@ fn pen(color: u32, width: f64) -> Rc<dyn IPen> {
 fn label(ctx: &mut DrawingContext, text: &str, point: Point, size: f64, color: &str) {
     let text = FormattedText::new(
         text,
-        CultureInfo::invariant_culture(),
+        Locale::UNKNOWN,
         FlowDirection::LeftToRight,
         Typeface::from_name("fonts:Inter#Inter"),
         size,
@@ -1876,7 +1876,7 @@ fn canvas_caption(ctx: &mut DrawingContext, name: &str, origin: Point, screen_wi
     let width = (screen_width - 4.0).min(400.0);
     if width < 20.0 || name.is_empty() { return; }
     let caption = FormattedText::new(
-        name, CultureInfo::invariant_culture(), FlowDirection::LeftToRight,
+        name, Locale::UNKNOWN, FlowDirection::LeftToRight,
         Typeface::from_name("fonts:Inter#Inter"), 11.0, Some(brush(color)),
     );
     caption.set_max_text_width(width);

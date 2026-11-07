@@ -6,7 +6,6 @@ use ferroui_base::media::{
     FontFallback, FontFamily, FontManager, FontManagerOptions, UnicodeRange,
 };
 use ferroui_base::platform::{AssetLoader, register_assets};
-use ferroui_base::utilities::Uri;
 use std::{rc::Rc, sync::Once};
 
 pub(crate) const HEBREW_FAMILY: &str = "fonts:FerroDesignFallback#Noto Sans Hebrew";
@@ -56,7 +55,7 @@ pub(crate) fn register_fallbacks(font_manager: &Rc<FontManager>) {
     // the font callback runs. Refresh its asset snapshot after registration.
     AssetLoader::invalidate_assembly_cache(crate::ASSEMBLY.name);
     font_manager.add_font_collection(Rc::new(EmbeddedFontCollection::new(
-        Uri::absolute("fonts:FerroDesignFallback").expect("a valid font collection key"),
-        Uri::absolute("ferres://FerroDesign/Fonts").expect("a valid embedded font source"),
+        url::Url::parse("fonts:FerroDesignFallback").expect("a valid font collection key"),
+        url::Url::parse("ferres://FerroDesign/Fonts").expect("a valid embedded font source"),
     )));
 }

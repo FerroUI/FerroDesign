@@ -672,7 +672,6 @@ fn flatten_native_box_shadow_outward_spread_rounds_square_corners_and_rejects() 
 #[test]
 fn flatten_native_mixed_colour_glyph_text_rejects_partial_geometry_atomically() {
     use ferroui_base::media::fonts::{EmbeddedFontCollection, IFontCollection};
-    use ferroui_base::utilities::Uri;
     let scope = backend();
     // Load a real colour font through the public font collection API; the
     // ordinary first glyph makes a silently partial outline look nonempty.
@@ -681,8 +680,8 @@ fn flatten_native_mixed_colour_glyph_text_rejects_partial_geometry_atomically() 
         .canonicalize()
         .unwrap();
     let collection = Rc::new(EmbeddedFontCollection::new(
-        Uri::absolute("fonts:FlattenColour").unwrap(),
-        Uri::absolute(&format!("file://{}", font_file.display())).unwrap(),
+        url::Url::parse("fonts:FlattenColour").unwrap(),
+        url::Url::parse(&format!("file://{}", font_file.display())).unwrap(),
     ));
     assert_eq!(collection.count(), 1);
     let family = format!("fonts:FlattenColour#{}", collection.get(0).name());
