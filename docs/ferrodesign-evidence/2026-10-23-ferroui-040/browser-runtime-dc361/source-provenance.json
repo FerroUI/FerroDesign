@@ -116,7 +116,7 @@
   "chromium_executable": "/tmp/ferrodesign-e99-browsers/chrome-linux64/chrome",
   "expected_chromium_version": "156.0.8078.4",
   "expected_playwright_version": "1.64.1",
-  "node_executable": "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+  "node_executable": "<node>",
   "sequence": [
     "Five selected scenarios with all normal common gates, both modes",
     "After correctness replay and resource check:36 normal plus6 separately traced text-pan samples per mode"

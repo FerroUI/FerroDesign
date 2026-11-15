@@ -108,7 +108,7 @@
   "chromium_executable": "/tmp/ferrodesign-e99-browsers/chrome-linux64/chrome",
   "expected_chromium_version": "156.0.8078.4",
   "expected_playwright_version": "1.64.1",
-  "node_executable": "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+  "node_executable": "<node>",
   "source_file_hashes": {
     "src/FerroUI.Controls/text_box.rs": "5016e1fa72ecbe0c01894369c3769b2f65d23c558ff5a53dc4c0a60a6e341ad3",
     "src/FerroUI.Controls/text_box_text_input_method_client.rs": "eedbb0cab330323fea543cf093e3863de3efd3970e67f9913295ef2828141c57",
