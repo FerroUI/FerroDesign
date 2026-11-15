@@ -663,7 +663,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-base"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "bitflags",
  "ferroui-build-scan",
@@ -680,7 +680,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-browser"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-controls",
@@ -693,7 +693,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-build"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-build-scan",
@@ -705,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-build-scan"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -714,7 +714,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-controls"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "bitflags",
  "ferroui-base",
@@ -727,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-dialogs"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-build",
@@ -739,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-fonts-inter"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-controls",
@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-freedesktop"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "bitflags",
  "ferroui-base",
@@ -762,7 +762,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-harfbuzz"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-controls",
@@ -771,7 +771,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-headless"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-controls",
@@ -781,14 +781,14 @@ dependencies = [
 
 [[package]]
 name = "ferroui-markup"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
 ]
 
 [[package]]
 name = "ferroui-markup-xaml"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-build-scan",
@@ -799,7 +799,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-markup-xaml-loader"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-build-scan",
@@ -812,21 +812,23 @@ dependencies = [
 
 [[package]]
 name = "ferroui-metal"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
+ "objc2",
+ "objc2-metal",
 ]
 
 [[package]]
 name = "ferroui-microcom"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "uuid",
 ]
 
 [[package]]
 name = "ferroui-native"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "cc",
  "ferroui-base",
@@ -840,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-opengl"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-build-scan",
@@ -851,7 +853,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-remote-protocol"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-system",
  "uuid",
@@ -859,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-render3d"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "wgpu",
@@ -867,14 +869,14 @@ dependencies = [
 
 [[package]]
 name = "ferroui-system"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "smallvec",
 ]
 
 [[package]]
 name = "ferroui-themes-fluent"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-build",
@@ -885,7 +887,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-vello"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ferroui-base",
  "ferroui-controls",
@@ -917,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-vulkan"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "ash",
  "ferroui-base",
@@ -925,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-win32"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "bitflags",
  "ferroui-base",
@@ -940,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "ferroui-x11"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "bitflags",
  "ferroui-base",
@@ -1685,7 +1687,7 @@ dependencies = [
 
 [[package]]
 name = "microcom-codegen"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 
 [[package]]
 name = "miniz_oxide"
@@ -3419,7 +3421,7 @@ dependencies = [
 
 [[package]]
 name = "xamlx"
-version = "0.5.0-preview.1"
+version = "0.5.1-preview.1"
 dependencies = [
  "roxmltree 0.20.0",
 ]
