@@ -44,8 +44,8 @@
     },
     {
       "path": "execution-provenance.json",
-      "bytes": 36348,
-      "sha256": "e89409de63afe494c5d4d9ff85efe18a28be33c11604950aa3b47d7d0fb2e309"
+      "bytes": 35976,
+      "sha256": "20f87cf051db990df992e6f4267cffc8ff2bdace3fc11027edf00c6e9874f86e"
     },
     {
       "path": "fixture.json.gz",
@@ -64,8 +64,8 @@
     },
     {
       "path": "source-provenance.json",
-      "bytes": 10993,
-      "sha256": "2928c94a29a3ba94a4210eaf15e2bd6e5376ac2b67f10c83c3ae414821556265"
+      "bytes": 10931,
+      "sha256": "cd9ad6cf77a856459b3d4e7502e03c860f8a39cb927dee079abcbd48e9706642"
     },
     {
       "path": "summary.json",

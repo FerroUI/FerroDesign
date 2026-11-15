@@ -54,7 +54,7 @@
       "process_scan_scope": "Restricted execution namespace; complete task-browser ownership was recorded separately after launch using host-visible /proc."
     },
     "command": [
-      "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+      "<node>",
       "tests/browser.mjs"
     ],
     "working_directory": "/tmp/ferrodesign-e99-harness-dc361",
@@ -70,9 +70,9 @@
     "initial_owned_processes": [
       {
         "pid": 267607,
-        "exe": "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+        "exe": "<node>",
         "args": [
-          "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+          "<node>",
           "tests/browser.mjs"
         ]
       },
