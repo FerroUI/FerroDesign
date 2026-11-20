@@ -4,7 +4,7 @@ FerroDesign is a native design editor built with [FerroUI](https://github.com/wi
 Rust UI framework, with compiled XAML and the FerroUI Vello backend. It runs on the desktop and in the
 browser (WebAssembly): the same editor, controls, document model and scene renderer in both.
 
-**Open it in the browser:** https://ferroui.github.io/FerroDesign/
+**Open it in the browser:** https://ferroui.com/FerroDesign/
 
 ![FerroDesign inspecting two selected banking screens with shared and mixed property values](docs/images/ferrodesign-editor.png)
 
